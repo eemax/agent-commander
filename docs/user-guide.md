@@ -1,0 +1,265 @@
+# User Guide
+
+## What Agent Commander Does
+
+Agent Commander is a Telegram bot runtime that routes messages to OpenAI, can execute local harness tools, and persists chat sessions as JSONL files.
+
+## Prerequisites
+
+- Node.js 22.12+
+- Telegram bot token from BotFather
+- OpenAI API key
+
+## Setup
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Create `config.json` in repo root:
+
+```bash
+cp config.example.json config.json
+```
+
+3. Edit `config.json` and fill required fields:
+
+- `telegram.bot_token`
+- `openai.api_key`
+- `access.allowed_sender_ids` (must contain at least one sender ID)
+
+## Run
+
+Development mode:
+
+```bash
+npm run dev
+```
+
+Build + run compiled output:
+
+```bash
+npm run build
+npm start
+```
+
+Global CLI link (makes `acmd` available from anywhere):
+
+```bash
+npm run link:global
+```
+
+## Workspace Bootstrap
+
+On startup, runtime ensures workspace at `paths.workspace_root` (default `~/.agent-commander/`) contains:
+
+- `AGENTS.md`
+- `SOUL.md`
+- `skills/` directory
+
+If no skills exist yet, startup seeds `skills/test-skill/SKILL.md` as a sample.
+
+Every `SKILL.md` must start with YAML frontmatter containing:
+
+- `name`
+- `description`
+
+Startup fails if frontmatter is missing/invalid, slug generation is invalid, or skill command slugs collide with core commands.
+
+## Conversation Persistence
+
+- Current conversation per chat is tracked in `paths.active_conversations_path` (default `.agent-commander/active-conversations.json`).
+- Stashed conversations per chat are tracked in `paths.stashed_conversations_path` (default `.agent-commander/stashed-conversations.json`).
+- Conversation events are JSONL files in `paths.conversations_dir/<chatId>/<conversationId>.jsonl`.
+- Conversation runtime profiles persist `verboseMode`, `thinkingEffort`, `activeModelOverride`, `latestUsage`, and `toolResults`.
+- `/new` opens an inline menu; current conversation is archived only when a menu option is selected.
+- `/stash <name>` stashes current conversation under an alias, then switches to selected stash or a new conversation.
+- `/stash list` shows stashed conversations with alias, conversation tail, and relative stash age.
+- No automatic migration is performed from the previous filename layout; move/rename old files manually if you want to keep prior state.
+- New conversation and process session IDs are ULID-based (`conv_<ulid>`, `proc_<ulid>`), so they are lexically time-ordered.
+- Runtime app logs are written as human-readable single-line text to `paths.app_log_path`.
+
+## Context Injection
+
+At the first model turn of each conversation, runtime injects:
+
+- `<session>`
+- `<operating_contract>` (generated from `SOUL.md` `##`+ headings)
+- `<environment>` containing `<tools>` and `<skills>`
+- `<reference_documents>` with `<document name="AGENTS.md" kind="agent_spec">`
+
+Compiled snapshots are written to `paths.context_snapshots_dir` per conversation as:
+
+- `<conversationId>.json` metadata
+- `<conversationId>.md` compiled hybrid context
+
+## Telegram Commands
+
+Core commands:
+
+- `/start`
+- `/new`
+- `/stash <name>`
+- `/stash list`
+- `/status`
+- `/status full` (extended diagnostics)
+- `/stop`
+- `/bash <command>`
+- `/verbose <on|off>`
+- `/thinking <none|minimal|low|medium|high|xhigh>`
+- `/model <id-or-alias>`
+- `/models`
+
+`/new` and `/stash <name>` open Telegram inline-button menus listing stashed conversations plus `New`.
+`/stash list` returns a text list of stashes without opening a menu.
+Menus are single-use; stale callback clicks are rejected and require reopening the menu command.
+
+`/model <id-or-alias>` switches the active model and applies that model's configured `openai.models[].default_thinking` to runtime thinking effort.
+
+`/status` returns the model/runtime emoji summary block (model, latest turn token usage including reasoning tokens, budget context-window pressure summary, prompt-cache hit metrics, runtime thinking/verbose mode, and running process count).
+Use `/status full` to include observability state and runtime health counters for process output truncation, tool-result aggregates, running/completed processes, and state/workspace counters:
+- `tool.results_total`
+- `tool.results_success`
+- `tool.results_fail`
+- `tool.results_by_name` (for example `Write=10, Bash=1`)
+The context denominator comes from `openai.models[].context_window` for the active model.
+Status context summary:
+- `budget`: peak per-call `input / (context_window - max_output_tokens)` when `openai.models[].max_output_tokens` is set and less than `context_window` (otherwise `n/a`)
+Latest usage/cache metrics are persisted in the current conversation runtime profile, so status survives process restarts.
+For tool-loop turns, usage is aggregated across all Responses API calls in that turn.
+
+For model-facing tool workflow payloads, each `function_call_output.output` is a JSON-serialized normalized envelope:
+- success: `{\"ok\": true, \"summary\": \"...\", \"data\": { ... }, \"meta\": { ... }? }`
+- failure: `{\"ok\": false, \"summary\": \"...\", \"error\": { \"code\": \"...\", \"message\": \"...\", \"details\": { ... }?, \"retryable\": boolean? }, \"meta\": { ... }? }`
+Normalization rules:
+- `summary` is always present.
+- `data` exists only for success, `error` exists only for failure.
+- fields are snake_case.
+- empty/noise fields are omitted (for example empty `stderr`, zero truncation counters).
+These payloads are intended for model context, not user-facing Telegram replies.
+
+When verbose mode is on, model-triggered tool calls send extra Telegram messages before the final assistant reply (for example `📖 Read`, `✍️ Write`, `>_ Bash`). Failed tool calls use `⚠️` and include a short error summary.
+Workflow-progress notices (`tool.workflow.progress`) are controlled by `observability.enabled`, not verbose mode. When observability is enabled, progress is surfaced via draft streaming updates (not verbose extra replies).
+Progress updates are not delayed behind heartbeat thresholds, so short workflows surface progress too.
+
+Dynamic commands:
+
+- `/<skill_slug>` for each workspace skill folder (one-shot invocation)
+
+## Access Control
+
+All incoming messages are authorized by sender ID only.
+Senders not listed in `access.allowed_sender_ids` receive deterministic unauthorized replies.
+
+## Key `config.json` Fields
+
+For the full canonical list (all keys, types, defaults, and validation rules), see `docs/config-reference.md`.
+
+Required:
+
+- `telegram.bot_token`
+- `openai.api_key`
+- `access.allowed_sender_ids`
+
+Common optional fields:
+
+- `openai.model` (default `gpt-4.1-mini`)
+- `openai.models` (catalog of switchable models with aliases and optional `context_window`, `max_output_tokens`, and `default_thinking`)
+- `runtime.log_level` (`debug|info|warn|error`)
+- `runtime.default_verbose` (default `true`, applied to new conversations)
+- `telegram.streaming_enabled` (default `true`)
+- `telegram.streaming_min_update_ms` (default `100`)
+- `telegram.assistant_format` (`plain_text` by default, `markdown_to_html` to enable Markdown->HTML formatting for final assistant replies)
+- `observability.enabled` (default `false`)
+- `observability.log_path` (default `.agent-commander/observability.jsonl`)
+- `observability.redaction.enabled` (default `true`)
+- `observability.redaction.max_string_chars` (default `4000`)
+- `observability.redaction.redact_keys` (default `authorization, api_key, token, secret, password, cookie, set-cookie`)
+- `paths.workspace_root`
+- `tools.default_cwd` (default: `paths.workspace_root`, usually `~/.agent-commander/`)
+- `tools.default_shell` (default: `/bin/bash`)
+- `paths.conversations_dir`
+- `paths.stashed_conversations_path`
+- `paths.active_conversations_path`
+- `paths.context_snapshots_dir`
+- `paths.app_log_path`
+- Runtime/tool knobs (`runtime.*`, `tools.*`, and `openai.*` retry/timeout settings)
+  - recommended guardrails are enabled by default:
+    - `runtime.tool_workflow_timeout_ms` (default `120000`)
+    - `runtime.tool_command_timeout_ms` (default `15000`)
+    - `runtime.tool_poll_max_attempts` (default `5`)
+    - `runtime.tool_idle_output_threshold_ms` (default `8000`)
+    - `runtime.tool_heartbeat_interval_ms` (default `5000`)
+    - `runtime.tool_cleanup_grace_ms` (default `3000`)
+
+## Full Observability Mode
+
+Breaking change:
+- Observability event names and payload shapes now use the v2 trace-first schema.
+- v1 event names are removed (no dual-write compatibility layer).
+
+When `observability.enabled` is `true`, runtime appends detailed JSONL trace entries to `observability.log_path` for:
+
+- `runtime.startup`
+- `telegram.inbound.received`
+- `telegram.outbound.draft.sent`
+- `telegram.outbound.draft.failed`
+- `telegram.outbound.reply.sent`
+- `telegram.processing.failed`
+- `telegram.middleware.failed`
+- `routing.gatekeeping.checked`
+- `routing.decision.made`
+- `conversation.event.appended`
+- `runtime.setting.updated`
+- `provider.openai.request.started`
+- `provider.openai.request.completed`
+- `provider.openai.retry.scheduled`
+- `provider.openai.request.failed_final`
+- `tool.execution.completed`
+- `tool.workflow.progress`
+
+Notes:
+
+- Every event includes a trace envelope: `trace.traceId`, `trace.spanId`, `trace.parentSpanId`, `trace.origin`.
+- Redaction/truncation is enabled by default via `observability.redaction.*`.
+- If trace-file append fails, runtime logs a warning once per sink instance and continues processing.
+- The trace file is append-only with no built-in size cap or rotation.
+
+## Troubleshooting
+
+### Startup fails: missing/invalid config
+
+Check `config.json` exists and required keys are set to non-placeholder values.
+
+### Unauthorized responses
+
+Ensure Telegram sender ID is present in `access.allowed_sender_ids`.
+
+### Provider errors (4xx/5xx)
+
+Verify `openai.api_key`, model name, and account quota/limits.
+
+### OpenAI 400: invalid_function_parameters
+
+If OpenAI returns an error like:
+
+`Invalid schema for function 'process': schema must have type 'object' and not have 'oneOf'/'anyOf'/'allOf'/'enum'/'not' at the top level.`
+
+the function tool `parameters` schema is not compliant. OpenAI Responses function tools require `parameters` to be a JSON Schema object root (`type: "object"`) and reject those keywords at the top level. Agent Commander normalizes exported tool schemas to a top-level object shape and flattens union-style roots into object properties.
+
+### Skill command not available
+
+Check `SKILL.md` frontmatter and command slug validity.
+
+## Upgrade Workflow
+
+1. Pull latest changes.
+2. Run `npm install`.
+3. Re-run validation commands:
+- `npm run lint`
+- `npm run typecheck`
+- `npm run build`
+- `npm test`
+4. Restart process.

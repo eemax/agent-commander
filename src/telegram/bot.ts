@@ -1,0 +1,539 @@
+import { Bot } from "grammy";
+import { setTimeout as sleep } from "node:timers/promises";
+import type { RuntimeLogger, TelegramAssistantFormat } from "../runtime/contracts.js";
+import {
+  createChildTraceContext,
+  createTraceRootContext,
+  type ObservabilitySink,
+  type TraceContext
+} from "../observability.js";
+import type {
+  MessageRouteResult,
+  MessageStreamingSink,
+  NormalizedTelegramCallbackQuery,
+  NormalizedTelegramMessage,
+  TelegramInlineKeyboard,
+  TelegramCommandDefinition
+} from "../types.js";
+import { renderMarkdownToTelegramHtml } from "./assistant-format.js";
+import { normalizeTelegramCallbackQuery, normalizeTelegramMessage } from "./normalize.js";
+
+export type TelegramTextHandler = (
+  message: NormalizedTelegramMessage,
+  stream?: MessageStreamingSink,
+  trace?: TraceContext
+) => Promise<MessageRouteResult>;
+
+export type TelegramCallbackQueryHandler = (
+  query: NormalizedTelegramCallbackQuery,
+  trace?: TraceContext
+) => Promise<MessageRouteResult>;
+
+export type TelegramRuntime = {
+  bot: Bot;
+  syncCommands: () => Promise<void>;
+};
+
+export type OutboundResultType = Exclude<MessageRouteResult["type"], "ignore">;
+
+export type TelegramOutboundReplyMeta = {
+  resultType: OutboundResultType;
+  isExtra: boolean;
+  origin: "assistant" | "system";
+  inlineKeyboard?: TelegramInlineKeyboard;
+};
+
+export type TelegramPreparedReply = {
+  text: string;
+  parseMode?: "HTML";
+};
+
+function toTelegramInlineKeyboard(inlineKeyboard: TelegramInlineKeyboard): Array<Array<{ text: string; callback_data: string }>> {
+  return inlineKeyboard.map((row) =>
+    row.map((button) => ({
+      text: button.text,
+      callback_data: button.callbackData
+    }))
+  );
+}
+
+function parseRetryAfterMs(error: unknown): number | null {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = /retry after\s+(\d+)/i.exec(message);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const seconds = Number(match[1]);
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return null;
+  }
+
+  return Math.ceil(seconds * 1000);
+}
+
+async function withTelegramRateLimitBackoff<T>(
+  label: string,
+  logger: RuntimeLogger,
+  run: () => Promise<T>,
+  maxAttempts = 3
+): Promise<T> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      const retryAfterMs = parseRetryAfterMs(error);
+      if (!retryAfterMs || attempt >= maxAttempts) {
+        throw error;
+      }
+
+      logger.warn(
+        `telegram: ${label} rate limited; retrying in ${retryAfterMs}ms (attempt ${attempt + 1}/${maxAttempts})`
+      );
+      await sleep(retryAfterMs);
+    }
+  }
+
+  throw new Error(`telegram: ${label} failed after retries`);
+}
+
+export function prepareTelegramReply(params: {
+  text: string;
+  meta: TelegramOutboundReplyMeta;
+  assistantFormat: TelegramAssistantFormat;
+  chatId: string;
+  messageId: string;
+  logger: RuntimeLogger;
+  markdownToHtml?: (markdown: string) => string;
+}): TelegramPreparedReply {
+  if (
+    params.assistantFormat !== "markdown_to_html" ||
+    params.meta.resultType !== "reply" ||
+    params.meta.isExtra ||
+    params.meta.origin !== "assistant"
+  ) {
+    return { text: params.text };
+  }
+
+  const markdownToHtml = params.markdownToHtml ?? renderMarkdownToTelegramHtml;
+
+  try {
+    const formatted = markdownToHtml(params.text);
+    if (formatted.trim().length === 0) {
+      return { text: params.text };
+    }
+
+    return {
+      text: formatted,
+      parseMode: "HTML"
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    params.logger.warn(
+      `telegram: assistant formatting failed for chat=${params.chatId} message=${params.messageId}: ${message}`
+    );
+    return { text: params.text };
+  }
+}
+
+export async function dispatchTelegramTextMessage(params: {
+  message: NormalizedTelegramMessage;
+  handleMessage: TelegramTextHandler;
+  sendReply: (text: string, meta: TelegramOutboundReplyMeta) => Promise<void>;
+  sendDraft?: (text: string) => Promise<void>;
+  draftMinUpdateMs?: number;
+  onDraftFailure?: (error: unknown) => void | Promise<void>;
+  nowMs?: () => number;
+  trace?: TraceContext;
+  observability?: ObservabilitySink;
+}): Promise<MessageRouteResult> {
+  const messageTrace = params.trace ?? createTraceRootContext("telegram");
+  const nowMs = params.nowMs ?? Date.now;
+  const draftMinUpdateMs = Math.max(1, params.draftMinUpdateMs ?? 100);
+  let draftText = "";
+  let lastDraftText = "";
+  let lastDraftAtMs: number | null = null;
+  let draftDisabled = !params.sendDraft;
+
+  await params.observability?.record({
+    event: "telegram.inbound.received",
+    trace: messageTrace,
+    stage: "received",
+    chatId: params.message.chatId,
+    messageId: params.message.messageId,
+    senderId: params.message.senderId,
+    payload: params.message
+  });
+
+  const disableDraft = async (error: unknown): Promise<void> => {
+    if (draftDisabled) {
+      return;
+    }
+
+    draftDisabled = true;
+    await params.observability?.record({
+      event: "telegram.outbound.draft.failed",
+      trace: createChildTraceContext(messageTrace, "telegram"),
+      stage: "failed",
+      chatId: params.message.chatId,
+      messageId: params.message.messageId,
+      senderId: params.message.senderId,
+      error
+    });
+    await params.onDraftFailure?.(error);
+  };
+
+  const flushDraft = async (force: boolean): Promise<void> => {
+    if (draftDisabled || !params.sendDraft) {
+      return;
+    }
+
+    if (draftText.trim().length === 0 || draftText === lastDraftText) {
+      return;
+    }
+
+    const now = nowMs();
+    if (!force && lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs) {
+      return;
+    }
+
+    try {
+      await params.observability?.record({
+        event: "telegram.outbound.draft.sent",
+        trace: createChildTraceContext(messageTrace, "telegram"),
+        stage: "completed",
+        chatId: params.message.chatId,
+        messageId: params.message.messageId,
+        senderId: params.message.senderId,
+        text: draftText,
+        forced: force
+      });
+      await params.sendDraft(draftText);
+      lastDraftText = draftText;
+      lastDraftAtMs = now;
+    } catch (error) {
+      await disableDraft(error);
+    }
+  };
+
+  const stream: MessageStreamingSink | undefined = params.sendDraft
+    ? {
+        onTextDelta: async (delta) => {
+          if (draftDisabled || typeof delta !== "string" || delta.length === 0) {
+            return;
+          }
+
+          draftText += delta;
+          await flushDraft(false);
+        }
+      }
+    : undefined;
+
+  const result = await params.handleMessage(params.message, stream, messageTrace);
+  await flushDraft(true);
+
+  const sendOutbound = async (
+    text: string,
+    resultType: OutboundResultType,
+    isExtra: boolean,
+    origin: "assistant" | "system",
+    inlineKeyboard?: TelegramInlineKeyboard
+  ): Promise<void> => {
+    const meta: TelegramOutboundReplyMeta = {
+      resultType,
+      isExtra,
+      origin,
+      ...(inlineKeyboard ? { inlineKeyboard } : {})
+    };
+    await params.observability?.record({
+      event: "telegram.outbound.reply.sent",
+      trace: createChildTraceContext(messageTrace, "telegram"),
+      stage: "completed",
+      chatId: params.message.chatId,
+      messageId: params.message.messageId,
+      senderId: params.message.senderId,
+      resultType,
+      origin,
+      text,
+      isExtra,
+      hasInlineKeyboard: Boolean(inlineKeyboard)
+    });
+    await params.sendReply(text, meta);
+  };
+
+  switch (result.type) {
+    case "reply": {
+      const extras = result.extraReplies?.filter((item) => item.trim().length > 0) ?? [];
+      const origin = result.origin ?? "system";
+      for (const extra of extras) {
+        await sendOutbound(extra, result.type, true, origin);
+      }
+      await sendOutbound(result.text, result.type, false, origin, result.inlineKeyboard);
+      break;
+    }
+    case "fallback": {
+      const extras = result.extraReplies?.filter((item) => item.trim().length > 0) ?? [];
+      for (const extra of extras) {
+        await sendOutbound(extra, result.type, true, "system");
+      }
+      await sendOutbound(result.text, result.type, false, "system", result.inlineKeyboard);
+      break;
+    }
+    case "unauthorized":
+      await sendOutbound(result.text, result.type, false, "system", result.inlineKeyboard);
+      break;
+    case "ignore":
+      await params.observability?.record({
+        event: "telegram.outbound.reply.sent",
+        trace: createChildTraceContext(messageTrace, "telegram"),
+        stage: "completed",
+        chatId: params.message.chatId,
+        messageId: params.message.messageId,
+        senderId: params.message.senderId,
+        resultType: result.type,
+        text: null,
+        isExtra: false
+      });
+      break;
+  }
+  return result;
+}
+
+export function createTelegramBot(params: {
+  token: string;
+  streamingEnabled: boolean;
+  streamingMinUpdateMs: number;
+  assistantFormat: TelegramAssistantFormat;
+  logger: RuntimeLogger;
+  handleMessage: TelegramTextHandler;
+  handleCallbackQuery: TelegramCallbackQueryHandler;
+  getCommands: () => Promise<TelegramCommandDefinition[]>;
+  observability?: ObservabilitySink;
+}): TelegramRuntime {
+  const bot = new Bot(params.token);
+  let commandSignature = "";
+
+  const syncCommands = async (): Promise<void> => {
+    const commands = await params.getCommands();
+    const signature = JSON.stringify(commands);
+
+    if (signature === commandSignature) {
+      return;
+    }
+
+    await bot.api.setMyCommands(
+      commands.map((item) => ({
+        command: item.command,
+        description: item.description
+      }))
+    );
+    commandSignature = signature;
+    params.logger.info(`telegram: registered ${commands.length} commands`);
+  };
+
+  bot.on("message:text", async (ctx) => {
+    const normalized = normalizeTelegramMessage(ctx);
+    if (!normalized) {
+      return;
+    }
+
+    const inboundTrace = createTraceRootContext("telegram");
+    try {
+      await dispatchTelegramTextMessage({
+        message: normalized,
+        handleMessage: (message, stream) => params.handleMessage(message, stream, inboundTrace),
+        sendReply: async (text, meta) => {
+          const prepared = prepareTelegramReply({
+            text,
+            meta,
+            assistantFormat: params.assistantFormat,
+            chatId: normalized.chatId,
+            messageId: normalized.messageId,
+            logger: params.logger
+          });
+          await withTelegramRateLimitBackoff(
+            `send reply chat=${normalized.chatId} message=${normalized.messageId}`,
+            params.logger,
+            async () => {
+              const options = {
+                ...(prepared.parseMode ? { parse_mode: prepared.parseMode } : {}),
+                ...(meta.inlineKeyboard
+                  ? {
+                      reply_markup: {
+                        inline_keyboard: toTelegramInlineKeyboard(meta.inlineKeyboard)
+                      }
+                    }
+                  : {})
+              };
+              await ctx.reply(prepared.text, Object.keys(options).length > 0 ? options : undefined);
+            }
+          );
+        },
+        sendDraft: params.streamingEnabled
+          ? async (text) => {
+              await withTelegramRateLimitBackoff(
+                `send draft chat=${normalized.chatId} message=${normalized.messageId}`,
+                params.logger,
+                async () => {
+                  await ctx.replyWithDraft(text);
+                }
+              );
+            }
+          : undefined,
+        draftMinUpdateMs: params.streamingMinUpdateMs,
+        onDraftFailure: (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          params.logger.warn(
+            `telegram: draft streaming failed for chat=${normalized.chatId} message=${normalized.messageId}: ${message}`
+          );
+        },
+        trace: inboundTrace,
+        observability: params.observability
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      params.logger.error(`telegram: failed to process message: ${message}`);
+      await params.observability?.record({
+        event: "telegram.processing.failed",
+        trace: createChildTraceContext(inboundTrace, "telegram"),
+        stage: "failed",
+        chatId: normalized.chatId,
+        messageId: normalized.messageId,
+        senderId: normalized.senderId,
+        error
+      });
+      await ctx.reply("I hit an internal error while processing that message.");
+    }
+  });
+
+  bot.on("callback_query:data", async (ctx) => {
+    const normalized = normalizeTelegramCallbackQuery(ctx);
+    if (!normalized) {
+      return;
+    }
+
+    const inboundTrace = createTraceRootContext("telegram");
+    try {
+      await params.observability?.record({
+        event: "telegram.inbound.received",
+        trace: inboundTrace,
+        stage: "received",
+        chatId: normalized.chatId,
+        messageId: normalized.messageId,
+        senderId: normalized.senderId,
+        payload: normalized
+      });
+
+      const result = await params.handleCallbackQuery(normalized, inboundTrace);
+      await ctx.answerCallbackQuery();
+
+      const sendCallbackReply = async (
+        text: string,
+        resultType: OutboundResultType,
+        isExtra: boolean,
+        origin: "assistant" | "system",
+        inlineKeyboard?: TelegramInlineKeyboard
+      ): Promise<void> => {
+        await params.observability?.record({
+          event: "telegram.outbound.reply.sent",
+          trace: createChildTraceContext(inboundTrace, "telegram"),
+          stage: "completed",
+          chatId: normalized.chatId,
+          messageId: normalized.messageId,
+          senderId: normalized.senderId,
+          resultType,
+          origin,
+          text,
+          isExtra,
+          hasInlineKeyboard: Boolean(inlineKeyboard)
+        });
+
+        await withTelegramRateLimitBackoff(
+          `send callback reply chat=${normalized.chatId} message=${normalized.messageId}`,
+          params.logger,
+          async () => {
+            const options = inlineKeyboard
+              ? {
+                  reply_markup: {
+                    inline_keyboard: toTelegramInlineKeyboard(inlineKeyboard)
+                  }
+                }
+              : undefined;
+            await ctx.reply(text, options);
+          }
+        );
+      };
+
+      switch (result.type) {
+        case "reply": {
+          const extras = result.extraReplies?.filter((item) => item.trim().length > 0) ?? [];
+          const origin = result.origin ?? "system";
+          for (const extra of extras) {
+            await sendCallbackReply(extra, result.type, true, origin);
+          }
+          await sendCallbackReply(result.text, result.type, false, origin, result.inlineKeyboard);
+          break;
+        }
+        case "fallback": {
+          const extras = result.extraReplies?.filter((item) => item.trim().length > 0) ?? [];
+          for (const extra of extras) {
+            await sendCallbackReply(extra, result.type, true, "system");
+          }
+          await sendCallbackReply(result.text, result.type, false, "system", result.inlineKeyboard);
+          break;
+        }
+        case "unauthorized":
+          await sendCallbackReply(result.text, result.type, false, "system", result.inlineKeyboard);
+          break;
+        case "ignore":
+          await params.observability?.record({
+            event: "telegram.outbound.reply.sent",
+            trace: createChildTraceContext(inboundTrace, "telegram"),
+            stage: "completed",
+            chatId: normalized.chatId,
+            messageId: normalized.messageId,
+            senderId: normalized.senderId,
+            resultType: result.type,
+            text: null,
+            isExtra: false
+          });
+          break;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      params.logger.error(`telegram: failed to process callback query: ${message}`);
+      await params.observability?.record({
+        event: "telegram.processing.failed",
+        trace: createChildTraceContext(inboundTrace, "telegram"),
+        stage: "failed",
+        chatId: normalized.chatId,
+        messageId: normalized.messageId,
+        senderId: normalized.senderId,
+        error
+      });
+      try {
+        await ctx.answerCallbackQuery({ text: "Internal error" });
+      } catch {
+        // ignore callback answer failures on error path
+      }
+      await ctx.reply("I hit an internal error while handling that selection.");
+    }
+  });
+
+  bot.catch((error) => {
+    const message = error.error instanceof Error ? error.error.message : String(error.error);
+    params.logger.error(`telegram: bot middleware error: ${message}`);
+    const middlewareTrace = createTraceRootContext("system");
+    void params.observability?.record({
+      event: "telegram.middleware.failed",
+      trace: middlewareTrace,
+      stage: "failed",
+      error
+    });
+  });
+
+  return {
+    bot,
+    syncCommands
+  };
+}

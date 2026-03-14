@@ -1,0 +1,48 @@
+{
+  "name": "agent-commander",
+  "version": "0.1.0",
+  "description": "Minimal Telegram-only AI runtime",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "acmd": "dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "docs/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/index.js",
+    "prepare": "npm run build",
+    "start": "node dist/index.js",
+    "link:global": "npm run build && npm link",
+    "unlink:global": "npm unlink -g agent-commander",
+    "test": "vitest run",
+    "lint": "oxlint src test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@perplexity-ai/perplexity_ai": "^0.26.2",
+    "grammy": "^1.39.3",
+    "marked": "^17.0.4",
+    "sanitize-html": "^2.17.1",
+    "ulid": "^3.0.1",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.25.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.2",
+    "@types/sanitize-html": "^2.16.1",
+    "oxlint": "^1.53.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "npm@10.9.2"
+}

@@ -1,0 +1,124 @@
+# Config Reference
+
+This is the canonical `config.json` shape.
+
+## Notes
+
+- `config.json` must exist at repo root.
+- If missing, runtime writes a template and exits.
+- Root shape is strict: unknown keys fail startup.
+- Relative paths resolve from repo root.
+- `~` expands to the user home directory.
+
+## Required Fields
+
+- `telegram.bot_token`
+- `openai.api_key`
+- `access.allowed_sender_ids` (must contain at least one non-placeholder sender ID)
+
+## Schema
+
+### `telegram`
+
+- `bot_token`: string, required, non-empty, not `replace_me`
+- `streaming_enabled`: boolean, default `true`
+- `streaming_min_update_ms`: positive integer, default `100`
+- `assistant_format`: `"plain_text" | "markdown_to_html"`, default `"plain_text"`
+
+### `openai`
+
+- `api_key`: string, required, non-empty, not `replace_me`
+- `model`: non-empty string, default `"gpt-4.1-mini"`
+- `models`: non-empty array of model catalog entries, default includes:
+  - `gpt-4.1-mini` (alias: `mini`, unknown context window)
+  - `gpt-5.3-codex` (aliases: `codex`, `g53c`, context window `400000`)
+  - each entry is:
+    - `id`: non-empty string
+    - `aliases`: string array, default `[]`
+    - `context_window`: positive integer or `null` (use `null` when unknown)
+    - `max_output_tokens`: positive integer or `null` (status budgeting hint; not sent to Responses API)
+    - `default_thinking`: one of `none|minimal|low|medium|high|xhigh`, default `medium`
+  - model IDs are unique (case-insensitive)
+  - aliases are unique across all models and cannot collide with another model ID/alias
+  - `openai.model` must match one configured `models[].id`
+  - `/model <id-or-alias>` applies the selected model's `default_thinking` to runtime `thinking` mode
+  - `/status` uses `context_window` with per-turn usage snapshots to show:
+    - `budget`: peak per-call `input / (context_window - max_output_tokens)` when `max_output_tokens` is known and smaller than `context_window` (otherwise `n/a`)
+  - `/status full` also reports current-conversation tool-result aggregates (`tool.results_total`, `tool.results_success`, `tool.results_fail`, `tool.results_by_name`) persisted in conversation runtime profiles.
+- `timeout_ms`: positive integer, default `45000`
+- `max_retries`: non-negative integer, default `2`
+- `retry_base_ms`: positive integer, default `250`
+- `retry_max_ms`: positive integer, default `2000`, must be `>= retry_base_ms`
+
+### `runtime`
+
+- `log_level`: `"debug" | "info" | "warn" | "error"`, default `"info"`
+- `prompt_history_limit`: positive integer or `null`, default `20`
+  - when set to `null`, the full conversation message history is sent (no count-based truncation)
+- `default_verbose`: boolean, default `true` (applied to newly created conversations)
+- `tool_loop_max_steps`: positive integer or `null`, default `30`
+- `tool_workflow_timeout_ms`: positive integer, default `120000`
+- `tool_command_timeout_ms`: positive integer, default `15000`
+- `tool_poll_interval_ms`: positive integer, default `2000`
+- `tool_poll_max_attempts`: positive integer, default `5`
+- `tool_idle_output_threshold_ms`: positive integer, default `8000`
+- `tool_heartbeat_interval_ms`: positive integer, default `5000`
+- `tool_cleanup_grace_ms`: positive integer, default `3000`
+- `tool_failure_breaker_threshold`: positive integer, default `4`
+- `session_cache_max_entries`: positive integer, default `200`
+- `app_log_flush_interval_ms`: positive integer, default `1000`
+
+### `access`
+
+- `allowed_sender_ids`: string array, required
+  - empty strings and `replace_me` values are ignored
+  - startup fails if no valid sender IDs remain
+
+### `tools`
+
+- `default_cwd`: string or `null`, default `null` (`null` means `paths.workspace_root`)
+- `default_shell`: non-empty string, default `"/bin/bash"`
+- `exec_timeout_ms`: positive integer, default `1800000`
+- `exec_yield_ms`: positive integer, default `10000`
+- `process_log_tail_lines`: positive integer, default `200`
+- `log_path`: path string, default `".agent-commander/tool-calls.jsonl"`
+- `completed_session_retention_ms`: positive integer, default `3600000`
+- `max_completed_sessions`: positive integer, default `500`
+- `max_output_chars`: positive integer, default `200000`
+- `web_search`: object (optional, defaults shown)
+  - `api_key`: non-empty string or `null`, default `null`
+    - when `null`, the `web_search` tool is disabled at startup (warning only; no startup failure)
+    - `"replace_me"` is treated as unset/disabled
+  - `max_tokens`: positive integer, default `10000`
+    - fixed total content budget used by `web_search` calls (model cannot override)
+  - `max_tokens_per_page`: positive integer, default `4096`
+    - fixed per-page content budget used by `web_search` calls (model cannot override)
+
+### `paths`
+
+- `workspace_root`: path string, default `"~/.agent-commander"`
+- `conversations_dir`: path string, default `".agent-commander/conversations"`
+- `stashed_conversations_path`: path string, default `".agent-commander/stashed-conversations.json"` (stash pool)
+- `active_conversations_path`: path string, default `".agent-commander/active-conversations.json"` (current active selection)
+- `context_snapshots_dir`: path string, default `".agent-commander/context-snapshots"`
+- `app_log_path`: path string, default `".agent-commander/app.log"`
+
+No automatic migration is performed from the previous filename layout. If you need to preserve existing data, move/rename files manually.
+
+### `observability`
+
+- `enabled`: boolean, default `false`
+- `log_path`: path string, default `".agent-commander/observability.jsonl"`
+- `redaction`: object (defaults shown)
+  - `enabled`: boolean, default `true`
+  - `max_string_chars`: positive integer, default `4000`
+  - `redact_keys`: non-empty string array, default:
+    - `authorization`
+    - `api_key`
+    - `token`
+    - `secret`
+    - `password`
+    - `cookie`
+    - `set-cookie`
+
+Observability file-write failures are non-fatal; runtime logs a warning once per sink instance and continues.

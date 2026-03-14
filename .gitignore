@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build/test outputs
+dist/
+coverage/
+*.tsbuildinfo
+
+# Environment and local config
+.env
+config.json
+
+# Local runtime state
+.agent-commander/
+
+# OS artifacts
+.DS_Store
+**/.DS_Store
