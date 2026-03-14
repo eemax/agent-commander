@@ -413,39 +413,19 @@ describe("model tool output normalizer", () => {
       args: { url: "https://example.com/article" },
       result: {
         url: "https://example.com/article",
-        mode: "perplexity",
-        content: "Article content",
-        fetch_results: [
-          {
-            title: "Example",
-            url: "https://example.com/article",
-            snippet: "Snippet"
-          }
-        ],
-        response_id: "resp_fetch_123",
-        fallback_used: true,
-        defuddle_error: "defuddle command not found"
+        mode: "defuddle",
+        content: "Article content"
       },
       expected: {
         ok: true,
-        summary: "Web fetch returned content via Perplexity fallback.",
+        summary: "Web fetch returned content via defuddle.",
         data: {
           url: "https://example.com/article",
-          mode: "perplexity",
-          content: "Article content",
-          fetch_results: [
-            {
-              title: "Example",
-              url: "https://example.com/article",
-              snippet: "Snippet"
-            }
-          ]
+          mode: "defuddle",
+          content: "Article content"
         },
         meta: {
-          fetched_count: 1,
-          response_id: "resp_fetch_123",
-          fallback_used: true,
-          defuddle_error: "defuddle command not found"
+          fetched_count: 0
         }
       }
     }

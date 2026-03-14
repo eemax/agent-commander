@@ -239,8 +239,7 @@ function normalizeWebSearchArgs(args: unknown): Record<string, unknown> {
 function normalizeWebFetchArgs(args: unknown): Record<string, unknown> {
   const source = asRecord(args);
   return dropUndefined({
-    url: readNonEmptyString(firstDefined(source, ["url", "uri", "link", "href"])),
-    mode: readNonEmptyString(firstDefined(source, ["mode", "fetch_mode", "fetchMode", "provider"]))?.toLowerCase()
+    url: readNonEmptyString(firstDefined(source, ["url", "uri", "link", "href"]))
   });
 }
 
@@ -288,7 +287,7 @@ export function getExpectedShapeForTool(tool: string, args: Record<string, unkno
     case "web_fetch":
       return {
         required: ["url"],
-        optional: ["mode"]
+        optional: []
       };
     default:
       return undefined;

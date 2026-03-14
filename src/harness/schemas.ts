@@ -102,7 +102,6 @@ export const applyPatchInputSchema = z
   .strict();
 
 const recencyFilterSchema = z.enum(["hour", "day", "week", "month", "year"]);
-const webFetchModeSchema = z.enum(["auto", "defuddle", "perplexity"]);
 
 const httpUrlSchema = z.string().min(1).refine((value) => {
   try {
@@ -125,8 +124,7 @@ export const webSearchInputSchema = z
 
 export const webFetchInputSchema = z
   .object({
-    url: httpUrlSchema,
-    mode: webFetchModeSchema.optional()
+    url: httpUrlSchema
   })
   .strict();
 

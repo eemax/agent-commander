@@ -572,8 +572,6 @@ function normalizeWebSearchResult(result: unknown): NormalizedToolEnvelopeResult
 function normalizeWebFetchResult(result: unknown): NormalizedToolEnvelopeResult {
   const record = asRecord(result);
   const fetchResults = Array.isArray(record.fetch_results) ? record.fetch_results : [];
-  const mode = readNonEmptyString(record.mode) ?? "unknown";
-  const fallbackUsed = readBoolean(record.fallback_used) ?? false;
 
   const data: Record<string, unknown> = {};
   appendNonEmptyString(data, "url", record.url);
@@ -586,18 +584,7 @@ function normalizeWebFetchResult(result: unknown): NormalizedToolEnvelopeResult 
   const meta: Record<string, unknown> = {
     fetched_count: fetchResults.length
   };
-  appendNonEmptyString(meta, "response_id", record.response_id ?? record.responseId);
-  appendNonEmptyString(meta, "defuddle_error", record.defuddle_error ?? record.defuddleError);
-  if (fallbackUsed) {
-    meta.fallback_used = true;
-  }
-
-  const summary =
-    mode === "defuddle"
-      ? "Web fetch returned content via defuddle."
-      : fallbackUsed
-        ? "Web fetch returned content via Perplexity fallback."
-        : "Web fetch returned content.";
+  const summary = "Web fetch returned content via defuddle.";
 
   return {
     envelope: {
