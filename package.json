@@ -22,7 +22,8 @@
     "unlink:global": "npm unlink -g agent-commander",
     "test": "vitest run",
     "lint": "oxlint src test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "staging": "git switch codex/staging && npm run dev"
   },
   "dependencies": {
     "@perplexity-ai/perplexity_ai": "^0.26.2",
