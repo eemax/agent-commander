@@ -376,34 +376,25 @@ describe("model tool output normalizer", () => {
       tool: "web_search",
       args: { query: "latest AI news" },
       result: {
-        id: "search_123",
         query: "latest AI news",
-        results: [
-          {
-            title: "AI News",
-            url: "https://example.com/ai",
-            snippet: "update"
-          }
-        ],
-        server_time: "2026-03-14T10:00:00Z"
+        model: "sonar",
+        response_text: "AI News update",
+        citations: [{ url: "https://example.com/ai", title: "AI News" }],
+        search_results: [{ title: "AI News", url: "https://example.com/ai" }]
       },
       expected: {
         ok: true,
-        summary: "Web search returned 1 result(s).",
+        summary: "Web search returned results.",
         data: {
-          id: "search_123",
           query: "latest AI news",
-          results: [
-            {
-              title: "AI News",
-              url: "https://example.com/ai",
-              snippet: "update"
-            }
-          ]
+          model: "sonar",
+          response_text: "AI News update",
+          citations: [{ url: "https://example.com/ai", title: "AI News" }],
+          search_results: [{ title: "AI News", url: "https://example.com/ai" }]
         },
         meta: {
-          result_count: 1,
-          server_time: "2026-03-14T10:00:00Z"
+          citation_count: 1,
+          search_result_count: 1
         }
       }
     },

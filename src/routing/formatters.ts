@@ -201,6 +201,18 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
     return `>_ Process: ${action}`;
   }
 
+  if (report.tool === "web_fetch") {
+    const url = readString(args.url) ?? "(unknown url)";
+    return `🌐 Web fetch: ${url}`;
+  }
+
+  if (report.tool === "web_search") {
+    const query = readString(args.query);
+    const queryDisplay = query ? `"${query}"` : "(multi-query)";
+    const model = readString(result.model) ?? "unknown";
+    return `🔎 Web search: ${queryDisplay} · ${model}`;
+  }
+
   return `🔧 Tool: ${report.tool}`;
 }
 
@@ -321,6 +333,7 @@ function formatSessionIdForUi(sessionId: string): string {
 export function buildStatusReply(params: {
   conversationId: string;
   model: string;
+  webSearchModel?: string | null;
   modelContextWindow: number | null;
   modelMaxOutputTokens: number | null;
   workspaceRoot: string;
@@ -374,6 +387,7 @@ export function buildStatusReply(params: {
   ];
   const summaryLines = [
     `🧠 openai/${params.model}`,
+    ...(params.webSearchModel ? [`🔎 perplexity/${params.webSearchModel}`] : []),
     formatTokenSummary(params.latestUsage),
     formatContextSummary(params.modelContextWindow, params.modelMaxOutputTokens, params.latestUsage),
     formatCacheSummary(params.latestUsage),

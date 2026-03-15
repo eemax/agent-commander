@@ -80,8 +80,8 @@ describe("tool registry", () => {
       maxOutputChars: 200_000,
       webSearch: {
         apiKey: null,
-        maxTokens: 10_000,
-        maxTokensPerPage: 4_096
+        model: "sonar",
+        models: [{ id: "sonar", aliases: [] }]
       }
     });
 
@@ -100,8 +100,8 @@ describe("tool registry", () => {
       maxOutputChars: 200_000,
       webSearch: {
         apiKey: "pplx-key",
-        maxTokens: 10_000,
-        maxTokensPerPage: 4_096
+        model: "sonar",
+        models: [{ id: "sonar", aliases: [] }]
       }
     });
 

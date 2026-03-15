@@ -8,6 +8,7 @@ import type {
   WorkspaceSnapshot
 } from "../types.js";
 import type { TraceContext } from "../observability.js";
+import type { WebSearchModelCatalogEntry } from "../web-search-catalog.js";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type TelegramAssistantFormat = "plain_text" | "markdown_to_html";
@@ -67,8 +68,8 @@ export type Config = {
     maxOutputChars: number;
     webSearch: {
       apiKey: string | null;
-      maxTokens: number;
-      maxTokensPerPage: number;
+      model: string;
+      models: WebSearchModelCatalogEntry[];
     };
   };
   paths: {
@@ -126,6 +127,8 @@ export type StateStore = {
   setThinkingEffort(chatId: string, effort: ThinkingEffort, options?: { trace?: TraceContext }): Promise<void>;
   getActiveModelOverride(chatId: string): Promise<string | null>;
   setActiveModelOverride(chatId: string, modelId: string | null, options?: { trace?: TraceContext }): Promise<void>;
+  getActiveWebSearchModelOverride(chatId: string): Promise<string | null>;
+  setActiveWebSearchModelOverride(chatId: string, modelId: string | null, options?: { trace?: TraceContext }): Promise<void>;
   getLatestUsageSnapshot(chatId: string): Promise<ProviderUsageSnapshot | null>;
   setLatestUsageSnapshot(chatId: string, usage: ProviderUsageSnapshot): Promise<void>;
   getToolResultStats(chatId: string): Promise<ToolResultStats>;

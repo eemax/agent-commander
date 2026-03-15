@@ -83,8 +83,11 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       maxOutputChars: 200_000,
       webSearch: {
         apiKey: null,
-        maxTokens: 10_000,
-        maxTokensPerPage: 4_096
+        model: "sonar",
+        models: [
+          { id: "sonar", aliases: ["search"] },
+          { id: "sonar-pro", aliases: ["search-pro"] }
+        ]
       }
     },
     paths: {
@@ -131,7 +134,8 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       ...overrides.tools,
       webSearch: {
         ...base.tools.webSearch,
-        ...overrides.tools?.webSearch
+        ...overrides.tools?.webSearch,
+        models: (overrides.tools?.webSearch?.models as Config["tools"]["webSearch"]["models"] | undefined) ?? base.tools.webSearch.models
       }
     },
     paths: {

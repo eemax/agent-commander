@@ -29,6 +29,7 @@ type ConversationRuntimeProfile = {
   verboseMode: boolean;
   thinkingEffort: ThinkingEffort;
   activeModelOverride: string | null;
+  activeWebSearchModelOverride: string | null;
   latestUsage: ProviderUsageSnapshot | null;
   toolResults: ToolResultStats;
 };
@@ -201,6 +202,7 @@ function createDefaultRuntimeProfile(params: {
     verboseMode: params.defaultVerboseMode,
     thinkingEffort: params.defaultThinkingEffort,
     activeModelOverride: null,
+    activeWebSearchModelOverride: null,
     latestUsage: null,
     toolResults: createEmptyToolResultStats()
   };
@@ -211,6 +213,7 @@ function cloneRuntimeProfile(profile: ConversationRuntimeProfile): ConversationR
     verboseMode: profile.verboseMode,
     thinkingEffort: profile.thinkingEffort,
     activeModelOverride: profile.activeModelOverride,
+    activeWebSearchModelOverride: profile.activeWebSearchModelOverride,
     latestUsage: profile.latestUsage ? cloneUsageSnapshot(profile.latestUsage) : null,
     toolResults: cloneToolResultStats(profile.toolResults)
   };
@@ -233,10 +236,17 @@ function normalizeRuntimeProfile(
       ? activeModelOverrideRaw.trim()
       : null;
 
+  const activeWebSearchModelOverrideRaw = value.activeWebSearchModelOverride;
+  const activeWebSearchModelOverride =
+    typeof activeWebSearchModelOverrideRaw === "string" && activeWebSearchModelOverrideRaw.trim().length > 0
+      ? activeWebSearchModelOverrideRaw.trim()
+      : null;
+
   return {
     verboseMode: typeof value.verboseMode === "boolean" ? value.verboseMode : defaults.defaultVerboseMode,
     thinkingEffort: isThinkingEffort(value.thinkingEffort) ? value.thinkingEffort : defaults.defaultThinkingEffort,
     activeModelOverride,
+    activeWebSearchModelOverride,
     latestUsage: isUsageSnapshot(value.latestUsage) ? cloneUsageSnapshot(value.latestUsage) : null,
     toolResults: isToolResultStatsRecord(value.toolResults) ? cloneToolResultStats(value.toolResults) : createEmptyToolResultStats()
   };
@@ -818,6 +828,46 @@ export function createConversationStore(params: ConversationStoreParams): Conver
           chatId,
           conversationId: ensured.record.conversationId,
           setting: "activeModelOverride",
+          value: normalizedModelId
+        });
+      });
+    },
+
+    async getActiveWebSearchModelOverride(chatId): Promise<string | null> {
+      return enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
+        return ensured.record.runtime.activeWebSearchModelOverride;
+      });
+    },
+
+    async setActiveWebSearchModelOverride(chatId, modelId: string | null, options): Promise<void> {
+      await enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start", options?.trace);
+        const trimmed = modelId === null ? "" : modelId.trim();
+        const normalizedModelId = trimmed.length > 0 ? trimmed : null;
+        if (ensured.record.runtime.activeWebSearchModelOverride === normalizedModelId) {
+          return;
+        }
+
+        const nextCurrent = {
+          ...ensured.index,
+          [chatId]: {
+            ...ensured.record,
+            runtime: {
+              ...ensured.record.runtime,
+              activeWebSearchModelOverride: normalizedModelId
+            }
+          }
+        };
+
+        await saveCurrentConversations(nextCurrent);
+        await params.observability?.record({
+          event: "runtime.setting.updated",
+          trace: options?.trace ? createChildTraceContext(options.trace, "state") : createTraceRootContext("state"),
+          stage: "completed",
+          chatId,
+          conversationId: ensured.record.conversationId,
+          setting: "activeWebSearchModelOverride",
           value: normalizedModelId
         });
       });

@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { z } from "zod";
 import type { Config, LogLevel, TelegramAssistantFormat } from "./runtime/contracts.js";
+import type { WebSearchModelCatalogEntry } from "./web-search-catalog.js";
 import { DEFAULT_OBSERVABILITY_REDACTION } from "./observability.js";
 import { THINKING_EFFORT_VALUES, type ThinkingEffort } from "./types.js";
 
@@ -71,8 +72,11 @@ const DEFAULT_CONFIG_TEMPLATE = {
     max_output_chars: 200_000,
     web_search: {
       api_key: null,
-      max_tokens: 10_000,
-      max_tokens_per_page: 4_096
+      model: "sonar",
+      available_models: [
+        { id: "sonar", aliases: ["search"] },
+        { id: "sonar-pro", aliases: ["search-pro"] }
+      ]
     }
   },
   paths: {
@@ -104,6 +108,17 @@ const DEFAULT_OPENAI_MODELS = DEFAULT_CONFIG_TEMPLATE.openai.models.map((item) =
   max_output_tokens: item.max_output_tokens,
   default_thinking: item.default_thinking
 }));
+const DEFAULT_WEB_SEARCH_MODELS = DEFAULT_CONFIG_TEMPLATE.tools.web_search.available_models.map((item) => ({
+  id: item.id,
+  aliases: [...item.aliases]
+}));
+const webSearchModelSchema = z
+  .object({
+    id: optionalNonEmptyString,
+    aliases: z.array(optionalNonEmptyString).default([])
+  })
+  .strict();
+
 const openAIModelSchema = z
   .object({
     id: optionalNonEmptyString,
@@ -174,8 +189,8 @@ const configSchema = z
         web_search: z
           .object({
             api_key: optionalNonEmptyString.nullable().default(DEFAULT_CONFIG_TEMPLATE.tools.web_search.api_key),
-            max_tokens: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.tools.web_search.max_tokens),
-            max_tokens_per_page: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.tools.web_search.max_tokens_per_page)
+            model: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.tools.web_search.model),
+            available_models: z.array(webSearchModelSchema).min(1).default(DEFAULT_WEB_SEARCH_MODELS)
           })
           .strict()
           .default({})
@@ -331,6 +346,53 @@ function normalizeOpenAIModels(
   return normalized;
 }
 
+function normalizeWebSearchModels(
+  models: Array<{ id: string; aliases: string[] }>,
+  defaultModelId: string
+): WebSearchModelCatalogEntry[] {
+  const normalized: WebSearchModelCatalogEntry[] = [];
+  const seenModelIds = new Map<string, string>();
+  const lookupOwner = new Map<string, string>();
+
+  for (const item of models) {
+    const id = item.id.trim();
+    const idKey = id.toLowerCase();
+    const priorId = seenModelIds.get(idKey);
+    if (priorId) {
+      throw new Error(`config.tools.web_search.available_models has duplicate model id: ${id} (already defined as ${priorId})`);
+    }
+    seenModelIds.set(idKey, id);
+
+    const seenAliases = new Set<string>();
+    const aliases: string[] = [];
+    for (const rawAlias of item.aliases) {
+      const alias = rawAlias.trim();
+      const aliasKey = alias.toLowerCase();
+      if (aliasKey === idKey || seenAliases.has(aliasKey)) {
+        continue;
+      }
+      seenAliases.add(aliasKey);
+      aliases.push(alias);
+    }
+
+    for (const lookupKey of [idKey, ...aliases.map((alias) => alias.toLowerCase())]) {
+      const owner = lookupOwner.get(lookupKey);
+      if (owner && owner !== id) {
+        throw new Error(`config.tools.web_search.available_models has alias collision: '${lookupKey}' used by both ${owner} and ${id}`);
+      }
+      lookupOwner.set(lookupKey, id);
+    }
+
+    normalized.push({ id, aliases });
+  }
+
+  if (!normalized.some((item) => item.id === defaultModelId)) {
+    throw new Error(`config.tools.web_search.model '${defaultModelId}' is not present in config.tools.web_search.available_models`);
+  }
+
+  return normalized;
+}
+
 function requireSecret(value: string, pathLabel: string): string {
   const trimmed = value.trim();
   if (trimmed.length === 0 || trimmed === "replace_me") {
@@ -366,6 +428,7 @@ export function loadConfig(repoRoot = process.cwd()): Config {
     throw new Error("config.openai.retry_max_ms must be greater than or equal to config.openai.retry_base_ms");
   }
   const openAIModels = normalizeOpenAIModels(config.openai.models, config.openai.model);
+  const webSearchModels = normalizeWebSearchModels(config.tools.web_search.available_models, config.tools.web_search.model);
 
   const workspaceRoot = resolveConfigPath(repoRoot, config.paths.workspace_root);
   const defaultCwdInput = config.tools.default_cwd ?? config.paths.workspace_root;
@@ -418,8 +481,8 @@ export function loadConfig(repoRoot = process.cwd()): Config {
       maxOutputChars: config.tools.max_output_chars,
       webSearch: {
         apiKey: normalizeOptionalSecret(config.tools.web_search.api_key),
-        maxTokens: config.tools.web_search.max_tokens,
-        maxTokensPerPage: config.tools.web_search.max_tokens_per_page
+        model: config.tools.web_search.model,
+        models: webSearchModels
       }
     },
     paths: {

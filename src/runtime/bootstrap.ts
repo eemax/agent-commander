@@ -9,6 +9,7 @@ import { createConversationStore } from "../state/conversations.js";
 import { createTelegramBot } from "../telegram/bot.js";
 import { createWorkspaceManager } from "../workspace.js";
 import { resolveActiveModel } from "../model-catalog.js";
+import { resolveActiveWebSearchModel } from "../web-search-catalog.js";
 
 export async function startRuntime(repoRoot: string): Promise<void> {
   const config = loadConfig(repoRoot);
@@ -55,6 +56,20 @@ async function bootstrapRuntime(
     logger.info("startup: web_search enabled");
   }
 
+  const conversations = createConversationStore({
+    conversationsDir: config.paths.conversationsDir,
+    stashedConversationsPath: config.paths.stashedConversationsPath,
+    activeConversationsPath: config.paths.activeConversationsPath,
+    defaultVerboseMode: config.runtime.defaultVerbose,
+    defaultThinkingEffort: resolveActiveModel({
+      models: config.openai.models,
+      defaultModelId: config.openai.model,
+      overrideModelId: null
+    }).defaultThinking,
+    sessionCacheMaxEntries: config.runtime.sessionCacheMaxEntries,
+    observability
+  });
+
   const harness = createToolHarness(
     {
       defaultCwd: config.tools.defaultCwd,
@@ -69,23 +84,18 @@ async function bootstrapRuntime(
       webSearch: config.tools.webSearch
     },
     {
-      observability
+      observability,
+      resolveWebSearchModel: async (ownerId) => {
+        if (!ownerId) return config.tools.webSearch.model;
+        const override = await conversations.getActiveWebSearchModelOverride(ownerId);
+        return resolveActiveWebSearchModel({
+          models: config.tools.webSearch.models,
+          defaultModelId: config.tools.webSearch.model,
+          overrideModelId: override
+        }).id;
+      }
     }
   );
-
-  const conversations = createConversationStore({
-    conversationsDir: config.paths.conversationsDir,
-    stashedConversationsPath: config.paths.stashedConversationsPath,
-    activeConversationsPath: config.paths.activeConversationsPath,
-    defaultVerboseMode: config.runtime.defaultVerbose,
-    defaultThinkingEffort: resolveActiveModel({
-      models: config.openai.models,
-      defaultModelId: config.openai.model,
-      overrideModelId: null
-    }).defaultThinking,
-    sessionCacheMaxEntries: config.runtime.sessionCacheMaxEntries,
-    observability
-  });
 
   const provider = createOpenAIProvider(config, logger, {
     harness,

@@ -1,6 +1,7 @@
 import type { ToolHarness } from "../harness/index.js";
 import type { TraceContext } from "../observability.js";
 import { resolveActiveModel, resolveModelReference } from "../model-catalog.js";
+import { resolveActiveWebSearchModel, resolveWebSearchModelReference } from "../web-search-catalog.js";
 import type { StateStore, WorkspaceCatalog, Config, StashedConversationSummary } from "../runtime/contracts.js";
 import {
   THINKING_EFFORT_VALUES,
@@ -331,10 +332,11 @@ export function createCoreCommandHandler(params: {
           }
 
           const conversationId = await conversations.ensureActiveConversation(message.chatId);
-          const [verboseEnabled, thinkingEffort, activeModelOverride, latestUsage, toolResultStats] = await Promise.all([
+          const [verboseEnabled, thinkingEffort, activeModelOverride, webSearchModelOverride, latestUsage, toolResultStats] = await Promise.all([
             conversations.getVerboseMode(message.chatId),
             conversations.getThinkingEffort(message.chatId),
             conversations.getActiveModelOverride(message.chatId),
+            conversations.getActiveWebSearchModelOverride(message.chatId),
             conversations.getLatestUsageSnapshot(message.chatId),
             conversations.getToolResultStats(message.chatId)
           ]);
@@ -343,6 +345,13 @@ export function createCoreCommandHandler(params: {
             defaultModelId: config.openai.model,
             overrideModelId: activeModelOverride
           });
+          const webSearchModel = config.tools.webSearch.apiKey !== null
+            ? resolveActiveWebSearchModel({
+                models: config.tools.webSearch.models,
+                defaultModelId: config.tools.webSearch.model,
+                overrideModelId: webSearchModelOverride
+              }).id
+            : null;
           const ownedSessions = harness.context.processManager.listSessionsByOwner(message.chatId);
           const runningSessions = ownedSessions
             .filter((session) => session.status === "running")
@@ -360,6 +369,7 @@ export function createCoreCommandHandler(params: {
             text: buildStatusReply({
               conversationId,
               model: activeModel.id,
+              webSearchModel,
               modelContextWindow: activeModel.contextWindow,
               modelMaxOutputTokens: activeModel.maxOutputTokens,
               workspaceRoot: config.paths.workspaceRoot,
@@ -527,6 +537,53 @@ export function createCoreCommandHandler(params: {
           return {
             type: "reply",
             text: lines.join("\n")
+          };
+        }
+        case "search": {
+          if (config.tools.webSearch.apiKey === null) {
+            return {
+              type: "reply",
+              text: "Web search is disabled (no API key configured)."
+            };
+          }
+
+          const selection = args.trim();
+          const wsOverride = await conversations.getActiveWebSearchModelOverride(message.chatId);
+          const activeWsModel = resolveActiveWebSearchModel({
+            models: config.tools.webSearch.models,
+            defaultModelId: config.tools.webSearch.model,
+            overrideModelId: wsOverride
+          });
+
+          if (selection.length === 0) {
+            const lines = [
+              "Usage: /search <id-or-alias>",
+              `search model: ${activeWsModel.id}`,
+              "available:"
+            ];
+            for (const model of config.tools.webSearch.models) {
+              const marker = model.id === activeWsModel.id ? "*" : "-";
+              const aliasText = model.aliases.length > 0 ? `aliases: ${model.aliases.join(", ")}` : "aliases: none";
+              lines.push(`${marker} ${model.id} (${aliasText})`);
+            }
+            return {
+              type: "reply",
+              text: lines.join("\n")
+            };
+          }
+
+          const resolved = resolveWebSearchModelReference(config.tools.webSearch.models, selection);
+          if (!resolved) {
+            return {
+              type: "reply",
+              text: [`Unknown search model: ${selection}`, "Use /search to list available options."].join("\n")
+            };
+          }
+
+          await conversations.setActiveWebSearchModelOverride(message.chatId, resolved.id, { trace });
+          return {
+            type: "reply",
+            text: `search model: ${resolved.id}`
           };
         }
         default:

@@ -8,23 +8,43 @@ function createHarnessRoot(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
+function makeResponseCreateResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "resp_123",
+    output_text: "Here is the answer.",
+    output: [
+      {
+        type: "search_results",
+        results: [
+          { title: "Result 1", url: "https://example.com/1" },
+          { title: "Result 2", url: "https://example.com/2" }
+        ]
+      },
+      {
+        type: "message",
+        content: [
+          {
+            type: "output_text",
+            text: "Here is the answer.",
+            annotations: [
+              { url: "https://example.com/1", title: "Result 1" },
+              { url: "https://example.com/2", title: "Result 2" }
+            ]
+          }
+        ]
+      }
+    ],
+    ...overrides
+  };
+}
+
 describe("web_search tool", () => {
-  it("calls Perplexity client with config-driven token budgets", async () => {
+  it("calls Perplexity responses.create with preset from resolved model", async () => {
     const root = createHarnessRoot("acmd-web-search-");
-    const searchCreate = vi.fn(async () => ({
-      id: "search_123",
-      results: [
-        {
-          title: "Result",
-          url: "https://example.com",
-          snippet: "hello"
-        }
-      ],
-      server_time: "2026-03-14T10:00:00Z"
-    }));
+    const responsesCreate = vi.fn(async () => makeResponseCreateResponse());
     const createWebSearchClient = vi.fn(() => ({
-      search: {
-        create: searchCreate
+      responses: {
+        create: responsesCreate
       }
     }));
 
@@ -41,53 +61,35 @@ describe("web_search tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: "pplx-key",
-          maxTokens: 20_000,
-          maxTokensPerPage: 2_048
+          model: "sonar",
+          models: [{ id: "sonar", aliases: [] }]
         }
       },
       {
-        createWebSearchClient
+        createWebSearchClient,
+        resolveWebSearchModel: async () => "sonar"
       }
     );
 
-    const output = await harness.execute("web_search", {
-      query: "latest ai research",
-      country: "US",
-      max_results: 5,
-      search_domain_filter: ["nature.com"],
-      search_recency_filter: "week"
-    });
+    const output = (await harness.execute("web_search", {
+      query: "latest ai research"
+    })) as Record<string, unknown>;
 
     expect(createWebSearchClient).toHaveBeenCalledWith("pplx-key");
-    expect(searchCreate).toHaveBeenCalledWith({
-      query: "latest ai research",
-      country: "US",
-      max_results: 5,
-      search_domain_filter: ["nature.com"],
-      search_recency_filter: "week",
-      max_tokens: 20_000,
-      max_tokens_per_page: 2_048
+    expect(responsesCreate).toHaveBeenCalledWith({
+      preset: "sonar",
+      input: "latest ai research"
     });
-    expect(output).toEqual({
-      id: "search_123",
-      query: "latest ai research",
-      results: [
-        {
-          title: "Result",
-          url: "https://example.com",
-          snippet: "hello"
-        }
-      ],
-      server_time: "2026-03-14T10:00:00Z"
-    });
+    expect(output.model).toBe("sonar");
+    expect(output.query).toBe("latest ai research");
+    expect(output.response_text).toBe("Here is the answer.");
+    expect(output.citations).toHaveLength(2);
+    expect(output.search_results).toHaveLength(2);
   });
 
-  it("normalizes common alias fields before validation", async () => {
+  it("normalizes q alias to query", async () => {
     const root = createHarnessRoot("acmd-web-search-alias-");
-    const searchCreate = vi.fn(async () => ({
-      id: "search_alias",
-      results: []
-    }));
+    const responsesCreate = vi.fn(async () => makeResponseCreateResponse());
 
     const harness = createToolHarness(
       {
@@ -102,52 +104,33 @@ describe("web_search tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: "pplx-key",
-          maxTokens: 10_000,
-          maxTokensPerPage: 4_096
+          model: "sonar",
+          models: [{ id: "sonar", aliases: [] }]
         }
       },
       {
         createWebSearchClient: () => ({
-          search: {
-            create: searchCreate
+          responses: {
+            create: responsesCreate
           }
-        })
+        }),
+        resolveWebSearchModel: async () => "sonar"
       }
     );
 
     await harness.execute("web_search", {
-      q: "alias query",
-      maxResults: "7",
-      searchDomainFilter: ["example.com"],
-      recency: "month",
-      mode: "academic"
+      q: "alias query"
     });
 
-    expect(searchCreate).toHaveBeenCalledWith({
-      query: "alias query",
-      max_results: 7,
-      search_domain_filter: ["example.com"],
-      search_recency_filter: "month",
-      max_tokens: 10_000,
-      max_tokens_per_page: 4_096
+    expect(responsesCreate).toHaveBeenCalledWith({
+      preset: "sonar",
+      input: "alias query"
     });
   });
 
-  it("passes through multi-query responses", async () => {
-    const root = createHarnessRoot("acmd-web-search-multi-");
-    const nestedResults = [
-      [
-        { title: "A1", url: "https://example.com/a1", snippet: "a1" },
-        { title: "A2", url: "https://example.com/a2", snippet: "a2" }
-      ],
-      [
-        { title: "B1", url: "https://example.com/b1", snippet: "b1" }
-      ]
-    ];
-    const searchCreate = vi.fn(async () => ({
-      id: "search_multi",
-      results: nestedResults
-    }));
+  it("uses sonar-pro when resolveWebSearchModel returns it", async () => {
+    const root = createHarnessRoot("acmd-web-search-model-");
+    const responsesCreate = vi.fn(async () => makeResponseCreateResponse());
 
     const harness = createToolHarness(
       {
@@ -162,33 +145,32 @@ describe("web_search tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: "pplx-key",
-          maxTokens: 10_000,
-          maxTokensPerPage: 4_096
+          model: "sonar",
+          models: [
+            { id: "sonar", aliases: [] },
+            { id: "sonar-pro", aliases: [] }
+          ]
         }
       },
       {
         createWebSearchClient: () => ({
-          search: {
-            create: searchCreate
+          responses: {
+            create: responsesCreate
           }
-        })
+        }),
+        resolveWebSearchModel: async () => "sonar-pro"
       }
     );
 
-    const output = await harness.execute("web_search", {
-      query: ["topic a", "topic b"]
-    });
+    const output = (await harness.execute("web_search", {
+      query: "test"
+    })) as Record<string, unknown>;
 
-    expect(searchCreate).toHaveBeenCalledWith({
-      query: ["topic a", "topic b"],
-      max_tokens: 10_000,
-      max_tokens_per_page: 4_096
+    expect(responsesCreate).toHaveBeenCalledWith({
+      preset: "sonar-pro",
+      input: "test"
     });
-    expect(output).toEqual({
-      id: "search_multi",
-      query: ["topic a", "topic b"],
-      results: nestedResults
-    });
+    expect(output.model).toBe("sonar-pro");
   });
 
   it("surfaces client failures as tool execution errors", async () => {
@@ -206,18 +188,19 @@ describe("web_search tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: "pplx-key",
-          maxTokens: 10_000,
-          maxTokensPerPage: 4_096
+          model: "sonar",
+          models: [{ id: "sonar", aliases: [] }]
         }
       },
       {
         createWebSearchClient: () => ({
-          search: {
+          responses: {
             create: async () => {
               throw new Error("network down");
             }
           }
-        })
+        }),
+        resolveWebSearchModel: async () => "sonar"
       }
     );
 
@@ -226,8 +209,9 @@ describe("web_search tool", () => {
     );
   });
 
-  it("rejects excluded fields from model input", async () => {
+  it("silently drops old fields that are no longer supported", async () => {
     const root = createHarnessRoot("acmd-web-search-strict-");
+    const responsesCreate = vi.fn(async () => makeResponseCreateResponse());
     const harness = createToolHarness(
       {
         defaultCwd: root,
@@ -241,38 +225,31 @@ describe("web_search tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: "pplx-key",
-          maxTokens: 10_000,
-          maxTokensPerPage: 4_096
+          model: "sonar",
+          models: [{ id: "sonar", aliases: [] }]
         }
       },
       {
         createWebSearchClient: () => ({
-          search: {
-            create: async () => ({
-              id: "unused",
-              results: []
-            })
+          responses: {
+            create: responsesCreate
           }
-        })
+        }),
+        resolveWebSearchModel: async () => "sonar"
       }
     );
 
-    const excludedFields: Array<Record<string, unknown>> = [
-      { search_language_filter: ["en"] },
-      { search_after_date_filter: "01/01/2026" },
-      { search_before_date_filter: "01/31/2026" },
-      { last_updated_after_filter: "01/01/2026" },
-      { last_updated_before_filter: "01/31/2026" },
-      { display_server_time: true }
-    ];
+    await harness.execute("web_search", {
+      query: "test",
+      country: "US",
+      max_results: 5,
+      search_domain_filter: ["example.com"],
+      search_recency_filter: "week"
+    });
 
-    for (const payload of excludedFields) {
-      await expect(
-        harness.execute("web_search", {
-          query: "test",
-          ...payload
-        })
-      ).rejects.toThrow("Invalid arguments for web_search");
-    }
+    expect(responsesCreate).toHaveBeenCalledWith({
+      preset: "sonar",
+      input: "test"
+    });
   });
 });

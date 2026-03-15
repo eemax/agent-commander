@@ -34,35 +34,6 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function readStringArray(value: unknown): string[] | undefined {
-  if (Array.isArray(value)) {
-    const out = value
-      .filter((item): item is string => typeof item === "string")
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-    return out.length > 0 ? out : undefined;
-  }
-
-  if (typeof value === "string") {
-    const normalized = value
-      .split(",")
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-    return normalized.length > 0 ? normalized : undefined;
-  }
-
-  return undefined;
-}
-
-function readQueryValue(value: unknown): string | string[] | undefined {
-  const single = readNonEmptyString(value);
-  if (single !== undefined) {
-    return single;
-  }
-
-  return readStringArray(value);
-}
-
 function readPositiveInt(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
     return value;
@@ -208,31 +179,7 @@ function normalizeApplyPatchArgs(args: unknown): Record<string, unknown> {
 function normalizeWebSearchArgs(args: unknown): Record<string, unknown> {
   const source = asRecord(args);
   return dropUndefined({
-    query: readQueryValue(firstDefined(source, ["query", "q", "queries"])),
-    country: readNonEmptyString(firstDefined(source, ["country", "country_code", "region"])),
-    max_results: readPositiveInt(firstDefined(source, ["max_results", "maxResults", "max_results_count", "limit"])),
-    search_domain_filter: readStringArray(
-      firstDefined(source, ["search_domain_filter", "searchDomainFilter", "domain_filter", "domainFilter", "domains"])
-    ),
-    search_language_filter: readStringArray(
-      firstDefined(source, ["search_language_filter", "searchLanguageFilter", "language_filter", "languageFilter", "languages"])
-    ),
-    search_after_date_filter: readNonEmptyString(
-      firstDefined(source, ["search_after_date_filter", "searchAfterDateFilter"])
-    ),
-    search_before_date_filter: readNonEmptyString(
-      firstDefined(source, ["search_before_date_filter", "searchBeforeDateFilter"])
-    ),
-    last_updated_after_filter: readNonEmptyString(
-      firstDefined(source, ["last_updated_after_filter", "lastUpdatedAfterFilter"])
-    ),
-    last_updated_before_filter: readNonEmptyString(
-      firstDefined(source, ["last_updated_before_filter", "lastUpdatedBeforeFilter"])
-    ),
-    display_server_time: readBoolean(firstDefined(source, ["display_server_time", "displayServerTime"])),
-    search_recency_filter: readNonEmptyString(
-      firstDefined(source, ["search_recency_filter", "searchRecencyFilter", "recency", "timeframe"])
-    )?.toLowerCase()
+    query: readNonEmptyString(firstDefined(source, ["query", "q"]))
   });
 }
 
@@ -282,7 +229,7 @@ export function getExpectedShapeForTool(tool: string, args: Record<string, unkno
     case "web_search":
       return {
         required: ["query"],
-        optional: ["country", "max_results", "search_domain_filter", "search_recency_filter"]
+        optional: []
       };
     case "web_fetch":
       return {

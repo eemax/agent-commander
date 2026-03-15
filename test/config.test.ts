@@ -92,8 +92,8 @@ describe("loadConfig", () => {
     expect(config.tools.defaultShell).toBe("/bin/bash");
     expect(config.tools.logPath).toBe(path.join(root, ".agent-commander", "tool-calls.jsonl"));
     expect(config.tools.webSearch.apiKey).toBeNull();
-    expect(config.tools.webSearch.maxTokens).toBe(10000);
-    expect(config.tools.webSearch.maxTokensPerPage).toBe(4096);
+    expect(config.tools.webSearch.model).toBe("sonar");
+    expect(config.tools.webSearch.models.map((m) => m.id)).toContain("sonar");
     expect(config.paths.conversationsDir).toBe(path.join(root, ".agent-commander", "conversations"));
     expect(config.paths.stashedConversationsPath).toBe(path.join(root, ".agent-commander", "stashed-conversations.json"));
     expect(config.paths.activeConversationsPath).toBe(path.join(root, ".agent-commander", "active-conversations.json"));
@@ -107,16 +107,19 @@ describe("loadConfig", () => {
       tools: {
         web_search: {
           api_key: "pplx-key",
-          max_tokens: 25000,
-          max_tokens_per_page: 2048
+          model: "sonar-pro",
+          available_models: [
+            { id: "sonar", aliases: ["search"] },
+            { id: "sonar-pro", aliases: ["search-pro"] }
+          ]
         }
       }
     });
 
     const config = loadConfig(root);
     expect(config.tools.webSearch.apiKey).toBe("pplx-key");
-    expect(config.tools.webSearch.maxTokens).toBe(25000);
-    expect(config.tools.webSearch.maxTokensPerPage).toBe(2048);
+    expect(config.tools.webSearch.model).toBe("sonar-pro");
+    expect(config.tools.webSearch.models).toHaveLength(2);
   });
 
   it("treats tools.web_search.api_key placeholder as disabled", () => {

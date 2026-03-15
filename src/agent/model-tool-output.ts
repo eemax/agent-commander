@@ -54,19 +54,6 @@ function readBoolean(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
 }
 
-function readStringArray(value: unknown): string[] | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-
-  const out = value
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
-
-  return out.length > 0 ? out : null;
-}
-
 function toToolLabel(tool: string): string {
   const normalized = tool.trim().replaceAll("_", " ");
   if (normalized.length === 0) {
@@ -517,47 +504,35 @@ function normalizeApplyPatchResult(result: unknown): NormalizedToolEnvelopeResul
   };
 }
 
-function countWebSearchResults(value: unknown): number {
-  if (Array.isArray(value)) {
-    return value.reduce((total, item) => total + countWebSearchResults(item), 0);
-  }
-
-  if (typeof value === "object" && value !== null) {
-    return 1;
-  }
-
-  return 0;
-}
-
 function normalizeWebSearchResult(result: unknown): NormalizedToolEnvelopeResult {
   const record = asRecord(result);
-  const results = Array.isArray(record.results) ? record.results : [];
-  const nestedResultCount = countWebSearchResults(results);
-  const resultCount = nestedResultCount > 0 ? nestedResultCount : results.length;
 
-  const data: Record<string, unknown> = {
-    results
-  };
+  const data: Record<string, unknown> = {};
+  appendNonEmptyString(data, "query", record.query);
+  appendNonEmptyString(data, "model", record.model);
+  appendNonEmptyString(data, "response_text", record.response_text);
 
-  appendNonEmptyString(data, "id", record.id);
-  const query = readNonEmptyString(record.query);
-  if (query !== null) {
-    data.query = query;
-  } else {
-    const queryArray = readStringArray(record.query);
-    if (queryArray !== null) {
-      data.query = queryArray;
-    }
+  const citations = Array.isArray(record.citations) ? record.citations : [];
+  if (citations.length > 0) {
+    data.citations = citations;
   }
 
-  const meta: Record<string, unknown> = {};
-  meta.result_count = resultCount;
-  appendNonEmptyString(meta, "server_time", record.server_time ?? record.serverTime);
+  const searchResults = Array.isArray(record.search_results) ? record.search_results : [];
+  if (searchResults.length > 0) {
+    data.search_results = searchResults;
+  }
+
+  const meta: Record<string, unknown> = {
+    citation_count: citations.length,
+    search_result_count: searchResults.length
+  };
+
+  const hasContent = readNonEmptyString(record.response_text) !== null;
 
   return {
     envelope: {
       ok: true,
-      summary: resultCount > 0 ? `Web search returned ${resultCount} result(s).` : "Web search returned no results.",
+      summary: hasContent ? "Web search returned results." : "Web search returned no results.",
       data,
       ...(Object.keys(meta).length > 0 ? { meta } : {})
     },

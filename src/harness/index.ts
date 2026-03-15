@@ -25,14 +25,15 @@ export function createToolHarness(
   deps: {
     observability?: ObservabilitySink;
     createWebSearchClient?: WebSearchClientFactory;
+    resolveWebSearchModel?: (ownerId: string | null) => Promise<string>;
     runDefuddle?: DefuddleRunner;
   } = {}
 ): ToolHarness {
   const defaultCwd = path.resolve(config.defaultCwd);
   const webSearchConfig = config.webSearch ?? {
     apiKey: null,
-    maxTokens: 10_000,
-    maxTokensPerPage: 4_096
+    model: "sonar",
+    models: []
   };
   const logger = new ToolCallLogger(config.logPath, defaultCwd);
   const processManager = new ProcessManager({
@@ -80,12 +81,13 @@ export function createToolHarness(
     })
   );
   if (webSearchConfig.apiKey !== null) {
+    const defaultModel = webSearchConfig.model;
+    const resolveModel = deps.resolveWebSearchModel ?? (async () => defaultModel);
     registry.register(
       createWebSearchTool(
         {
           apiKey: webSearchConfig.apiKey,
-          maxTokens: webSearchConfig.maxTokens,
-          maxTokensPerPage: webSearchConfig.maxTokensPerPage
+          resolveModel
         },
         {
           createClient: deps.createWebSearchClient

@@ -101,8 +101,6 @@ export const applyPatchInputSchema = z
   })
   .strict();
 
-const recencyFilterSchema = z.enum(["hour", "day", "week", "month", "year"]);
-
 const httpUrlSchema = z.string().min(1).refine((value) => {
   try {
     const parsed = new URL(value);
@@ -114,11 +112,7 @@ const httpUrlSchema = z.string().min(1).refine((value) => {
 
 export const webSearchInputSchema = z
   .object({
-    query: z.union([z.string().min(1), z.array(z.string().min(1)).min(1).max(5)]),
-    country: z.string().length(2).optional(),
-    max_results: z.number().int().min(1).max(20).optional(),
-    search_domain_filter: z.array(z.string().min(1).max(253)).max(20).optional(),
-    search_recency_filter: recencyFilterSchema.optional()
+    query: z.string().min(1)
   })
   .strict();
 

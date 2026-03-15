@@ -22,8 +22,8 @@ export type HarnessConfig = {
   maxOutputChars: number;
   webSearch?: {
     apiKey: string | null;
-    maxTokens: number;
-    maxTokensPerPage: number;
+    model: string;
+    models: import("../web-search-catalog.js").WebSearchModelCatalogEntry[];
   };
 };
 
