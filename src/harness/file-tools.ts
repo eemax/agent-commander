@@ -28,11 +28,13 @@ function countChar(content: string, char: string): number {
   return count;
 }
 
+const LINE_SPLIT_REGEX = /\r?\n/;
+
 function splitLines(content: string): string[] {
   if (content.length === 0) {
     return [];
   }
-  return content.split(/\r?\n/);
+  return content.split(LINE_SPLIT_REGEX);
 }
 
 function countOccurrences(content: string, needle: string): number {

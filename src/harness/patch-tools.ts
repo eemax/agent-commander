@@ -32,8 +32,10 @@ type CodexPatchOperation =
       hunks: CodexPatchHunk[];
     };
 
+const CRLF_REGEX = /\r\n/g;
+
 function normalizeNewlines(text: string): string {
-  return text.replace(/\r\n/g, "\n");
+  return text.replace(CRLF_REGEX, "\n");
 }
 
 function isCodexPatchHeader(line: string): boolean {
@@ -326,15 +328,15 @@ async function runCommand(params: {
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
 
-    let stdout = "";
-    let stderr = "";
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
 
     child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
+      stdoutChunks.push(chunk);
     });
 
     child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
+      stderrChunks.push(chunk);
     });
 
     child.once("error", (error) => {
@@ -344,8 +346,8 @@ async function runCommand(params: {
     child.once("close", (code) => {
       resolve({
         exitCode: code,
-        stdout,
-        stderr
+        stdout: stdoutChunks.join(""),
+        stderr: stderrChunks.join("")
       });
     });
   });

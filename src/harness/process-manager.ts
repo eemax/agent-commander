@@ -581,34 +581,28 @@ export class ProcessManager {
 
   private pruneCompletedSessions(): void {
     const now = Date.now();
+    const remaining: Session[] = [];
 
-    const completedSessions = Array.from(this.sessions.values()).filter((session) => session.status === "completed");
-
-    for (const session of completedSessions) {
-      if (session.finishedAtMs === null) {
+    for (const session of this.sessions.values()) {
+      if (session.status !== "completed") {
         continue;
       }
-
-      if (now - session.finishedAtMs > this.completedSessionRetentionMs) {
+      if (session.finishedAtMs !== null && now - session.finishedAtMs > this.completedSessionRetentionMs) {
         this.sessions.delete(session.sessionId);
+      } else {
+        remaining.push(session);
       }
     }
 
-    const remainingCompleted = Array.from(this.sessions.values())
-      .filter((session) => session.status === "completed")
-      .sort((left, right) => {
+    const overflow = remaining.length - this.maxCompletedSessions;
+    if (overflow > 0) {
+      remaining.sort((left, right) => {
         const leftFinished = left.finishedAtMs ?? Number.MAX_SAFE_INTEGER;
         const rightFinished = right.finishedAtMs ?? Number.MAX_SAFE_INTEGER;
         return leftFinished - rightFinished;
       });
-
-    const overflow = remainingCompleted.length - this.maxCompletedSessions;
-    if (overflow > 0) {
       for (let index = 0; index < overflow; index += 1) {
-        const target = remainingCompleted[index];
-        if (target) {
-          this.sessions.delete(target.sessionId);
-        }
+        this.sessions.delete(remaining[index].sessionId);
       }
     }
   }
