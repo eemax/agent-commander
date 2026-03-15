@@ -402,6 +402,80 @@ describe("model tool output normalizer", () => {
       }
     },
     {
+      name: "web_search (raw <search_results> block in response_text)",
+      tool: "web_search",
+      args: { query: "openai symphony fuzz" },
+      result: {
+        model: "sonar",
+        response_text:
+          '<search_results>\n[1] Title: Symphony Faces Backlash\nLink: https://example.com/backlash\nSnippet: Some snippet text.\n\n[2] Title: Fuzz Testing Exposes Flaws\nLink: https://example.com/fuzz\nSnippet: Another snippet.\n\n[3] Title: Unused Result\nLink: https://example.com/unused\nSnippet: Not referenced.\n</search_results>\n\n**Symphony controversy centers on fuzz testing.** [1][2]\n\n- Fuzz revelations [1][2]\n- Musicians protest [1]'
+      },
+      expected: {
+        ok: true,
+        summary: "Web search returned results with 2 cited source(s).",
+        data: {
+          response_text:
+            "**Symphony controversy centers on fuzz testing.** [1][2]\n\n- Fuzz revelations [1][2]\n- Musicians protest [1]",
+          citations: {
+            "1": "[Symphony Faces Backlash](https://example.com/backlash)",
+            "2": "[Fuzz Testing Exposes Flaws](https://example.com/fuzz)"
+          }
+        },
+        meta: {
+          source_count: 2,
+          model: "sonar"
+        }
+      }
+    },
+    {
+      name: "web_search (raw block only, no summary text after)",
+      tool: "web_search",
+      args: { query: "test query" },
+      result: {
+        model: "sonar",
+        response_text:
+          "<search_results>\n[1] Title: Only Result\nLink: https://example.com/only\nSnippet: The sole result.\n</search_results>"
+      },
+      expected: {
+        ok: true,
+        summary: "Web search returned results with 1 cited source(s).",
+        data: {
+          citations: {
+            "1": "[Only Result](https://example.com/only)"
+          }
+        },
+        meta: {
+          source_count: 1,
+          model: "sonar"
+        }
+      }
+    },
+    {
+      name: "web_search (raw entries without XML wrapper)",
+      tool: "web_search",
+      args: { query: "unwrapped query" },
+      result: {
+        model: "sonar",
+        response_text:
+          "[1] Title: First Result\nLink: https://example.com/first\nSnippet: First snippet.\n\n[2] Title: Second Result\nLink: https://example.com/second\nSnippet: Second snippet.\n\nSummary referencing [1] and [2]."
+      },
+      expected: {
+        ok: true,
+        summary: "Web search returned results with 2 cited source(s).",
+        data: {
+          response_text: "Summary referencing [1] and [2].",
+          citations: {
+            "1": "[First Result](https://example.com/first)",
+            "2": "[Second Result](https://example.com/second)"
+          }
+        },
+        meta: {
+          source_count: 2,
+          model: "sonar"
+        }
+      }
+    },
+    {
       name: "web_fetch",
       tool: "web_fetch",
       args: { url: "https://example.com/article" },

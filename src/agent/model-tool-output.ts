@@ -504,11 +504,17 @@ function normalizeApplyPatchResult(result: unknown): NormalizedToolEnvelopeResul
   };
 }
 
+// Regex to extract entries from raw <search_results> blocks embedded in response_text.
+// Matches patterns like: [1] Title: ...\nLink: ...\nSnippet: ...
+// Uses \r?\n to handle both \n and \r\n line endings.
+const SEARCH_RESULT_ENTRY_RE = /\[(\d+)]\s*Title:\s*(.+)\r?\nLink:\s*(https?:\/\/\S+)/g;
+const SEARCH_RESULTS_BLOCK_RE = /<search_results>[\s\S]*?<\/search_results>\s*/;
+
 function normalizeWebSearchResult(result: unknown): NormalizedToolEnvelopeResult {
   const record = asRecord(result);
 
   const model = readNonEmptyString(record.model);
-  const responseText = readNonEmptyString(record.response_text);
+  let responseText = readNonEmptyString(record.response_text);
 
   // Build a map of search_result id → markdown link.
   const searchResults = Array.isArray(record.search_results) ? record.search_results : [];
@@ -522,10 +528,40 @@ function normalizeWebSearchResult(result: unknown): NormalizedToolEnvelopeResult
     idToLink.set(id, `[${title ?? url}](${url})`);
   }
 
+  // If no structured search_results, parse from raw <search_results> block in response_text.
+  // Some models (e.g. sonar) embed results as text rather than structured data.
+  let parsedFromText = false;
+  if (idToLink.size === 0 && responseText) {
+    for (const m of responseText.matchAll(SEARCH_RESULT_ENTRY_RE)) {
+      const id = Number(m[1]);
+      const title = m[2].trim();
+      const url = m[3].trim();
+      if (!idToLink.has(id)) {
+        idToLink.set(id, `[${title}](${url})`);
+      }
+    }
+    if (idToLink.size > 0) {
+      parsedFromText = true;
+      // Strip the raw block so response_text only has the summary.
+      // Try XML-wrapped block first, then fall back to stripping individual entries.
+      let cleaned = responseText.replace(SEARCH_RESULTS_BLOCK_RE, "").trim();
+      if (cleaned === responseText.trim()) {
+        // No XML wrapper — strip individual entry lines instead.
+        cleaned = responseText
+          .replace(/\[(\d+)]\s*Title:\s*.+\r?\n(?:Link:\s*\S+\r?\n?)?(?:Snippet:\s*.+\r?\n?)?\s*/g, "")
+          .trim();
+      }
+      responseText = cleaned || null;
+    }
+  }
+
   // Collect only the IDs actually referenced in response_text.
+  // When we parsed results from text, also check the original text (pre-strip)
+  // so that models returning only a block (no summary) still get citations for all entries.
   const citations: Record<string, string> = {};
-  if (responseText) {
-    for (const m of responseText.matchAll(/\[(\d+)]/g)) {
+  const textToScan = responseText ?? (parsedFromText ? record.response_text as string : null);
+  if (textToScan) {
+    for (const m of (textToScan as string).matchAll(/\[(\d+)]/g)) {
       const id = Number(m[1]);
       const link = idToLink.get(id);
       if (link && !(String(id) in citations)) {
@@ -540,7 +576,7 @@ function normalizeWebSearchResult(result: unknown): NormalizedToolEnvelopeResult
   if (responseText) data.response_text = responseText;
   if (citedCount > 0) data.citations = citations;
 
-  const hasContent = responseText !== null;
+  const hasContent = responseText !== null || citedCount > 0;
   const summary = hasContent
     ? `Web search returned results with ${citedCount} cited source(s).`
     : "Web search returned no results.";
