@@ -46,7 +46,12 @@ function formatFailure(base: string, error: string | null): string {
   return `${base} - ${formatError(error)}`;
 }
 
-function formatCompactNumber(value: number): string {
+const COMPACT_NUMBER_FORMAT = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1
+});
+
+export function formatCompactNumber(value: number): string {
   if (!Number.isFinite(value)) {
     return "n/a";
   }
@@ -55,7 +60,7 @@ function formatCompactNumber(value: number): string {
     return String(value);
   }
 
-  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value).toLowerCase();
+  return COMPACT_NUMBER_FORMAT.format(value).toLowerCase();
 }
 
 function formatCacheSummary(usage: ProviderUsageSnapshot | null): string {

@@ -74,6 +74,7 @@ export const CORE_COMMANDS: ReadonlyArray<TelegramCommandDefinition> = [
 export const CORE_COMMAND_SET: ReadonlySet<string> = new Set(CORE_COMMANDS.map((item) => item.command));
 
 const TELEGRAM_COMMAND_REGEX = /^[a-z][a-z0-9_]{0,31}$/;
+const PARSE_COMMAND_REGEX = /^\/([A-Za-z0-9_]+)(?:@([A-Za-z0-9_]+))?(?:\s+([\s\S]*))?$/;
 
 export type ParsedCommand = {
   command: string;
@@ -121,7 +122,7 @@ export function buildCommandCatalog(skills: SkillDefinition[]): TelegramCommandD
 }
 
 export function parseTelegramCommand(text: string): ParsedCommand | null {
-  const match = text.match(/^\/([A-Za-z0-9_]+)(?:@([A-Za-z0-9_]+))?(?:\s+([\s\S]*))?$/);
+  const match = text.match(PARSE_COMMAND_REGEX);
   if (!match) {
     return null;
   }

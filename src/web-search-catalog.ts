@@ -1,11 +1,9 @@
+import { normalizeLookup } from "./catalog-utils.js";
+
 export type WebSearchModelCatalogEntry = {
   id: string;
   aliases: string[];
 };
-
-function normalizeLookup(value: string): string {
-  return value.trim().toLowerCase();
-}
 
 export function getWebSearchModelById(
   models: WebSearchModelCatalogEntry[],

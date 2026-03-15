@@ -340,18 +340,6 @@ function parseActiveConversationsIndex(
   return normalized;
 }
 
-function cloneCurrentConversationsIndex(index: CurrentConversationsIndex): CurrentConversationsIndex {
-  const cloned: CurrentConversationsIndex = {};
-  for (const [chatId, record] of Object.entries(index)) {
-    cloned[chatId] = {
-      conversationId: record.conversationId,
-      alias: record.alias,
-      runtime: cloneRuntimeProfile(record.runtime)
-    };
-  }
-  return cloned;
-}
-
 function cloneActiveConversationsIndex(index: ActiveConversationsIndex): ActiveConversationsIndex {
   const cloned: ActiveConversationsIndex = {};
   for (const [chatId, stashes] of Object.entries(index)) {
@@ -531,7 +519,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
 
   const saveCurrentConversations = async (next: CurrentConversationsIndex): Promise<void> => {
     currentConversationsCache = next;
-    await atomicWriteJson(activeConversationsPath, cloneCurrentConversationsIndex(next));
+    await atomicWriteJson(activeConversationsPath, next);
   };
 
   const loadConversationSession = async (chatId: string, conversationId: string): Promise<ConversationSessionCache> => {

@@ -12,7 +12,7 @@ import {
   type TelegramInlineKeyboard
 } from "../types.js";
 import { formatConversationIdForUi, formatConversationIdTail } from "./conversation-id.js";
-import { buildStatusReply, formatBashReply } from "./formatters.js";
+import { buildStatusReply, formatBashReply, formatCompactNumber } from "./formatters.js";
 
 const THINKING_EFFORT_SET: ReadonlySet<string> = new Set(THINKING_EFFORT_VALUES);
 const MENU_PAGE_SIZE = 6;
@@ -45,14 +45,6 @@ export type CoreCommandHandler = {
 
 function isThinkingEffort(value: string): value is (typeof THINKING_EFFORT_VALUES)[number] {
   return THINKING_EFFORT_SET.has(value);
-}
-
-function formatCompactNumber(value: number): string {
-  if (value < 1_000) {
-    return String(value);
-  }
-
-  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value).toLowerCase();
 }
 
 function pluralize(value: number, singular: string): string {

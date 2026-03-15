@@ -270,6 +270,7 @@ function toOpenAIFunctionParameters(schema: unknown): ProviderFunctionTool["para
 
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDef<ZodTypeAny>>();
+  private cachedProviderTools: ProviderFunctionTool[] | null = null;
 
   public register<TSchema extends ZodTypeAny>(tool: ToolDef<TSchema>): void {
     if (this.tools.has(tool.name)) {
@@ -277,6 +278,7 @@ export class ToolRegistry {
     }
 
     this.tools.set(tool.name, tool as unknown as ToolDef<ZodTypeAny>);
+    this.cachedProviderTools = null;
   }
 
   public list(): ToolDef<ZodTypeAny>[] {
@@ -292,7 +294,11 @@ export class ToolRegistry {
   }
 
   public exportProviderTools(): ProviderFunctionTool[] {
-    return this.list().map((tool) => {
+    if (this.cachedProviderTools) {
+      return this.cachedProviderTools;
+    }
+
+    this.cachedProviderTools = this.list().map((tool) => {
       const schema = zodToJsonSchema(tool.schema, {
         target: "jsonSchema7",
         $refStrategy: "none"
@@ -305,6 +311,8 @@ export class ToolRegistry {
         parameters: toOpenAIFunctionParameters(schema)
       };
     });
+
+    return this.cachedProviderTools;
   }
 
   public async execute(name: string, args: unknown, ctx: ToolContext): Promise<JsonValue> {

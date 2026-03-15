@@ -1,8 +1,5 @@
 import type { OpenAIModelCatalogEntry } from "./runtime/contracts.js";
-
-function normalizeLookup(value: string): string {
-  return value.trim().toLowerCase();
-}
+import { normalizeLookup } from "./catalog-utils.js";
 
 export function getModelById(
   models: OpenAIModelCatalogEntry[],
