@@ -507,32 +507,53 @@ function normalizeApplyPatchResult(result: unknown): NormalizedToolEnvelopeResul
 function normalizeWebSearchResult(result: unknown): NormalizedToolEnvelopeResult {
   const record = asRecord(result);
 
-  const data: Record<string, unknown> = {};
-  appendNonEmptyString(data, "query", record.query);
-  appendNonEmptyString(data, "model", record.model);
-  appendNonEmptyString(data, "response_text", record.response_text);
+  const model = readNonEmptyString(record.model);
+  const responseText = readNonEmptyString(record.response_text);
 
-  const citations = Array.isArray(record.citations) ? record.citations : [];
-  if (citations.length > 0) {
-    data.citations = citations;
-  }
-
+  // Build a map of search_result id → markdown link.
   const searchResults = Array.isArray(record.search_results) ? record.search_results : [];
-  if (searchResults.length > 0) {
-    data.search_results = searchResults;
+  const idToLink = new Map<number, string>();
+  for (const sr of searchResults) {
+    const rec = asRecord(sr);
+    const id = readNumber(rec.id);
+    const url = readNonEmptyString(rec.url);
+    if (id === null || !url) continue;
+    const title = readNonEmptyString(rec.title);
+    idToLink.set(id, `[${title ?? url}](${url})`);
   }
+
+  // Collect only the IDs actually referenced in response_text.
+  const citations: Record<string, string> = {};
+  if (responseText) {
+    for (const m of responseText.matchAll(/\[(\d+)]/g)) {
+      const id = Number(m[1]);
+      const link = idToLink.get(id);
+      if (link && !(String(id) in citations)) {
+        citations[String(id)] = link;
+      }
+    }
+  }
+
+  const citedCount = Object.keys(citations).length;
+
+  const data: Record<string, unknown> = {};
+  if (responseText) data.response_text = responseText;
+  if (citedCount > 0) data.citations = citations;
+
+  const hasContent = responseText !== null;
+  const summary = hasContent
+    ? `Web search returned results with ${citedCount} cited source(s).`
+    : "Web search returned no results.";
 
   const meta: Record<string, unknown> = {
-    citation_count: citations.length,
-    search_result_count: searchResults.length
+    source_count: citedCount
   };
-
-  const hasContent = readNonEmptyString(record.response_text) !== null;
+  if (model) meta.model = model;
 
   return {
     envelope: {
       ok: true,
-      summary: hasContent ? "Web search returned results." : "Web search returned no results.",
+      summary,
       data,
       ...(Object.keys(meta).length > 0 ? { meta } : {})
     },

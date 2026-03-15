@@ -372,29 +372,32 @@ describe("model tool output normalizer", () => {
       }
     },
     {
-      name: "web_search",
+      name: "web_search (citations map with only referenced sources)",
       tool: "web_search",
-      args: { query: "latest AI news" },
+      args: { query: "raspberry pi 6" },
       result: {
-        query: "latest AI news",
+        query: "raspberry pi 6",
         model: "sonar",
-        response_text: "AI News update",
-        citations: [{ url: "https://example.com/ai", title: "AI News" }],
-        search_results: [{ title: "AI News", url: "https://example.com/ai" }]
+        response_text: "Expected late 2026[1]. No official date[2].",
+        search_results: [
+          { id: 1, title: "Pi 6 Rumors", url: "https://example.com/pi6" },
+          { id: 2, title: "Pi FAQ", url: "https://example.com/faq" },
+          { id: 3, title: "Unrelated", url: "https://example.com/other" }
+        ]
       },
       expected: {
         ok: true,
-        summary: "Web search returned results.",
+        summary: "Web search returned results with 2 cited source(s).",
         data: {
-          query: "latest AI news",
-          model: "sonar",
-          response_text: "AI News update",
-          citations: [{ url: "https://example.com/ai", title: "AI News" }],
-          search_results: [{ title: "AI News", url: "https://example.com/ai" }]
+          response_text: "Expected late 2026[1]. No official date[2].",
+          citations: {
+            "1": "[Pi 6 Rumors](https://example.com/pi6)",
+            "2": "[Pi FAQ](https://example.com/faq)"
+          }
         },
         meta: {
-          citation_count: 1,
-          search_result_count: 1
+          source_count: 2,
+          model: "sonar"
         }
       }
     },
