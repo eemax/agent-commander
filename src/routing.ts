@@ -92,6 +92,7 @@ export function createMessageRouter(params: {
       trace?: TraceContext
     ): Promise<MessageRouteResult> {
       const inboundTrace = trace ?? createTraceRootContext("routing");
+      const routingTrace = createChildTraceContext(inboundTrace, "routing");
       const gatekeepingResult = await runMessageGatekeeping({
         chatId: message.chatId,
         messageId: message.messageId,
@@ -99,14 +100,14 @@ export function createMessageRouter(params: {
         logger,
         config,
         workspace,
-        trace: createChildTraceContext(inboundTrace, "routing"),
+        trace: routingTrace,
         observability,
         onCommandCatalogChanged
       });
       if (gatekeepingResult) {
         await observability?.record({
           event: "routing.decision.made",
-          trace: createChildTraceContext(inboundTrace, "routing"),
+          trace: routingTrace,
           stage: "completed",
           chatId: message.chatId,
           messageId: message.messageId,
@@ -123,7 +124,7 @@ export function createMessageRouter(params: {
         if (turn.interruptedPrevious) {
           await observability?.record({
             event: "routing.turn.interrupted",
-            trace: createChildTraceContext(inboundTrace, "routing"),
+            trace: routingTrace,
             stage: "completed",
             chatId: message.chatId,
             messageId: message.messageId,
@@ -137,7 +138,7 @@ export function createMessageRouter(params: {
             message,
             userContent: message.text,
             oneShotSkill: null,
-            trace: createChildTraceContext(inboundTrace, "routing"),
+            trace: routingTrace,
             abortSignal: turn.controller.signal,
             interruptedPreviousTurn: turn.interruptedPrevious,
             onTextDelta: stream?.onTextDelta
@@ -152,7 +153,7 @@ export function createMessageRouter(params: {
 
         await observability?.record({
           event: "routing.decision.made",
-          trace: createChildTraceContext(inboundTrace, "routing"),
+          trace: routingTrace,
           stage: "completed",
           chatId: message.chatId,
           messageId: message.messageId,
@@ -168,7 +169,7 @@ export function createMessageRouter(params: {
         activeBeforeCommand.controller.abort();
         await observability?.record({
           event: "routing.turn.interrupted",
-          trace: createChildTraceContext(inboundTrace, "routing"),
+          trace: routingTrace,
           stage: "completed",
           chatId: message.chatId,
           messageId: message.messageId,
@@ -180,12 +181,12 @@ export function createMessageRouter(params: {
         parsedCommand.command,
         parsedCommand.args,
         message,
-        createChildTraceContext(inboundTrace, "routing")
+        routingTrace
       );
       if (coreHandled) {
         await observability?.record({
           event: "routing.decision.made",
-          trace: createChildTraceContext(inboundTrace, "routing"),
+          trace: routingTrace,
           stage: "completed",
           chatId: message.chatId,
           messageId: message.messageId,
@@ -206,7 +207,7 @@ export function createMessageRouter(params: {
         };
         await observability?.record({
           event: "routing.decision.made",
-          trace: createChildTraceContext(inboundTrace, "routing"),
+          trace: routingTrace,
           stage: "completed",
           chatId: message.chatId,
           messageId: message.messageId,
@@ -223,7 +224,7 @@ export function createMessageRouter(params: {
       if (turn.interruptedPrevious) {
         await observability?.record({
           event: "routing.turn.interrupted",
-          trace: createChildTraceContext(inboundTrace, "routing"),
+          trace: routingTrace,
           stage: "completed",
           chatId: message.chatId,
           messageId: message.messageId,
@@ -237,7 +238,7 @@ export function createMessageRouter(params: {
           message,
           userContent,
           oneShotSkill: skill,
-          trace: createChildTraceContext(inboundTrace, "routing"),
+          trace: routingTrace,
           abortSignal: turn.controller.signal,
           interruptedPreviousTurn: turn.interruptedPrevious,
           onTextDelta: stream?.onTextDelta
@@ -252,7 +253,7 @@ export function createMessageRouter(params: {
 
       await observability?.record({
         event: "routing.decision.made",
-        trace: createChildTraceContext(inboundTrace, "routing"),
+        trace: routingTrace,
         stage: "completed",
         chatId: message.chatId,
         messageId: message.messageId,
@@ -271,6 +272,7 @@ export function createMessageRouter(params: {
       trace?: TraceContext
     ): Promise<MessageRouteResult> {
       const inboundTrace = trace ?? createTraceRootContext("routing");
+      const routingTrace = createChildTraceContext(inboundTrace, "routing");
       const gatekeepingResult = await runMessageGatekeeping({
         chatId: query.chatId,
         messageId: query.callbackQueryId,
@@ -278,14 +280,14 @@ export function createMessageRouter(params: {
         logger,
         config,
         workspace,
-        trace: createChildTraceContext(inboundTrace, "routing"),
+        trace: routingTrace,
         observability,
         onCommandCatalogChanged
       });
       if (gatekeepingResult) {
         await observability?.record({
           event: "routing.decision.made",
-          trace: createChildTraceContext(inboundTrace, "routing"),
+          trace: routingTrace,
           stage: "completed",
           chatId: query.chatId,
           messageId: query.callbackQueryId,
@@ -301,7 +303,7 @@ export function createMessageRouter(params: {
         activeBeforeCommand.controller.abort();
         await observability?.record({
           event: "routing.turn.interrupted",
-          trace: createChildTraceContext(inboundTrace, "routing"),
+          trace: routingTrace,
           stage: "completed",
           chatId: query.chatId,
           messageId: query.callbackQueryId,
@@ -309,14 +311,14 @@ export function createMessageRouter(params: {
         });
       }
 
-      const coreHandled = await coreCommands.handleCallbackQuery(query, createChildTraceContext(inboundTrace, "routing"));
+      const coreHandled = await coreCommands.handleCallbackQuery(query, routingTrace);
       if (!coreHandled) {
         return { type: "ignore" };
       }
 
       await observability?.record({
         event: "routing.decision.made",
-        trace: createChildTraceContext(inboundTrace, "routing"),
+        trace: routingTrace,
         stage: "completed",
         chatId: query.chatId,
         messageId: query.callbackQueryId,

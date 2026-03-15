@@ -57,9 +57,11 @@ function toTelegramInlineKeyboard(inlineKeyboard: TelegramInlineKeyboard): Array
   );
 }
 
+const RETRY_AFTER_REGEX = /retry after\s+(\d+)/i;
+
 function parseRetryAfterMs(error: unknown): number | null {
   const message = error instanceof Error ? error.message : String(error);
-  const match = /retry after\s+(\d+)/i.exec(message);
+  const match = RETRY_AFTER_REGEX.exec(message);
   if (!match?.[1]) {
     return null;
   }

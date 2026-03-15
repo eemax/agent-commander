@@ -122,17 +122,17 @@ const MARKED_OPTIONS = {
   renderer: TELEGRAM_RENDERER
 };
 
+const SANITIZE_OPTIONS = {
+  allowedTags: TELEGRAM_ALLOWED_TAGS,
+  allowedAttributes: TELEGRAM_ALLOWED_ATTRIBUTES,
+  allowedClasses: { span: ["tg-spoiler"] },
+  allowedSchemes: TELEGRAM_ALLOWED_SCHEMES,
+  allowProtocolRelative: false
+};
+
 export function renderMarkdownToTelegramHtml(markdown: string): string {
   const rendered = marked.parse(markdown, MARKED_OPTIONS);
-  const sanitized = sanitizeHtml(rendered, {
-    allowedTags: [...TELEGRAM_ALLOWED_TAGS],
-    allowedAttributes: { ...TELEGRAM_ALLOWED_ATTRIBUTES },
-    allowedClasses: {
-      span: ["tg-spoiler"]
-    },
-    allowedSchemes: [...TELEGRAM_ALLOWED_SCHEMES],
-    allowProtocolRelative: false
-  });
+  const sanitized = sanitizeHtml(rendered, SANITIZE_OPTIONS);
 
   return trimAndCollapseNewlines(sanitized);
 }

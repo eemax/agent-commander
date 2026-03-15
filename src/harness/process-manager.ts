@@ -495,14 +495,25 @@ export class ProcessManager {
 
   public getHealth(): ProcessManagerHealth {
     this.pruneCompletedSessions();
-    const sessions = Array.from(this.sessions.values());
+    let running = 0;
+    let completed = 0;
+    let truncStdout = 0;
+    let truncStderr = 0;
+    let truncCombined = 0;
+    for (const session of this.sessions.values()) {
+      if (session.status === "running") running++;
+      else if (session.status === "completed") completed++;
+      truncStdout += session.truncatedStdoutChars;
+      truncStderr += session.truncatedStderrChars;
+      truncCombined += session.truncatedCombinedChars;
+    }
     return {
-      totalSessions: sessions.length,
-      runningSessions: sessions.filter((session) => session.status === "running").length,
-      completedSessions: sessions.filter((session) => session.status === "completed").length,
-      truncatedStdoutChars: sessions.reduce((sum, session) => sum + session.truncatedStdoutChars, 0),
-      truncatedStderrChars: sessions.reduce((sum, session) => sum + session.truncatedStderrChars, 0),
-      truncatedCombinedChars: sessions.reduce((sum, session) => sum + session.truncatedCombinedChars, 0)
+      totalSessions: this.sessions.size,
+      runningSessions: running,
+      completedSessions: completed,
+      truncatedStdoutChars: truncStdout,
+      truncatedStderrChars: truncStderr,
+      truncatedCombinedChars: truncCombined
     };
   }
 

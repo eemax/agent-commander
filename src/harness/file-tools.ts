@@ -20,6 +20,14 @@ function normalizeEncoding(raw: string | undefined): BufferEncoding {
   throw new Error(`Invalid encoding: ${raw ?? ""}`);
 }
 
+function countChar(content: string, char: string): number {
+  let count = 0;
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] === char) count++;
+  }
+  return count;
+}
+
 function splitLines(content: string): string[] {
   if (content.length === 0) {
     return [];
@@ -62,10 +70,8 @@ export const readFileTool: ToolDef<typeof readFileInputSchema> = {
       throw new Error(`Failed to read file ${targetPath}: ${nodeError.message}`);
     }
 
-    const lines = splitLines(content);
-    const totalLines = lines.length;
-
     if (input.offsetLine === undefined && input.limitLines === undefined) {
+      const totalLines = content.length === 0 ? 0 : countChar(content, "\n") + 1;
       return {
         path: targetPath,
         content,
@@ -75,6 +81,9 @@ export const readFileTool: ToolDef<typeof readFileInputSchema> = {
         truncated: false
       };
     }
+
+    const lines = splitLines(content);
+    const totalLines = lines.length;
 
     const offsetLine = input.offsetLine ?? 1;
     const startIndex = Math.max(0, offsetLine - 1);
@@ -141,28 +150,27 @@ export const replaceInFileTool: ToolDef<typeof replaceInFileInputSchema> = {
       throw new Error(`Failed to read file ${targetPath}: ${nodeError.message}`);
     }
 
-    const occurrences = countOccurrences(content, input.oldText);
-    if (occurrences === 0) {
+    const firstIndex = content.indexOf(input.oldText);
+    if (firstIndex === -1) {
       throw new Error("oldText not found");
     }
 
-    if (occurrences > 1 && input.replaceAll !== true) {
-      throw new Error(
-        `oldText matched ${occurrences} times; use replaceAll=true or make the match more specific`
-      );
+    if (input.replaceAll !== true) {
+      const secondIndex = content.indexOf(input.oldText, firstIndex + input.oldText.length);
+      if (secondIndex !== -1) {
+        const occurrences = countOccurrences(content, input.oldText);
+        throw new Error(
+          `oldText matched ${occurrences} times; use replaceAll=true or make the match more specific`
+        );
+      }
+      const updated = content.slice(0, firstIndex) + input.newText + content.slice(firstIndex + input.oldText.length);
+      await fs.writeFile(targetPath, updated, "utf8");
+      return { ok: true, path: targetPath, replacements: 1 };
     }
 
-    const updated =
-      input.replaceAll === true
-        ? content.split(input.oldText).join(input.newText)
-        : content.replace(input.oldText, input.newText);
-
+    const occurrences = countOccurrences(content, input.oldText);
+    const updated = content.split(input.oldText).join(input.newText);
     await fs.writeFile(targetPath, updated, "utf8");
-
-    return {
-      ok: true,
-      path: targetPath,
-      replacements: input.replaceAll === true ? occurrences : 1
-    };
+    return { ok: true, path: targetPath, replacements: occurrences };
   }
 };

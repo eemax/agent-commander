@@ -142,7 +142,7 @@ export async function parseOpenAIStream(params: {
     }
 
     buffer += decoder.decode(value, { stream: true });
-    buffer = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    buffer = buffer.replace(/\r\n?/g, "\n");
 
     let boundary = buffer.indexOf("\n\n");
     while (boundary >= 0) {
@@ -154,7 +154,7 @@ export async function parseOpenAIStream(params: {
   }
 
   buffer += decoder.decode();
-  buffer = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  buffer = buffer.replace(/\r\n?/g, "\n");
   if (buffer.trim().length > 0) {
     await processEventBlock(buffer);
   }
