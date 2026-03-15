@@ -16,6 +16,7 @@ import type {
   TelegramCommandDefinition
 } from "../types.js";
 import { renderMarkdownToTelegramHtml } from "./assistant-format.js";
+import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
 import { normalizeTelegramCallbackQuery, normalizeTelegramMessage } from "./normalize.js";
 
 export type TelegramTextHandler = (
@@ -353,31 +354,41 @@ export function createTelegramBot(params: {
             messageId: normalized.messageId,
             logger: params.logger
           });
-          await withTelegramRateLimitBackoff(
-            `send reply chat=${normalized.chatId} message=${normalized.messageId}`,
-            params.logger,
-            async () => {
-              const options = {
-                ...(prepared.parseMode ? { parse_mode: prepared.parseMode } : {}),
-                ...(meta.inlineKeyboard
-                  ? {
-                      reply_markup: {
-                        inline_keyboard: toTelegramInlineKeyboard(meta.inlineKeyboard)
+          const chunks = splitTelegramMessage(prepared.text, {
+            parseMode: prepared.parseMode
+          });
+          for (let i = 0; i < chunks.length; i += 1) {
+            const isLast = i === chunks.length - 1;
+            await withTelegramRateLimitBackoff(
+              `send reply chat=${normalized.chatId} message=${normalized.messageId}`,
+              params.logger,
+              async () => {
+                const options = {
+                  link_preview_options: { is_disabled: true },
+                  ...(prepared.parseMode ? { parse_mode: prepared.parseMode } : {}),
+                  ...(isLast && meta.inlineKeyboard
+                    ? {
+                        reply_markup: {
+                          inline_keyboard: toTelegramInlineKeyboard(meta.inlineKeyboard)
+                        }
                       }
-                    }
-                  : {})
-              };
-              await ctx.reply(prepared.text, Object.keys(options).length > 0 ? options : undefined);
-            }
-          );
+                    : {})
+                };
+                await ctx.reply(chunks[i], options);
+              }
+            );
+          }
         },
         sendDraft: params.streamingEnabled
           ? async (text) => {
+              const truncated = text.length > TELEGRAM_MESSAGE_LIMIT
+                ? text.slice(0, TELEGRAM_MESSAGE_LIMIT)
+                : text;
               await withTelegramRateLimitBackoff(
                 `send draft chat=${normalized.chatId} message=${normalized.messageId}`,
                 params.logger,
                 async () => {
-                  await ctx.replyWithDraft(text);
+                  await ctx.replyWithDraft(truncated);
                 }
               );
             }
@@ -404,7 +415,9 @@ export function createTelegramBot(params: {
         senderId: normalized.senderId,
         error
       });
-      await ctx.reply("I hit an internal error while processing that message.");
+      await ctx.reply("I hit an internal error while processing that message.", {
+        link_preview_options: { is_disabled: true }
+      });
     }
   });
 
@@ -450,20 +463,27 @@ export function createTelegramBot(params: {
           hasInlineKeyboard: Boolean(inlineKeyboard)
         });
 
-        await withTelegramRateLimitBackoff(
-          `send callback reply chat=${normalized.chatId} message=${normalized.messageId}`,
-          params.logger,
-          async () => {
-            const options = inlineKeyboard
-              ? {
-                  reply_markup: {
-                    inline_keyboard: toTelegramInlineKeyboard(inlineKeyboard)
-                  }
-                }
-              : undefined;
-            await ctx.reply(text, options);
-          }
-        );
+        const chunks = splitTelegramMessage(text);
+        for (let i = 0; i < chunks.length; i += 1) {
+          const isLast = i === chunks.length - 1;
+          await withTelegramRateLimitBackoff(
+            `send callback reply chat=${normalized.chatId} message=${normalized.messageId}`,
+            params.logger,
+            async () => {
+              const options = {
+                link_preview_options: { is_disabled: true },
+                ...(isLast && inlineKeyboard
+                  ? {
+                      reply_markup: {
+                        inline_keyboard: toTelegramInlineKeyboard(inlineKeyboard)
+                      }
+                    }
+                  : {})
+              };
+              await ctx.reply(chunks[i], options);
+            }
+          );
+        }
       };
 
       switch (result.type) {
@@ -518,7 +538,9 @@ export function createTelegramBot(params: {
       } catch {
         // ignore callback answer failures on error path
       }
-      await ctx.reply("I hit an internal error while handling that selection.");
+      await ctx.reply("I hit an internal error while handling that selection.", {
+        link_preview_options: { is_disabled: true }
+      });
     }
   });
 

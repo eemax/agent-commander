@@ -66,6 +66,51 @@ describe("renderMarkdownToTelegramHtml", () => {
   });
 });
 
+describe("ZWSP auto-link prevention", () => {
+  const ZWSP = "\u200B";
+
+  it("breaks /command patterns in text", () => {
+    const output = renderMarkdownToTelegramHtml("Use /start to begin");
+    expect(output).toContain(`/${ZWSP}start`);
+  });
+
+  it("breaks file.md references in text", () => {
+    const output = renderMarkdownToTelegramHtml("Edit README.md now");
+    expect(output).toContain(`README${ZWSP}.md`);
+  });
+
+  it("does not break non-TLD extensions like .ts and .json", () => {
+    const output = renderMarkdownToTelegramHtml("Check config.json and index.ts");
+    expect(output).toContain("config.json");
+    expect(output).toContain("index.ts");
+    expect(output).not.toContain(`config${ZWSP}.json`);
+    expect(output).not.toContain(`index${ZWSP}.ts`);
+  });
+
+  it("preserves actual URLs in <a> href attributes", () => {
+    const output = renderMarkdownToTelegramHtml("[link](https://example.com/path)");
+    expect(output).toContain('href="https://example.com/path"');
+    expect(output).not.toContain(`href="https:/${ZWSP}`);
+  });
+
+  it("does not break content inside <pre><code> blocks", () => {
+    const output = renderMarkdownToTelegramHtml("```\n/start config.md\n```");
+    expect(output).toContain("<pre><code>");
+    // Content inside pre blocks should be untouched
+    expect(output).toContain("/start");
+    expect(output).toContain("config.md");
+    // Verify no ZWSP was inserted in the code block
+    const preContent = output.match(/<pre><code>([\s\S]*?)<\/code><\/pre>/)?.[1] ?? "";
+    expect(preContent).not.toContain(ZWSP);
+  });
+
+  it("handles /path patterns that are not commands", () => {
+    // A bare /path should still get ZWSP since it's not a URL
+    const output = renderMarkdownToTelegramHtml("Run /deploy now");
+    expect(output).toContain(`/${ZWSP}deploy`);
+  });
+});
+
 describe("prepareTelegramReply", () => {
   const logger = {
     debug: vi.fn(),

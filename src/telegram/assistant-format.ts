@@ -130,9 +130,65 @@ const SANITIZE_OPTIONS = {
   allowProtocolRelative: false
 };
 
+const ZWSP = "\u200B";
+
+/**
+ * .md is a valid TLD, so Telegram auto-links `name.md` as a domain.
+ * Other file extensions (.js, .ts, .py, etc.) are not TLDs and won't be linked.
+ */
+const FILE_EXTENSION_PATTERN = /(?<=\w)\.(?=md\b)/gi;
+
+/**
+ * Break patterns that Telegram auto-links but shouldn't be links:
+ * - /command patterns (not part of a URL scheme)
+ * - file.ext patterns (common source file extensions)
+ */
+function breakAutoLinks(text: string): string {
+  // Break /word patterns: slash followed by a letter, not preceded by :, word char, or ;
+  // (avoids breaking :// in URLs, paths within URLs, and HTML entities like &lt;/b&gt;)
+  let result = text.replace(/(?<![:\w;])\/(?=[a-zA-Z])/g, `/${ZWSP}`);
+
+  // Break .ext patterns for common file extensions
+  result = result.replace(FILE_EXTENSION_PATTERN, `${ZWSP}.`);
+
+  return result;
+}
+
+/**
+ * Process HTML to insert ZWSP characters that prevent Telegram from
+ * auto-linking /commands and file.ext references.
+ * Preserves <a> href attributes and <pre> block content.
+ */
+function insertZwspBreakers(html: string): string {
+  // Regex segments: <a>...</a> blocks | <pre>...</pre> blocks | other tags | text content
+  return html.replace(
+    /(<a\s[^>]*>)([\s\S]*?)(<\/a>)|(<pre[\s\S]*?<\/pre>)|(<[^>]+>)|([^<]+)/gi,
+    (match, aOpen, aContent, aClose, preBlock, tag, text) => {
+      if (aOpen) {
+        // <a> tag: preserve href, break auto-links in display text only
+        return aOpen + breakAutoLinks(aContent) + aClose;
+      }
+      if (preBlock) {
+        // <pre> block: leave unchanged (code should display as-is)
+        return preBlock;
+      }
+      if (tag) {
+        // Other HTML tags: leave unchanged
+        return tag;
+      }
+      if (text) {
+        // Text content: apply ZWSP breaks
+        return breakAutoLinks(text);
+      }
+      return match;
+    }
+  );
+}
+
 export function renderMarkdownToTelegramHtml(markdown: string): string {
   const rendered = marked.parse(markdown, MARKED_OPTIONS);
   const sanitized = sanitizeHtml(rendered, SANITIZE_OPTIONS);
+  const processed = insertZwspBreakers(sanitized);
 
-  return trimAndCollapseNewlines(sanitized);
+  return trimAndCollapseNewlines(processed);
 }
