@@ -90,10 +90,7 @@ At the first model turn of each conversation, runtime injects:
 - `<environment>` containing `<tools>` and `<skills>`
 - `<reference_documents>` with `<document name="AGENTS.md" kind="agent_spec">`
 
-Compiled snapshots are written to `paths.context_snapshots_dir` per conversation as:
-
-- `<conversationId>.json` metadata
-- `<conversationId>.md` compiled hybrid context
+Compiled snapshots are written to `paths.context_snapshots_dir` per conversation as a single `<conversationId>.md` file containing the compiled hybrid context with embedded JSON metadata (delimited by `<!-- acmd:snapshot-metadata:start -->` / `<!-- acmd:snapshot-metadata:end -->` markers).
 
 ## Telegram Commands
 

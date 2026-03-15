@@ -89,10 +89,13 @@ This is the canonical `config.json` shape.
   - `api_key`: non-empty string or `null`, default `null`
     - when `null`, the `web_search` tool is disabled at startup (warning only; no startup failure)
     - `"replace_me"` is treated as unset/disabled
-  - `max_tokens`: positive integer, default `10000`
-    - fixed total content budget used by `web_search` calls (model cannot override)
-  - `max_tokens_per_page`: positive integer, default `4096`
-    - fixed per-page content budget used by `web_search` calls (model cannot override)
+  - `model`: non-empty string, default `"sonar"` — active Perplexity model for search calls
+  - `available_models`: array of model catalog entries for web search, default:
+    - `sonar` (alias: `search`)
+    - `sonar-pro` (alias: `search-pro`)
+    - each entry is:
+      - `id`: non-empty string
+      - `aliases`: string array, default `[]`
 
 ### `paths`
 

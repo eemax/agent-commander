@@ -35,7 +35,7 @@ Agent Commander is intentionally small:
 - `src/agent/tool-loop.ts`
   Provider-agnostic loop that executes function tool calls and sends native `function_call_output` payloads (`output` is a normalized JSON envelope with `ok`/`summary` and `data|error|meta`), with explicit workflow state transitions, heartbeat progress events, timeout budgets, poll-loop guards, failure breakers, and fail-path cleanup.
 - `src/harness/*`
-  Local trusted tool harness (`bash`, `process`, `read_file`, `write_file`, `replace_in_file`, `apply_patch`, optional `web_search`) with owner-scoped process sessions and shared path utilities.
+  Local trusted tool harness (`bash`, `process`, `read_file`, `write_file`, `replace_in_file`, `apply_patch`, `web_fetch`, optional `web_search`) with owner-scoped process sessions and shared path utilities. See [tools.md](tools.md) for the full tool reference.
   Exported tool schemas are normalized for OpenAI Responses function tools (`parameters` is always a JSON Schema object root with `type: "object"` and no top-level `anyOf`/`oneOf`/`allOf`/`enum`/`not`).
 - `src/routing.ts`
   Router entrypoint wiring, including per-chat turn interruption (new message aborts stale in-flight turn).
