@@ -7,6 +7,9 @@ Release history and architectural decision log for Agent Commander.
 ### Unreleased
 
 - Added per-model context management (compaction) support via `compaction_tokens` and `compaction_threshold` config fields. When configured, requests to the OpenAI Responses API include `context_management` with the computed `compact_threshold`, enabling automatic server-side context compaction for long conversations.
+- Added `/steer <message>` command for mid-turn instruction injection. Pushes guidance into the active tool loop without aborting the turn; the model receives the steer text as a user message before its next tool-loop iteration. Verbose mode surfaces steer events in Telegram chat.
+- Added message queueing during active turns. Normal messages sent while a turn is running are now queued instead of aborting the active turn. Queued messages are processed after the turn completes. Two configurable modes via `runtime.message_queue_mode`: `batch` (default, combines all queued messages into one follow-up turn) and `multi_turn` (fires queued messages one at a time as sequential turns). `/stop` clears the queue.
+- Made Telegram bot handlers non-blocking so `/steer` and concurrent messages can be processed during active turns (fire-and-forget IIFE pattern for grammY sequential update processing).
 
 ### 0.2.0 — 2026-03-12
 

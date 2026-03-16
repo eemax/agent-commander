@@ -108,6 +108,10 @@ Core commands:
 - `/thinking <none|minimal|low|medium|high|xhigh>`
 - `/model <id-or-alias>`
 - `/models`
+- `/search <id-or-alias>`
+- `/steer <message>`
+
+`/steer <message>` injects guidance into an active tool loop without aborting the turn. The steer text is added as a user message before the model's next tool-loop iteration. When verbose mode is on, steer events appear in Telegram chat as `🎯 Steer: <message>`. If no turn is active, `/steer` returns an error.
 
 `/new` and `/stash <name>` open Telegram inline-button menus listing stashed conversations plus `New`.
 `/stash list` returns a text list of stashes without opening a menu.
@@ -140,6 +144,18 @@ These payloads are intended for model context, not user-facing Telegram replies.
 When verbose mode is on, model-triggered tool calls send extra Telegram messages before the final assistant reply (for example `📖 Read`, `✍️ Write`, `>_ Bash`). Failed tool calls use `⚠️` and include a short error summary.
 Workflow-progress notices (`tool.workflow.progress`) are controlled by `observability.enabled`, not verbose mode. When observability is enabled, progress is surfaced via draft streaming updates (not verbose extra replies).
 Progress updates are not delayed behind heartbeat thresholds, so short workflows surface progress too.
+
+## Message Queueing
+
+When a normal (non-command) message is sent while a turn is active, it is queued instead of aborting the running turn. The bot acknowledges with `Message queued (N pending)`.
+
+After the active turn completes, queued messages are processed according to `runtime.message_queue_mode`:
+
+- **`batch`** (default): All queued messages are combined (joined with double newline) and sent as a single follow-up turn.
+- **`multi_turn`**: Queued messages are fired one at a time, each as its own sequential turn.
+
+`/stop` aborts the active turn **and** clears all pending queued messages.
+`/steer <message>` is not queued — it injects directly into the active tool loop.
 
 Dynamic commands:
 

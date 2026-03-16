@@ -52,7 +52,8 @@
     "tool_cleanup_grace_ms": 3000,
     "tool_failure_breaker_threshold": 4,
     "session_cache_max_entries": 200,
-    "app_log_flush_interval_ms": 1000
+    "app_log_flush_interval_ms": 1000,
+    "message_queue_mode": "batch"
   },
   "access": {
     "allowed_sender_ids": [

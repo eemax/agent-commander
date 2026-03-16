@@ -70,6 +70,10 @@ This is the canonical `config.json` shape.
 - `tool_failure_breaker_threshold`: positive integer, default `4`
 - `session_cache_max_entries`: positive integer, default `200`
 - `app_log_flush_interval_ms`: positive integer, default `1000`
+- `message_queue_mode`: `"batch" | "multi_turn"`, default `"batch"`
+  - controls how messages sent during an active turn are processed after the turn completes
+  - `"batch"`: all queued messages are combined (joined with `\n\n`) and sent as a single follow-up turn
+  - `"multi_turn"`: queued messages are fired one at a time, each as its own sequential turn
 
 ### `access`
 
