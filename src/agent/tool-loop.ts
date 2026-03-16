@@ -528,7 +528,7 @@ export async function runOpenAIToolLoop(params: {
 
           await reportProgress({
             type: "steer",
-            message: `steer injected: ${steerMessage.slice(0, 100)}`
+            message: steerMessage
           });
         }
       }
