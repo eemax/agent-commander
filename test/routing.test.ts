@@ -1285,7 +1285,7 @@ describe("createMessageRouter", () => {
     );
   });
 
-  it("aborts previous in-flight turns and suppresses stale replies", async () => {
+  it("queues messages during active turns instead of aborting", async () => {
     const config = makeConfig();
     const workspace = createWorkspaceManager(config);
     await workspace.bootstrap();
@@ -1295,9 +1295,9 @@ describe("createMessageRouter", () => {
         const latestContent = request.history[request.history.length - 1]?.content;
         if (latestContent === "first") {
           await sleep(50);
-          return "stale-first";
+          return "reply-first";
         }
-        return "fresh-second";
+        return "reply-second";
       })
     };
 
@@ -1317,11 +1317,15 @@ describe("createMessageRouter", () => {
     await sleep(10);
     const secondTurn = router.handleIncomingMessage(sampleIncoming({ text: "second", messageId: "msg-2" }));
 
+    // Second message is queued, not a new turn
     await expect(secondTurn).resolves.toMatchObject({
       type: "reply",
-      text: "fresh-second",
-      extraReplies: [expect.stringContaining("Interrupted previous in-progress run")]
+      text: "Message queued (1 pending)"
     });
-    await expect(firstTurn).resolves.toEqual({ type: "ignore" });
+    // First turn completes normally
+    await expect(firstTurn).resolves.toMatchObject({
+      type: "reply",
+      text: "reply-first"
+    });
   });
 });

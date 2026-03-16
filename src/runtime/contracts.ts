@@ -54,6 +54,7 @@ export type Config = {
     toolFailureBreakerThreshold: number;
     sessionCacheMaxEntries: number;
     appLogFlushIntervalMs: number;
+    messageQueueMode: "batch" | "multi_turn";
   };
   access: {
     allowedSenderIds: Set<string>;

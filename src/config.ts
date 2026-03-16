@@ -59,7 +59,8 @@ const DEFAULT_CONFIG_TEMPLATE = {
     tool_cleanup_grace_ms: 3_000,
     tool_failure_breaker_threshold: 4,
     session_cache_max_entries: 200,
-    app_log_flush_interval_ms: 1_000
+    app_log_flush_interval_ms: 1_000,
+    message_queue_mode: "batch"
   },
   access: {
     allowed_sender_ids: ["replace_me"]
@@ -175,7 +176,8 @@ const configSchema = z
         tool_cleanup_grace_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_cleanup_grace_ms),
         tool_failure_breaker_threshold: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_failure_breaker_threshold),
         session_cache_max_entries: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.session_cache_max_entries),
-        app_log_flush_interval_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.app_log_flush_interval_ms)
+        app_log_flush_interval_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.app_log_flush_interval_ms),
+        message_queue_mode: z.enum(["batch", "multi_turn"]).default(DEFAULT_CONFIG_TEMPLATE.runtime.message_queue_mode as "batch" | "multi_turn")
       })
       .strict(),
     access: z
@@ -476,7 +478,8 @@ export function loadConfig(repoRoot = process.cwd()): Config {
       toolCleanupGraceMs: config.runtime.tool_cleanup_grace_ms,
       toolFailureBreakerThreshold: config.runtime.tool_failure_breaker_threshold,
       sessionCacheMaxEntries: config.runtime.session_cache_max_entries,
-      appLogFlushIntervalMs: config.runtime.app_log_flush_interval_ms
+      appLogFlushIntervalMs: config.runtime.app_log_flush_interval_ms,
+      messageQueueMode: config.runtime.message_queue_mode
     },
     access: {
       allowedSenderIds: normalizeAllowedSenderIds(config.access.allowed_sender_ids)

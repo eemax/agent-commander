@@ -14,6 +14,7 @@ import { createAssistantTurnHandler } from "./routing/assistant-turn.js";
 import { createCoreCommandHandler } from "./routing/core-commands.js";
 import { runMessageGatekeeping } from "./routing/gatekeeping.js";
 import { createSteerChannel, type SteerChannel } from "./steer-channel.js";
+import { createMessageQueue, type MessageQueue } from "./message-queue.js";
 
 export type MessageRouter = {
   handleIncomingMessage(
@@ -38,6 +39,7 @@ export function createMessageRouter(params: {
     params;
   const activeTurns = new Map<string, { token: string; controller: AbortController; messageId: string; steerChannel: SteerChannel }>();
   const latestTurnTokenByChat = new Map<string, string>();
+  const pendingMessages = new Map<string, MessageQueue>();
 
   const beginTurn = (chatId: string, messageId: string): { token: string; controller: AbortController; steerChannel: SteerChannel; interruptedPrevious: boolean } => {
     const previous = activeTurns.get(chatId);
@@ -71,6 +73,104 @@ export function createMessageRouter(params: {
     if (current?.token === token) {
       activeTurns.delete(chatId);
     }
+  };
+
+  const runSingleTurn = async (
+    message: NormalizedTelegramMessage,
+    userContent: string,
+    oneShotSkill: Parameters<typeof handleAssistantTurn>[0]["oneShotSkill"],
+    trace: TraceContext,
+    stream?: MessageStreamingSink
+  ): Promise<MessageRouteResult> => {
+    const turn = beginTurn(message.chatId, message.messageId);
+    if (turn.interruptedPrevious) {
+      await observability?.record({
+        event: "routing.turn.interrupted",
+        trace,
+        stage: "completed",
+        chatId: message.chatId,
+        messageId: message.messageId,
+        interruptedByMessageId: message.messageId
+      });
+    }
+
+    let result: MessageRouteResult;
+    try {
+      result = await handleAssistantTurn({
+        message,
+        userContent,
+        oneShotSkill,
+        trace,
+        abortSignal: turn.controller.signal,
+        steerChannel: turn.steerChannel,
+        interruptedPreviousTurn: turn.interruptedPrevious,
+        onTextDelta: stream?.onTextDelta
+      });
+    } finally {
+      releaseTurn(message.chatId, turn.token);
+    }
+
+    if (latestTurnTokenByChat.get(message.chatId) !== turn.token) {
+      return { type: "ignore" };
+    }
+
+    await observability?.record({
+      event: "routing.decision.made",
+      trace,
+      stage: "completed",
+      chatId: message.chatId,
+      messageId: message.messageId,
+      decision: oneShotSkill ? "skill_command" : "assistant_turn",
+      resultType: result.type,
+      result
+    });
+
+    return result;
+  };
+
+  const processQueue = async (chatId: string): Promise<void> => {
+    const queue = pendingMessages.get(chatId);
+    if (!queue || queue.length === 0) {
+      pendingMessages.delete(chatId);
+      return;
+    }
+
+    if (config.runtime.messageQueueMode === "batch") {
+      const entries = queue.drain();
+      pendingMessages.delete(chatId);
+      const combinedText = entries.map((e) => e.message.text).join("\n\n");
+      const last = entries[entries.length - 1]!;
+
+      await runSingleTurn(last.message, combinedText, null, last.trace, last.stream);
+    } else {
+      const entry = queue.drainOne();
+      if (queue.length === 0) {
+        pendingMessages.delete(chatId);
+      }
+      if (!entry) {
+        return;
+      }
+
+      await runSingleTurn(entry.message, entry.message.text, null, entry.trace, entry.stream);
+      // Recurse: after this turn completes, process next queued message
+      await processQueue(chatId);
+    }
+  };
+
+  const runTurnAndDrainQueue = async (
+    message: NormalizedTelegramMessage,
+    userContent: string,
+    oneShotSkill: Parameters<typeof handleAssistantTurn>[0]["oneShotSkill"],
+    trace: TraceContext,
+    stream?: MessageStreamingSink
+  ): Promise<MessageRouteResult> => {
+    const result = await runSingleTurn(message, userContent, oneShotSkill, trace, stream);
+    // After this turn completes, drain any messages that were queued during it
+    void processQueue(message.chatId).catch((error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.error(`routing: failed to process queued messages for chat=${message.chatId}: ${msg}`);
+    });
+    return result;
   };
 
   const handleAssistantTurn = createAssistantTurnHandler({
@@ -124,49 +224,25 @@ export function createMessageRouter(params: {
 
       const parsedCommand = parseTelegramCommand(message.text);
       if (!parsedCommand) {
-        const turn = beginTurn(message.chatId, message.messageId);
-        if (turn.interruptedPrevious) {
+        const activeTurn = activeTurns.get(message.chatId);
+        if (activeTurn) {
+          const queue = pendingMessages.get(message.chatId) ?? createMessageQueue();
+          pendingMessages.set(message.chatId, queue);
+          const count = queue.push({ message, stream, trace: routingTrace });
+
           await observability?.record({
-            event: "routing.turn.interrupted",
+            event: "routing.message.queued",
             trace: routingTrace,
             stage: "completed",
             chatId: message.chatId,
             messageId: message.messageId,
-            interruptedByMessageId: message.messageId
+            pendingCount: count
           });
+
+          return { type: "reply", text: `Message queued (${count} pending)` };
         }
 
-        let result: MessageRouteResult;
-        try {
-          result = await handleAssistantTurn({
-            message,
-            userContent: message.text,
-            oneShotSkill: null,
-            trace: routingTrace,
-            abortSignal: turn.controller.signal,
-            steerChannel: turn.steerChannel,
-            interruptedPreviousTurn: turn.interruptedPrevious,
-            onTextDelta: stream?.onTextDelta
-          });
-        } finally {
-          releaseTurn(message.chatId, turn.token);
-        }
-
-        if (latestTurnTokenByChat.get(message.chatId) !== turn.token) {
-          return { type: "ignore" };
-        }
-
-        await observability?.record({
-          event: "routing.decision.made",
-          trace: routingTrace,
-          stage: "completed",
-          chatId: message.chatId,
-          messageId: message.messageId,
-          decision: "assistant_turn",
-          resultType: result.type,
-          result
-        });
-        return result;
+        return await runTurnAndDrainQueue(message, message.text, null, routingTrace, stream);
       }
 
       if (parsedCommand.command === "steer") {
@@ -197,17 +273,20 @@ export function createMessageRouter(params: {
         };
       }
 
-      const activeBeforeCommand = activeTurns.get(message.chatId);
-      if (activeBeforeCommand) {
-        activeBeforeCommand.controller.abort();
-        await observability?.record({
-          event: "routing.turn.interrupted",
-          trace: routingTrace,
-          stage: "completed",
-          chatId: message.chatId,
-          messageId: message.messageId,
-          interruptedByMessageId: message.messageId
-        });
+      if (parsedCommand.command === "stop") {
+        const activeTurn = activeTurns.get(message.chatId);
+        if (activeTurn) {
+          activeTurn.controller.abort();
+          await observability?.record({
+            event: "routing.turn.interrupted",
+            trace: routingTrace,
+            stage: "completed",
+            chatId: message.chatId,
+            messageId: message.messageId,
+            interruptedByMessageId: message.messageId
+          });
+        }
+        pendingMessages.delete(message.chatId);
       }
 
       const coreHandled = await coreCommands.handleCommand(
@@ -253,52 +332,7 @@ export function createMessageRouter(params: {
       }
 
       const userContent = parsedCommand.args.length > 0 ? parsedCommand.args : message.text;
-      const turn = beginTurn(message.chatId, message.messageId);
-      if (turn.interruptedPrevious) {
-        await observability?.record({
-          event: "routing.turn.interrupted",
-          trace: routingTrace,
-          stage: "completed",
-          chatId: message.chatId,
-          messageId: message.messageId,
-          interruptedByMessageId: message.messageId
-        });
-      }
-
-      let result: MessageRouteResult;
-      try {
-        result = await handleAssistantTurn({
-          message,
-          userContent,
-          oneShotSkill: skill,
-          trace: routingTrace,
-          abortSignal: turn.controller.signal,
-          steerChannel: turn.steerChannel,
-          interruptedPreviousTurn: turn.interruptedPrevious,
-          onTextDelta: stream?.onTextDelta
-        });
-      } finally {
-        releaseTurn(message.chatId, turn.token);
-      }
-
-      if (latestTurnTokenByChat.get(message.chatId) !== turn.token) {
-        return { type: "ignore" };
-      }
-
-      await observability?.record({
-        event: "routing.decision.made",
-        trace: routingTrace,
-        stage: "completed",
-        chatId: message.chatId,
-        messageId: message.messageId,
-        decision: "skill_command",
-        command: parsedCommand.command,
-        args: parsedCommand.args,
-        skillSlug: skill.slug,
-        resultType: result.type,
-        result
-      });
-      return result;
+      return await runTurnAndDrainQueue(message, userContent, skill, routingTrace, stream);
     },
 
     async handleIncomingCallbackQuery(
