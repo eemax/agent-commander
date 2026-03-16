@@ -266,7 +266,7 @@ describe("createOpenAIProvider", () => {
       })
     ).resolves.toBe("usage-aware");
 
-    expect(onUsage).toHaveBeenCalledWith({
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
       inputTokens: 1200,
       outputTokens: 300,
       cachedTokens: 800,
@@ -274,7 +274,7 @@ describe("createOpenAIProvider", () => {
       peakInputTokens: 1200,
       peakOutputTokens: 300,
       peakContextTokens: 1500
-    });
+    }));
   });
 
   it("aggregates usage snapshots across tool-loop responses", async () => {
@@ -349,7 +349,7 @@ describe("createOpenAIProvider", () => {
     ).resolves.toBe("done");
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(onUsage).toHaveBeenCalledWith({
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
       inputTokens: 1800,
       outputTokens: 170,
       cachedTokens: 1300,
@@ -357,7 +357,7 @@ describe("createOpenAIProvider", () => {
       peakInputTokens: 1000,
       peakOutputTokens: 120,
       peakContextTokens: 1050
-    });
+    }));
   });
 
   it("forwards streamed text deltas through onTextDelta", async () => {

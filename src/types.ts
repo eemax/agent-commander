@@ -127,6 +127,7 @@ export type ProviderUsageSnapshot = {
   peakInputTokens?: number | null;
   peakOutputTokens?: number | null;
   peakContextTokens?: number | null;
+  lastCacheHitAt?: number | null;
 };
 
 export type ProviderErrorKind =

@@ -392,6 +392,8 @@ export function createCoreCommandHandler(params: {
                 workflowLoopBreakerTrips: toolRuntime.workflowLoopBreakerTrips
               },
               toolResultStats,
+              compactionTokens: activeModel.compactionTokens,
+              compactionThreshold: activeModel.compactionThreshold,
               includeDiagnostics
             })
           };

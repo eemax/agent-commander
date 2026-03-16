@@ -33,7 +33,8 @@ export function createEmptyUsageSnapshot(): ProviderUsageSnapshot {
     reasoningTokens: null,
     peakInputTokens: null,
     peakOutputTokens: null,
-    peakContextTokens: null
+    peakContextTokens: null,
+    lastCacheHitAt: null
   };
 }
 
@@ -52,7 +53,8 @@ export function extractUsageSnapshot(response: OpenAIResponsesResponse): Provide
     reasoningTokens,
     peakInputTokens: inputTokens,
     peakOutputTokens: outputTokens,
-    peakContextTokens
+    peakContextTokens,
+    lastCacheHitAt: cachedTokens !== null && cachedTokens > 0 ? Date.now() : null
   };
 }
 
@@ -68,6 +70,7 @@ export function accumulateUsageSnapshot(
     reasoningTokens: addNullableNumber(current.reasoningTokens, next.reasoningTokens),
     peakInputTokens: maxNullableNumber(current.peakInputTokens ?? null, next.peakInputTokens ?? null),
     peakOutputTokens: maxNullableNumber(current.peakOutputTokens ?? null, next.peakOutputTokens ?? null),
-    peakContextTokens: maxNullableNumber(current.peakContextTokens ?? null, next.peakContextTokens ?? null)
+    peakContextTokens: maxNullableNumber(current.peakContextTokens ?? null, next.peakContextTokens ?? null),
+    lastCacheHitAt: maxNullableNumber(current.lastCacheHitAt ?? null, next.lastCacheHitAt ?? null)
   };
 }

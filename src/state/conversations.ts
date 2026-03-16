@@ -143,7 +143,8 @@ function isUsageSnapshot(value: unknown): value is ProviderUsageSnapshot {
     isUsageNumber(value.reasoningTokens) &&
     isUsageNumberOrUndefined(value.peakInputTokens) &&
     isUsageNumberOrUndefined(value.peakOutputTokens) &&
-    isUsageNumberOrUndefined(value.peakContextTokens)
+    isUsageNumberOrUndefined(value.peakContextTokens) &&
+    isUsageNumberOrUndefined(value.lastCacheHitAt)
   );
 }
 

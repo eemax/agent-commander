@@ -63,7 +63,20 @@ export function formatCompactNumber(value: number): string {
   return COMPACT_NUMBER_FORMAT.format(value).toLowerCase();
 }
 
-function formatCacheSummary(usage: ProviderUsageSnapshot | null): string {
+function formatRelativeTime(deltaMs: number): string {
+  const seconds = Math.max(0, Math.floor(deltaMs / 1000));
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
+
+function formatCacheSummary(usage: ProviderUsageSnapshot | null, nowMs?: number): string {
   if (!usage || usage.inputTokens === null || usage.cachedTokens === null || usage.inputTokens <= 0) {
     return "🗄️ Cache: n/a";
   }
@@ -71,7 +84,15 @@ function formatCacheSummary(usage: ProviderUsageSnapshot | null): string {
   const cachedTokens = Math.min(usage.cachedTokens, usage.inputTokens);
   const newTokens = Math.max(usage.inputTokens - cachedTokens, 0);
   const cacheHitPercent = Math.round((cachedTokens / usage.inputTokens) * 100);
-  return `🗄️ Cache: ${cacheHitPercent}% hit · ${formatCompactNumber(cachedTokens)} cached, ${formatCompactNumber(newTokens)} new`;
+  let line = `🗄️ Cache: ${cacheHitPercent}% hit · ${formatCompactNumber(cachedTokens)} cached, ${formatCompactNumber(newTokens)} new`;
+
+  const lastHitAt = usage.lastCacheHitAt;
+  if (lastHitAt != null && lastHitAt > 0) {
+    const now = nowMs ?? Date.now();
+    line += ` · last ${formatRelativeTime(now - lastHitAt)}`;
+  }
+
+  return line;
 }
 
 function formatContextRatio(tokens: number | null, contextWindow: number | null): string {
@@ -117,7 +138,9 @@ function resolveBudgetContextWindow(
 function formatContextSummary(
   contextWindow: number | null,
   modelMaxOutputTokens: number | null,
-  usage: ProviderUsageSnapshot | null
+  usage: ProviderUsageSnapshot | null,
+  compactionTokens: number | null,
+  compactionThreshold: number
 ): string {
   if (!usage) {
     return "📚 Context budget: n/a";
@@ -133,8 +156,14 @@ function formatContextSummary(
     return "📚 Context budget: n/a";
   }
 
-  const budget = formatContextRatio(budgetTokens, budgetContextWindow);
-  return `📚 Context budget: ${budget}`;
+  let line = `📚 Context budget: ${formatContextRatio(budgetTokens, budgetContextWindow)}`;
+
+  if (compactionTokens !== null) {
+    const compactThreshold = Math.floor(compactionTokens * compactionThreshold);
+    line += ` · compact: ${formatCompactNumber(compactThreshold)}`;
+  }
+
+  return line;
 }
 
 function formatTokenSummary(usage: ProviderUsageSnapshot | null): string {
@@ -382,7 +411,10 @@ export function buildStatusReply(params: {
     fail: number;
     byTool: Record<string, number>;
   };
+  compactionTokens: number | null;
+  compactionThreshold: number;
   includeDiagnostics?: boolean;
+  nowMs?: number;
 }): string {
   const includeDiagnostics = params.includeDiagnostics ?? false;
   const runtimeDetails = [
@@ -393,9 +425,9 @@ export function buildStatusReply(params: {
   const summaryLines = [
     `🧠 openai/${params.model}`,
     ...(params.webSearchModel ? [`🔎 perplexity/${params.webSearchModel}`] : []),
+    formatContextSummary(params.modelContextWindow, params.modelMaxOutputTokens, params.latestUsage, params.compactionTokens, params.compactionThreshold),
     formatTokenSummary(params.latestUsage),
-    formatContextSummary(params.modelContextWindow, params.modelMaxOutputTokens, params.latestUsage),
-    formatCacheSummary(params.latestUsage),
+    formatCacheSummary(params.latestUsage, params.nowMs),
     `⚙️ Runtime: ${runtimeDetails.join(" · ")}`,
     `🏃 Processes: ${params.sessions.length} running`
   ];

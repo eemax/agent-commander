@@ -45,7 +45,9 @@ const baseParams = {
     success: 0,
     fail: 0,
     byTool: {}
-  }
+  },
+  compactionTokens: null,
+  compactionThreshold: 1
 };
 
 describe("buildStatusReply", () => {
@@ -221,5 +223,64 @@ describe("buildStatusReply", () => {
     expect(text).toContain("tool.results_success: 11");
     expect(text).toContain("tool.results_fail: 3");
     expect(text).toContain("tool.results_by_name: Write=10, Custom Tool Name=3, Bash=1");
+  });
+
+  it("shows compaction threshold on context budget row when configured", () => {
+    const text = buildStatusReply({
+      ...baseParams,
+      compactionTokens: 200_000,
+      compactionThreshold: 0.8,
+      latestUsage: {
+        inputTokens: 8_700,
+        outputTokens: 138,
+        cachedTokens: 8_300,
+        reasoningTokens: 42,
+        peakInputTokens: 8_700,
+        peakOutputTokens: 138,
+        peakContextTokens: 8_838
+      }
+    });
+
+    expect(text).toContain("📚 Context budget: 8.7k/392k (2%) · compact: 160k");
+  });
+
+  it("shows last cache hit relative time on cache row", () => {
+    const nowMs = 1_700_000_120_000;
+    const text = buildStatusReply({
+      ...baseParams,
+      nowMs,
+      latestUsage: {
+        inputTokens: 8_700,
+        outputTokens: 138,
+        cachedTokens: 8_300,
+        reasoningTokens: 42,
+        peakInputTokens: 8_700,
+        peakOutputTokens: 138,
+        peakContextTokens: 8_838,
+        lastCacheHitAt: 1_700_000_000_000
+      }
+    });
+
+    expect(text).toContain("🗄️ Cache: 95% hit · 8.3k cached, 400 new · last 2m ago");
+  });
+
+  it("places context budget before tokens in row order", () => {
+    const text = buildStatusReply({
+      ...baseParams,
+      latestUsage: {
+        inputTokens: 1_000,
+        outputTokens: 100,
+        cachedTokens: 500,
+        reasoningTokens: null,
+        peakInputTokens: 1_000,
+        peakOutputTokens: 100,
+        peakContextTokens: 1_100
+      }
+    });
+
+    const lines = text.split("\n");
+    const contextIdx = lines.findIndex((l) => l.startsWith("📚"));
+    const tokensIdx = lines.findIndex((l) => l.startsWith("🧮"));
+    expect(contextIdx).toBeLessThan(tokensIdx);
   });
 });
