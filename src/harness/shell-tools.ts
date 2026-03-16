@@ -66,19 +66,35 @@ export const bashTool: ToolDef<typeof bashInputSchema> = {
       };
     }
 
-    const finished = await ctx.processManager.waitForCompletion(session.sessionId, yieldMs);
-    if (finished) {
-      return ctx.processManager.getExecCompletedOutput(session.sessionId, ownerId);
-    }
-
-    const running = ctx.processManager.getRunningTail(session.sessionId, ownerId);
-    return {
-      status: "running",
-      sessionId: running.sessionId,
-      pid: running.pid,
-      tail: running.tail,
-      truncatedCombinedChars: running.truncatedCombinedChars
+    // Register abort listener so foreground bash sessions are terminated
+    // immediately when the workflow is interrupted or the tool times out,
+    // preventing orphan processes.
+    const onAbort = (): void => {
+      void ctx.processManager.terminateSession(session.sessionId, {
+        graceMs: 1000,
+        forceSignal: "SIGKILL",
+        removeAfterTerminate: false
+      }).catch(() => {});
     };
+
+    ctx.abortSignal?.addEventListener("abort", onAbort, { once: true });
+    try {
+      const finished = await ctx.processManager.waitForCompletion(session.sessionId, yieldMs);
+      if (finished) {
+        return ctx.processManager.getExecCompletedOutput(session.sessionId, ownerId);
+      }
+
+      const running = ctx.processManager.getRunningTail(session.sessionId, ownerId);
+      return {
+        status: "running",
+        sessionId: running.sessionId,
+        pid: running.pid,
+        tail: running.tail,
+        truncatedCombinedChars: running.truncatedCombinedChars
+      };
+    } finally {
+      ctx.abortSignal?.removeEventListener("abort", onAbort);
+    }
   }
 };
 

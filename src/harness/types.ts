@@ -35,6 +35,7 @@ export type ToolContext = {
   ownerId: string | null;
   trace?: TraceContext;
   observability?: ObservabilitySink;
+  abortSignal?: AbortSignal;
 };
 
 export type ToolDef<TSchema extends ZodTypeAny = ZodTypeAny> = {

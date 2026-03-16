@@ -60,7 +60,7 @@ export function createOpenAIProvider(
         let usageSnapshot = createEmptyUsageSnapshot();
         const scopedHarness: ToolHarness = {
           ...harness,
-          execute: (name, args, trace) => harness.executeWithOwner(input.chatId, name, args, trace)
+          execute: (name, args, trace, abortSignal) => harness.executeWithOwner(input.chatId, name, args, trace, abortSignal)
         };
 
         const result = await runOpenAIToolLoop({

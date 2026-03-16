@@ -711,7 +711,8 @@ describe("createOpenAIProvider", () => {
       expect.objectContaining({
         traceId: expect.any(String),
         spanId: expect.any(String)
-      })
+      }),
+      undefined
     );
     expect(onToolCall).toHaveBeenCalledWith({
       tool: "bash",

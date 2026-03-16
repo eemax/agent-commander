@@ -53,7 +53,10 @@ function readString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function extractFunctionCalls(outputItems: OpenAIResponsesOutputItem[]): FunctionCall[] {
+function extractFunctionCalls(
+  outputItems: OpenAIResponsesOutputItem[],
+  onSkipped?: (reason: string) => void
+): FunctionCall[] {
   const calls: FunctionCall[] = [];
 
   for (const item of outputItems) {
@@ -63,11 +66,13 @@ function extractFunctionCalls(outputItems: OpenAIResponsesOutputItem[]): Functio
 
     const callId = item.call_id ?? item.id;
     if (!callId) {
-      throw new Error("Provider returned function_call item without call_id");
+      onSkipped?.("function_call item missing call_id");
+      continue;
     }
 
     if (!item.name) {
-      throw new Error(`Provider returned function_call item without name (call_id=${callId})`);
+      onSkipped?.(`function_call item missing name (call_id=${callId})`);
+      continue;
     }
 
     let parsedArgs: unknown = {};
@@ -76,7 +81,8 @@ function extractFunctionCalls(outputItems: OpenAIResponsesOutputItem[]): Functio
         parsedArgs = JSON.parse(item.arguments);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Invalid tool arguments JSON for ${item.name}: ${message}`);
+        onSkipped?.(`invalid arguments JSON for ${item.name}: ${message}`);
+        continue;
       }
     }
 
@@ -281,6 +287,11 @@ export async function runOpenAIToolLoop(params: {
   await transitionState("INIT", "tool workflow initialized");
   await transitionState("RUNNING", "tool workflow running");
 
+  const contextManagement =
+    params.compactionTokens !== null
+      ? [{ type: "compaction" as const, compact_threshold: Math.floor(params.compactionTokens * params.compactionThreshold) }]
+      : undefined;
+
   const heartbeatHandle = setInterval(() => {
     void reportProgress({
       type: "heartbeat",
@@ -299,11 +310,6 @@ export async function runOpenAIToolLoop(params: {
           ["reduce repeated tool calls or increase runtime.tool_loop_max_steps"]
         );
       }
-
-      const contextManagement =
-        params.compactionTokens !== null
-          ? [{ type: "compaction" as const, compact_threshold: Math.floor(params.compactionTokens * params.compactionThreshold) }]
-          : undefined;
 
       const body: OpenAIResponsesRequestBody =
         previousResponseId === null
@@ -342,7 +348,13 @@ export async function runOpenAIToolLoop(params: {
       await reportResponse(response);
       assertWorkflowActive();
 
-      const calls = extractFunctionCalls(response.output ?? []);
+      const calls = extractFunctionCalls(response.output ?? [], (reason) => {
+        void reportProgress({
+          type: "tool",
+          message: `skipped malformed function call: ${reason}`,
+          tool: "unknown"
+        });
+      });
 
       if (calls.length === 0) {
         params.harness.metrics.workflowsSucceeded += 1;
@@ -370,7 +382,7 @@ export async function runOpenAIToolLoop(params: {
 
         try {
           const result = await withTimeout(
-            params.harness.execute(call.name, call.args, toolTrace),
+            params.harness.execute(call.name, call.args, toolTrace, params.abortSignal),
             params.limits.commandTimeoutMs,
             () =>
               new ToolExecutionError(

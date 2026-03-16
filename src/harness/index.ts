@@ -15,8 +15,8 @@ export type ToolHarness = {
   context: ToolContext;
   registry: ToolRegistry;
   metrics: ToolRuntimeMetrics;
-  execute: (name: string, args: unknown, trace?: TraceContext) => Promise<JsonValue>;
-  executeWithOwner: (ownerId: string, name: string, args: unknown, trace?: TraceContext) => Promise<JsonValue>;
+  execute: (name: string, args: unknown, trace?: TraceContext, abortSignal?: AbortSignal) => Promise<JsonValue>;
+  executeWithOwner: (ownerId: string, name: string, args: unknown, trace?: TraceContext, abortSignal?: AbortSignal) => Promise<JsonValue>;
   exportProviderTools: () => ProviderFunctionTool[];
 };
 
@@ -96,11 +96,12 @@ export function createToolHarness(
     );
   }
 
-  const executeWithOwner = (ownerId: string, name: string, args: unknown, trace?: TraceContext): Promise<JsonValue> => {
+  const executeWithOwner = (ownerId: string, name: string, args: unknown, trace?: TraceContext, abortSignal?: AbortSignal): Promise<JsonValue> => {
     const scopedContext: ToolContext = {
       ...context,
       ownerId,
-      trace
+      trace,
+      abortSignal
     };
 
     return registry.execute(name, args, scopedContext);
@@ -111,7 +112,7 @@ export function createToolHarness(
     context,
     registry,
     metrics,
-    execute: (name, args, trace) => registry.execute(name, args, { ...context, trace }),
+    execute: (name, args, trace, abortSignal) => registry.execute(name, args, { ...context, trace, abortSignal }),
     executeWithOwner,
     exportProviderTools: () => registry.exportProviderTools()
   };
