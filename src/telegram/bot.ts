@@ -316,6 +316,11 @@ export function createTelegramBot(params: {
   const bot = new Bot(params.token);
   let commandSignature = "";
 
+  const logFatalHandlerError = (chatId: string, error: unknown): void => {
+    const message = error instanceof Error ? error.message : String(error);
+    params.logger.error(`telegram: uncaught error in background handler chat=${chatId}: ${message}`);
+  };
+
   const syncCommands = async (): Promise<void> => {
     const commands = await params.getCommands();
     const signature = JSON.stringify(commands);
@@ -334,101 +339,104 @@ export function createTelegramBot(params: {
     params.logger.info(`telegram: registered ${commands.length} commands`);
   };
 
-  bot.on("message:text", async (ctx) => {
+  bot.on("message:text", (ctx) => {
     const normalized = normalizeTelegramMessage(ctx);
     if (!normalized) {
       return;
     }
 
     const inboundTrace = createTraceRootContext("telegram");
-    try {
-      await dispatchTelegramTextMessage({
-        message: normalized,
-        handleMessage: (message, stream) => params.handleMessage(message, stream, inboundTrace),
-        sendReply: async (text, meta) => {
-          const prepared = prepareTelegramReply({
-            text,
-            meta,
-            assistantFormat: params.assistantFormat,
-            chatId: normalized.chatId,
-            messageId: normalized.messageId,
-            logger: params.logger
-          });
-          const chunks = splitTelegramMessage(prepared.text, {
-            parseMode: prepared.parseMode
-          });
-          for (let i = 0; i < chunks.length; i += 1) {
-            const isLast = i === chunks.length - 1;
-            await withTelegramRateLimitBackoff(
-              `send reply chat=${normalized.chatId} message=${normalized.messageId}`,
-              params.logger,
-              async () => {
-                const options = {
-                  link_preview_options: { is_disabled: true },
-                  ...(prepared.parseMode ? { parse_mode: prepared.parseMode } : {}),
-                  ...(isLast && meta.inlineKeyboard
-                    ? {
-                        reply_markup: {
-                          inline_keyboard: toTelegramInlineKeyboard(meta.inlineKeyboard)
-                        }
-                      }
-                    : {})
-                };
-                await ctx.reply(chunks[i], options);
-              }
-            );
-          }
-        },
-        sendDraft: params.streamingEnabled
-          ? async (text) => {
-              const truncated = text.length > TELEGRAM_MESSAGE_LIMIT
-                ? text.slice(0, TELEGRAM_MESSAGE_LIMIT)
-                : text;
+    void (async () => {
+      try {
+        await dispatchTelegramTextMessage({
+          message: normalized,
+          handleMessage: (message, stream) => params.handleMessage(message, stream, inboundTrace),
+          sendReply: async (text, meta) => {
+            const prepared = prepareTelegramReply({
+              text,
+              meta,
+              assistantFormat: params.assistantFormat,
+              chatId: normalized.chatId,
+              messageId: normalized.messageId,
+              logger: params.logger
+            });
+            const chunks = splitTelegramMessage(prepared.text, {
+              parseMode: prepared.parseMode
+            });
+            for (let i = 0; i < chunks.length; i += 1) {
+              const isLast = i === chunks.length - 1;
               await withTelegramRateLimitBackoff(
-                `send draft chat=${normalized.chatId} message=${normalized.messageId}`,
+                `send reply chat=${normalized.chatId} message=${normalized.messageId}`,
                 params.logger,
                 async () => {
-                  await ctx.replyWithDraft(truncated);
+                  const options = {
+                    link_preview_options: { is_disabled: true },
+                    ...(prepared.parseMode ? { parse_mode: prepared.parseMode } : {}),
+                    ...(isLast && meta.inlineKeyboard
+                      ? {
+                          reply_markup: {
+                            inline_keyboard: toTelegramInlineKeyboard(meta.inlineKeyboard)
+                          }
+                        }
+                      : {})
+                  };
+                  await ctx.reply(chunks[i], options);
                 }
               );
             }
-          : undefined,
-        draftMinUpdateMs: params.streamingMinUpdateMs,
-        onDraftFailure: (error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          params.logger.warn(
-            `telegram: draft streaming failed for chat=${normalized.chatId} message=${normalized.messageId}: ${message}`
-          );
-        },
-        trace: inboundTrace,
-        observability: params.observability
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      params.logger.error(`telegram: failed to process message: ${message}`);
-      await params.observability?.record({
-        event: "telegram.processing.failed",
-        trace: createChildTraceContext(inboundTrace, "telegram"),
-        stage: "failed",
-        chatId: normalized.chatId,
-        messageId: normalized.messageId,
-        senderId: normalized.senderId,
-        error
-      });
-      await ctx.reply("I hit an internal error while processing that message.", {
-        link_preview_options: { is_disabled: true }
-      });
-    }
+          },
+          sendDraft: params.streamingEnabled
+            ? async (text) => {
+                const truncated = text.length > TELEGRAM_MESSAGE_LIMIT
+                  ? text.slice(0, TELEGRAM_MESSAGE_LIMIT)
+                  : text;
+                await withTelegramRateLimitBackoff(
+                  `send draft chat=${normalized.chatId} message=${normalized.messageId}`,
+                  params.logger,
+                  async () => {
+                    await ctx.replyWithDraft(truncated);
+                  }
+                );
+              }
+            : undefined,
+          draftMinUpdateMs: params.streamingMinUpdateMs,
+          onDraftFailure: (error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            params.logger.warn(
+              `telegram: draft streaming failed for chat=${normalized.chatId} message=${normalized.messageId}: ${message}`
+            );
+          },
+          trace: inboundTrace,
+          observability: params.observability
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        params.logger.error(`telegram: failed to process message: ${message}`);
+        await params.observability?.record({
+          event: "telegram.processing.failed",
+          trace: createChildTraceContext(inboundTrace, "telegram"),
+          stage: "failed",
+          chatId: normalized.chatId,
+          messageId: normalized.messageId,
+          senderId: normalized.senderId,
+          error
+        });
+        await ctx.reply("I hit an internal error while processing that message.", {
+          link_preview_options: { is_disabled: true }
+        });
+      }
+    })().catch((fatal) => logFatalHandlerError(normalized.chatId, fatal));
   });
 
-  bot.on("callback_query:data", async (ctx) => {
+  bot.on("callback_query:data", (ctx) => {
     const normalized = normalizeTelegramCallbackQuery(ctx);
     if (!normalized) {
       return;
     }
 
     const inboundTrace = createTraceRootContext("telegram");
-    try {
+    void (async () => {
+      try {
       await params.observability?.record({
         event: "telegram.inbound.received",
         trace: inboundTrace,
@@ -542,6 +550,7 @@ export function createTelegramBot(params: {
         link_preview_options: { is_disabled: true }
       });
     }
+    })().catch((fatal) => logFatalHandlerError(normalized.chatId, fatal));
   });
 
   bot.catch((error) => {
