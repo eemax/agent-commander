@@ -9,7 +9,7 @@ import { resolveActiveModel } from "../model-catalog.js";
 import { createChildTraceContext, type TraceContext } from "../observability.js";
 import type { RuntimeLogger, StateStore, WorkspaceCatalog, Config } from "../runtime/contracts.js";
 import { ProviderError } from "../provider-error.js";
-import { formatSteerNotice, formatToolProgressNotice, formatVerboseToolCallNotice } from "./formatters.js";
+import { formatSteerNotice, formatVerboseToolCallNotice } from "./formatters.js";
 import type { SteerChannel } from "../steer-channel.js";
 import type { MessageRouteResult, NormalizedTelegramMessage, Provider, SkillDefinition } from "../types.js";
 
@@ -47,7 +47,6 @@ export function createAssistantTurnHandler(params: {
       overrideModelId: activeModelOverride
     });
     const verboseReplies: string[] = [];
-    let lastHeartbeatPublishMs = 0;
 
     if (input.interruptedPreviousTurn) {
       const note = "Interrupted previous in-progress run and handling your latest message.";
@@ -120,24 +119,6 @@ export function createAssistantTurnHandler(params: {
           if (event.type === "steer" && verboseEnabled) {
             verboseReplies.push(formatSteerNotice(event.message));
           }
-
-          if (!config.observability.enabled) {
-            return;
-          }
-
-          const now = Date.now();
-          if (
-            event.type === "heartbeat" &&
-            now - lastHeartbeatPublishMs < Math.max(1, config.runtime.toolHeartbeatIntervalMs)
-          ) {
-            return;
-          }
-          if (event.type === "heartbeat") {
-            lastHeartbeatPublishMs = now;
-          }
-
-          const line = formatToolProgressNotice(event);
-          await input.onTextDelta?.(`${line}\n`);
         },
         onUsage: (usage) => conversations.setLatestUsageSnapshot(input.message.chatId, usage),
         onCompaction: async (count) => {

@@ -934,7 +934,7 @@ describe("createMessageRouter", () => {
     }
   });
 
-  it("streams workflow progress when observability is on, including short workflows", async () => {
+  it("does not stream workflow progress to draft even when observability is on", async () => {
     const config = makeConfig({
       observability: { enabled: true }
     });
@@ -972,11 +972,10 @@ describe("createMessageRouter", () => {
     );
 
     expect(result).toEqual({ type: "reply", text: "assistant-reply", origin: "assistant" });
-    expect(onTextDelta).toHaveBeenCalledTimes(1);
-    expect(onTextDelta).toHaveBeenCalledWith("⏳ [0s] tool-loop step 1: requesting model response\n");
+    expect(onTextDelta).not.toHaveBeenCalled();
   });
 
-  it("keeps workflow progress stream-only when observability and verbose are both on", async () => {
+  it("does not leak workflow progress into extraReplies when verbose and observability are both on", async () => {
     const config = makeConfig({
       observability: { enabled: true },
       runtime: { toolHeartbeatIntervalMs: 20 }
@@ -1023,8 +1022,7 @@ describe("createMessageRouter", () => {
       { onTextDelta }
     );
 
-    expect(onTextDelta).toHaveBeenCalledTimes(1);
-    expect(onTextDelta).toHaveBeenCalledWith("⏳ [0s] tool-loop step 1: requesting model response\n");
+    expect(onTextDelta).not.toHaveBeenCalled();
     expect(result.type).toBe("reply");
     if (result.type === "reply") {
       expect(result.extraReplies).toEqual(["📖 Read: from `README.md` (5 chars)"]);

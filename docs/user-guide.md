@@ -142,8 +142,7 @@ Normalization rules:
 These payloads are intended for model context, not user-facing Telegram replies.
 
 When verbose mode is on, model-triggered tool calls send extra Telegram messages before the final assistant reply (for example `📖 Read`, `✍️ Write`, `>_ Bash`). Failed tool calls use `⚠️` and include a short error summary.
-Workflow-progress notices (`tool.workflow.progress`) are controlled by `observability.enabled`, not verbose mode. When observability is enabled, progress is surfaced via draft streaming updates (not verbose extra replies).
-Progress updates are not delayed behind heartbeat thresholds, so short workflows surface progress too.
+Workflow-progress events (`tool.workflow.progress`) are recorded to the observability JSONL log when `observability.enabled` is `true`, but are not surfaced in Telegram (no draft streaming or extra replies). Check `observability.log_path` directly for workflow diagnostics.
 
 ## Message Queueing
 

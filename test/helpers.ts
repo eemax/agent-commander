@@ -70,7 +70,8 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       toolCleanupGraceMs: 3_000,
       toolFailureBreakerThreshold: 4,
       sessionCacheMaxEntries: 200,
-      appLogFlushIntervalMs: 1_000
+      appLogFlushIntervalMs: 1_000,
+      messageQueueMode: "batch" as const
     },
     access: {
       allowedSenderIds: new Set(["user-1"])
