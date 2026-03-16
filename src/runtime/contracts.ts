@@ -135,6 +135,8 @@ export type StateStore = {
   setLatestUsageSnapshot(chatId: string, usage: ProviderUsageSnapshot): Promise<void>;
   getToolResultStats(chatId: string): Promise<ToolResultStats>;
   recordToolResult(chatId: string, event: { tool: string; success: boolean }): Promise<void>;
+  getCompactionCount(chatId: string): Promise<number>;
+  incrementCompactionCount(chatId: string): Promise<number>;
   listStashedConversations(chatId: string): Promise<StashedConversationSummary[]>;
   completeNewSelection(
     chatId: string,

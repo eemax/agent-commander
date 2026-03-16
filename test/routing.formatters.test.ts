@@ -47,7 +47,8 @@ const baseParams = {
     byTool: {}
   },
   compactionTokens: null,
-  compactionThreshold: 1
+  compactionThreshold: 1,
+  compactionCount: 0
 };
 
 describe("buildStatusReply", () => {
@@ -242,6 +243,47 @@ describe("buildStatusReply", () => {
     });
 
     expect(text).toContain("📚 Context budget: 8.7k/392k (2%) · compact: 160k");
+    expect(text).not.toContain("hits");
+  });
+
+  it("shows compaction hit count when compactions have occurred", () => {
+    const text = buildStatusReply({
+      ...baseParams,
+      compactionTokens: 200_000,
+      compactionThreshold: 0.8,
+      compactionCount: 3,
+      latestUsage: {
+        inputTokens: 8_700,
+        outputTokens: 138,
+        cachedTokens: 8_300,
+        reasoningTokens: 42,
+        peakInputTokens: 8_700,
+        peakOutputTokens: 138,
+        peakContextTokens: 8_838
+      }
+    });
+
+    expect(text).toContain("📚 Context budget: 8.7k/392k (2%) · compact: 160k (3 hits)");
+  });
+
+  it("shows singular hit label for single compaction", () => {
+    const text = buildStatusReply({
+      ...baseParams,
+      compactionTokens: 200_000,
+      compactionThreshold: 1,
+      compactionCount: 1,
+      latestUsage: {
+        inputTokens: 8_700,
+        outputTokens: 138,
+        cachedTokens: 8_300,
+        reasoningTokens: 42,
+        peakInputTokens: 8_700,
+        peakOutputTokens: 138,
+        peakContextTokens: 8_838
+      }
+    });
+
+    expect(text).toContain("· compact: 200k (1 hit)");
   });
 
   it("shows last cache hit relative time on cache row", () => {

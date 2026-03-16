@@ -132,7 +132,13 @@ export function createAssistantTurnHandler(params: {
           const line = formatToolProgressNotice(event);
           await input.onTextDelta?.(`${line}\n`);
         },
-        onUsage: (usage) => conversations.setLatestUsageSnapshot(input.message.chatId, usage)
+        onUsage: (usage) => conversations.setLatestUsageSnapshot(input.message.chatId, usage),
+        onCompaction: async (count) => {
+          for (let i = 0; i < count; i++) {
+            await conversations.incrementCompactionCount(input.message.chatId);
+          }
+          logger.info(`compaction detected: ${count} item(s) for chat=${input.message.chatId}`);
+        }
       });
 
       if (reply.trim().length === 0) {

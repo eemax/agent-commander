@@ -55,6 +55,7 @@ export type ProviderRequest = {
   onToolCall?: (event: ToolCallReport) => void | Promise<void>;
   onToolProgress?: (event: ToolProgressEvent) => void | Promise<void>;
   onUsage?: (usage: ProviderUsageSnapshot) => void | Promise<void>;
+  onCompaction?: (count: number) => void | Promise<void>;
 };
 
 export type Provider = {

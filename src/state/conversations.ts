@@ -32,6 +32,7 @@ type ConversationRuntimeProfile = {
   activeWebSearchModelOverride: string | null;
   latestUsage: ProviderUsageSnapshot | null;
   toolResults: ToolResultStats;
+  compactionCount: number;
 };
 
 type CurrentConversationRecord = {
@@ -205,7 +206,8 @@ function createDefaultRuntimeProfile(params: {
     activeModelOverride: null,
     activeWebSearchModelOverride: null,
     latestUsage: null,
-    toolResults: createEmptyToolResultStats()
+    toolResults: createEmptyToolResultStats(),
+    compactionCount: 0
   };
 }
 
@@ -216,7 +218,8 @@ function cloneRuntimeProfile(profile: ConversationRuntimeProfile): ConversationR
     activeModelOverride: profile.activeModelOverride,
     activeWebSearchModelOverride: profile.activeWebSearchModelOverride,
     latestUsage: profile.latestUsage ? cloneUsageSnapshot(profile.latestUsage) : null,
-    toolResults: cloneToolResultStats(profile.toolResults)
+    toolResults: cloneToolResultStats(profile.toolResults),
+    compactionCount: profile.compactionCount
   };
 }
 
@@ -249,7 +252,8 @@ function normalizeRuntimeProfile(
     activeModelOverride,
     activeWebSearchModelOverride,
     latestUsage: isUsageSnapshot(value.latestUsage) ? cloneUsageSnapshot(value.latestUsage) : null,
-    toolResults: isToolResultStatsRecord(value.toolResults) ? cloneToolResultStats(value.toolResults) : createEmptyToolResultStats()
+    toolResults: isToolResultStatsRecord(value.toolResults) ? cloneToolResultStats(value.toolResults) : createEmptyToolResultStats(),
+    compactionCount: isNonNegativeInteger(value.compactionCount) ? value.compactionCount : 0
   };
 }
 
@@ -926,6 +930,33 @@ export function createConversationStore(params: ConversationStoreParams): Conver
         };
 
         await saveCurrentConversations(nextCurrent);
+      });
+    },
+
+    async getCompactionCount(chatId): Promise<number> {
+      return enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
+        return ensured.record.runtime.compactionCount;
+      });
+    },
+
+    async incrementCompactionCount(chatId): Promise<number> {
+      return enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
+        const nextCount = ensured.record.runtime.compactionCount + 1;
+        const nextCurrent = {
+          ...ensured.index,
+          [chatId]: {
+            ...ensured.record,
+            runtime: {
+              ...ensured.record.runtime,
+              compactionCount: nextCount
+            }
+          }
+        };
+
+        await saveCurrentConversations(nextCurrent);
+        return nextCount;
       });
     },
 

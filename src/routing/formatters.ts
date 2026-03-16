@@ -140,7 +140,8 @@ function formatContextSummary(
   modelMaxOutputTokens: number | null,
   usage: ProviderUsageSnapshot | null,
   compactionTokens: number | null,
-  compactionThreshold: number
+  compactionThreshold: number,
+  compactionCount: number
 ): string {
   if (!usage) {
     return "📚 Context budget: n/a";
@@ -161,6 +162,9 @@ function formatContextSummary(
   if (compactionTokens !== null) {
     const compactThreshold = Math.floor(compactionTokens * compactionThreshold);
     line += ` · compact: ${formatCompactNumber(compactThreshold)}`;
+    if (compactionCount > 0) {
+      line += ` (${compactionCount} ${compactionCount === 1 ? "hit" : "hits"})`;
+    }
   }
 
   return line;
@@ -413,6 +417,7 @@ export function buildStatusReply(params: {
   };
   compactionTokens: number | null;
   compactionThreshold: number;
+  compactionCount: number;
   includeDiagnostics?: boolean;
   nowMs?: number;
 }): string {
@@ -425,7 +430,7 @@ export function buildStatusReply(params: {
   const summaryLines = [
     `🧠 openai/${params.model}`,
     ...(params.webSearchModel ? [`🔎 perplexity/${params.webSearchModel}`] : []),
-    formatContextSummary(params.modelContextWindow, params.modelMaxOutputTokens, params.latestUsage, params.compactionTokens, params.compactionThreshold),
+    formatContextSummary(params.modelContextWindow, params.modelMaxOutputTokens, params.latestUsage, params.compactionTokens, params.compactionThreshold, params.compactionCount),
     formatTokenSummary(params.latestUsage),
     formatCacheSummary(params.latestUsage, params.nowMs),
     `⚙️ Runtime: ${runtimeDetails.join(" · ")}`,

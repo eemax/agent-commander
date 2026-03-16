@@ -360,6 +360,75 @@ describe("createOpenAIProvider", () => {
     }));
   });
 
+  it("calls onCompaction when response output contains compaction items", async () => {
+    const logger = makeLogger();
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          output_text: "compacted reply",
+          output: [
+            { type: "compaction", id: "comp_1" },
+            { type: "message", content: [{ type: "output_text", text: "compacted reply" }] }
+          ]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    const onCompaction = vi.fn();
+
+    const provider = createOpenAIProvider(makeConfig(), logger, {
+      fetchImpl: fetchMock as unknown as typeof fetch
+    });
+
+    await provider.generateReply({
+      chatId: "chat-compact",
+      conversationId: "conv_1",
+      model: "gpt-4.1-mini",
+      history: [],
+      instructions: "x",
+      thinkingEffort: "medium",
+      compactionTokens: 200_000,
+      compactionThreshold: 0.8,
+      onCompaction
+    });
+
+    expect(onCompaction).toHaveBeenCalledWith(1);
+  });
+
+  it("does not call onCompaction when no compaction items exist", async () => {
+    const logger = makeLogger();
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          output_text: "normal reply",
+          output: [
+            { type: "message", content: [{ type: "output_text", text: "normal reply" }] }
+          ]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    const onCompaction = vi.fn();
+
+    const provider = createOpenAIProvider(makeConfig(), logger, {
+      fetchImpl: fetchMock as unknown as typeof fetch
+    });
+
+    await provider.generateReply({
+      chatId: "chat-no-compact",
+      conversationId: "conv_1",
+      model: "gpt-4.1-mini",
+      history: [],
+      instructions: "x",
+      thinkingEffort: "medium",
+      compactionTokens: null,
+      compactionThreshold: 1,
+      onCompaction
+    });
+
+    expect(onCompaction).not.toHaveBeenCalled();
+  });
+
   it("forwards streamed text deltas through onTextDelta", async () => {
     const logger = makeLogger();
     const fetchMock = vi.fn(async () =>

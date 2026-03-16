@@ -8,7 +8,7 @@ import type { Provider, ProviderRequest } from "./types.js";
 import { normalizeHistory } from "./provider/history.js";
 import { extractAssistantText } from "./provider/response-text.js";
 import { createResponsesRequestWithRetry, type ProviderTransportDeps } from "./provider/responses-transport.js";
-import { accumulateUsageSnapshot, createEmptyUsageSnapshot } from "./provider/usage.js";
+import { accumulateUsageSnapshot, countCompactionItems, createEmptyUsageSnapshot } from "./provider/usage.js";
 
 type ProviderRuntimeDeps = ProviderTransportDeps & {
   harness?: ToolHarness;
@@ -124,8 +124,12 @@ export function createOpenAIProvider(
             });
             await input.onToolProgress?.(event);
           },
-          onResponse: (response) => {
+          onResponse: async (response) => {
             usageSnapshot = accumulateUsageSnapshot(usageSnapshot, response);
+            const compactionItems = countCompactionItems(response.output ?? []);
+            if (compactionItems > 0) {
+              await input.onCompaction?.(compactionItems);
+            }
           },
           limits: {
             workflowTimeoutMs: config.runtime.toolWorkflowTimeoutMs,

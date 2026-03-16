@@ -324,13 +324,14 @@ export function createCoreCommandHandler(params: {
           }
 
           const conversationId = await conversations.ensureActiveConversation(message.chatId);
-          const [verboseEnabled, thinkingEffort, activeModelOverride, webSearchModelOverride, latestUsage, toolResultStats] = await Promise.all([
+          const [verboseEnabled, thinkingEffort, activeModelOverride, webSearchModelOverride, latestUsage, toolResultStats, compactionCount] = await Promise.all([
             conversations.getVerboseMode(message.chatId),
             conversations.getThinkingEffort(message.chatId),
             conversations.getActiveModelOverride(message.chatId),
             conversations.getActiveWebSearchModelOverride(message.chatId),
             conversations.getLatestUsageSnapshot(message.chatId),
-            conversations.getToolResultStats(message.chatId)
+            conversations.getToolResultStats(message.chatId),
+            conversations.getCompactionCount(message.chatId)
           ]);
           const activeModel = resolveActiveModel({
             models: config.openai.models,
@@ -394,6 +395,7 @@ export function createCoreCommandHandler(params: {
               toolResultStats,
               compactionTokens: activeModel.compactionTokens,
               compactionThreshold: activeModel.compactionThreshold,
+              compactionCount,
               includeDiagnostics
             })
           };

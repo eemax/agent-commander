@@ -1,5 +1,5 @@
 import type { ProviderUsageSnapshot } from "../types.js";
-import type { OpenAIResponsesResponse } from "./openai-types.js";
+import type { OpenAIResponsesOutputItem, OpenAIResponsesResponse } from "./openai-types.js";
 
 function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
@@ -56,6 +56,16 @@ export function extractUsageSnapshot(response: OpenAIResponsesResponse): Provide
     peakContextTokens,
     lastCacheHitAt: cachedTokens !== null && cachedTokens > 0 ? Date.now() : null
   };
+}
+
+export function countCompactionItems(output: OpenAIResponsesOutputItem[]): number {
+  let count = 0;
+  for (const item of output) {
+    if (item.type === "compaction") {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 export function accumulateUsageSnapshot(
