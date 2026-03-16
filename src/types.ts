@@ -1,4 +1,5 @@
 import type { TraceContext } from "./observability.js";
+import type { SteerChannel } from "./steer-channel.js";
 
 export type PromptRole = "user" | "assistant";
 
@@ -51,6 +52,7 @@ export type ProviderRequest = {
   compactionThreshold: number;
   trace?: TraceContext;
   abortSignal?: AbortSignal;
+  steerChannel?: SteerChannel;
   onTextDelta?: (delta: string) => void | Promise<void>;
   onToolCall?: (event: ToolCallReport) => void | Promise<void>;
   onToolProgress?: (event: ToolProgressEvent) => void | Promise<void>;
@@ -99,7 +101,7 @@ export type ToolWorkflowState =
   | "DONE";
 
 export type ToolProgressEvent = {
-  type: "state" | "step" | "tool" | "poll" | "heartbeat" | "cleanup";
+  type: "state" | "step" | "tool" | "poll" | "heartbeat" | "cleanup" | "steer";
   message: string;
   elapsedMs: number;
   state?: ToolWorkflowState;

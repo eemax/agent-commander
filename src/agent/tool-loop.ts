@@ -11,6 +11,7 @@ import type {
   ToolProgressEvent,
   ToolWorkflowState
 } from "../types.js";
+import type { SteerChannel } from "../steer-channel.js";
 import type {
   OpenAIFunctionCallOutput,
   OpenAIInputMessage,
@@ -177,6 +178,7 @@ export async function runOpenAIToolLoop(params: {
   extractAssistantText: (response: OpenAIResponsesResponse) => string;
   trace: TraceContext;
   abortSignal?: AbortSignal;
+  steerChannel?: SteerChannel;
   onToolCall?: (event: ToolCallReport) => void | Promise<void>;
   onToolProgress?: (event: ToolProgressEvent) => void | Promise<void>;
   onResponse?: (response: OpenAIResponsesResponse) => void | Promise<void>;
@@ -514,6 +516,23 @@ export async function runOpenAIToolLoop(params: {
 
       previousResponseId = response.id;
       input = outputs;
+
+      if (params.steerChannel) {
+        const steers = params.steerChannel.drain();
+        for (const steerMessage of steers) {
+          input.push({
+            type: "message",
+            role: "user",
+            content: steerMessage
+          } as OpenAIInputMessage);
+
+          await reportProgress({
+            type: "steer",
+            message: `steer injected: ${steerMessage.slice(0, 100)}`
+          });
+        }
+      }
+
       steps += 1;
     }
   } catch (error) {

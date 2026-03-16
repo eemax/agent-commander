@@ -111,6 +111,7 @@ export function createOpenAIProvider(
           extractAssistantText,
           trace: providerTrace,
           abortSignal: input.abortSignal,
+          steerChannel: input.steerChannel,
           onToolCall: input.onToolCall,
           onToolProgress: async (event) => {
             await deps.observability?.record({

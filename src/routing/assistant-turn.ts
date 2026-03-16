@@ -9,7 +9,8 @@ import { resolveActiveModel } from "../model-catalog.js";
 import { createChildTraceContext, type TraceContext } from "../observability.js";
 import type { RuntimeLogger, StateStore, WorkspaceCatalog, Config } from "../runtime/contracts.js";
 import { ProviderError } from "../provider-error.js";
-import { formatToolProgressNotice, formatVerboseToolCallNotice } from "./formatters.js";
+import { formatSteerNotice, formatToolProgressNotice, formatVerboseToolCallNotice } from "./formatters.js";
+import type { SteerChannel } from "../steer-channel.js";
 import type { MessageRouteResult, NormalizedTelegramMessage, Provider, SkillDefinition } from "../types.js";
 
 export type AssistantTurnHandlerInput = {
@@ -18,6 +19,7 @@ export type AssistantTurnHandlerInput = {
   oneShotSkill: SkillDefinition | null;
   trace: TraceContext;
   abortSignal?: AbortSignal;
+  steerChannel?: SteerChannel;
   interruptedPreviousTurn?: boolean;
   onTextDelta?: (delta: string) => void | Promise<void>;
 };
@@ -102,6 +104,7 @@ export function createAssistantTurnHandler(params: {
         compactionTokens: activeModel.compactionTokens,
         compactionThreshold: activeModel.compactionThreshold,
         abortSignal: input.abortSignal,
+        steerChannel: input.steerChannel,
         trace: createChildTraceContext(input.trace, "provider"),
         onTextDelta: input.onTextDelta,
         onToolCall: async (event) => {
@@ -114,6 +117,10 @@ export function createAssistantTurnHandler(params: {
           }
         },
         onToolProgress: async (event) => {
+          if (event.type === "steer" && verboseEnabled) {
+            verboseReplies.push(formatSteerNotice(event.message));
+          }
+
           if (!config.observability.enabled) {
             return;
           }

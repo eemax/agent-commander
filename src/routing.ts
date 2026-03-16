@@ -13,6 +13,7 @@ import type {
 import { createAssistantTurnHandler } from "./routing/assistant-turn.js";
 import { createCoreCommandHandler } from "./routing/core-commands.js";
 import { runMessageGatekeeping } from "./routing/gatekeeping.js";
+import { createSteerChannel, type SteerChannel } from "./steer-channel.js";
 
 export type MessageRouter = {
   handleIncomingMessage(
@@ -35,10 +36,10 @@ export function createMessageRouter(params: {
 }): MessageRouter {
   const { logger, provider, config, conversations, workspace, harness, observability, onCommandCatalogChanged } =
     params;
-  const activeTurns = new Map<string, { token: string; controller: AbortController; messageId: string }>();
+  const activeTurns = new Map<string, { token: string; controller: AbortController; messageId: string; steerChannel: SteerChannel }>();
   const latestTurnTokenByChat = new Map<string, string>();
 
-  const beginTurn = (chatId: string, messageId: string): { token: string; controller: AbortController; interruptedPrevious: boolean } => {
+  const beginTurn = (chatId: string, messageId: string): { token: string; controller: AbortController; steerChannel: SteerChannel; interruptedPrevious: boolean } => {
     const previous = activeTurns.get(chatId);
     let interruptedPrevious = false;
     if (previous) {
@@ -48,16 +49,19 @@ export function createMessageRouter(params: {
 
     const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const controller = new AbortController();
+    const steerChannel = createSteerChannel();
     latestTurnTokenByChat.set(chatId, token);
     activeTurns.set(chatId, {
       token,
       controller,
-      messageId
+      messageId,
+      steerChannel
     });
 
     return {
       token,
       controller,
+      steerChannel,
       interruptedPrevious
     };
   };
@@ -140,6 +144,7 @@ export function createMessageRouter(params: {
             oneShotSkill: null,
             trace: routingTrace,
             abortSignal: turn.controller.signal,
+            steerChannel: turn.steerChannel,
             interruptedPreviousTurn: turn.interruptedPrevious,
             onTextDelta: stream?.onTextDelta
           });
@@ -162,6 +167,34 @@ export function createMessageRouter(params: {
           result
         });
         return result;
+      }
+
+      if (parsedCommand.command === "steer") {
+        const activeTurn = activeTurns.get(message.chatId);
+        if (!activeTurn) {
+          return { type: "reply", text: "No active turn to steer." };
+        }
+
+        const steerText = parsedCommand.args.trim();
+        if (steerText.length === 0) {
+          return { type: "reply", text: "Usage: /steer <message>" };
+        }
+
+        activeTurn.steerChannel.push(steerText);
+
+        await observability?.record({
+          event: "routing.steer.pushed",
+          trace: routingTrace,
+          stage: "completed",
+          chatId: message.chatId,
+          messageId: message.messageId,
+          steerText
+        });
+
+        return {
+          type: "reply",
+          text: `Steer queued: ${steerText.slice(0, 100)}${steerText.length > 100 ? "..." : ""}`
+        };
       }
 
       const activeBeforeCommand = activeTurns.get(message.chatId);
@@ -240,6 +273,7 @@ export function createMessageRouter(params: {
           oneShotSkill: skill,
           trace: routingTrace,
           abortSignal: turn.controller.signal,
+          steerChannel: turn.steerChannel,
           interruptedPreviousTurn: turn.interruptedPrevious,
           onTextDelta: stream?.onTextDelta
         });

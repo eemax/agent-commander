@@ -11,7 +11,8 @@ export type CoreCommandName =
   | "thinking"
   | "model"
   | "models"
-  | "search";
+  | "search"
+  | "steer";
 
 export const CORE_COMMANDS: ReadonlyArray<TelegramCommandDefinition> = [
   {
@@ -67,6 +68,11 @@ export const CORE_COMMANDS: ReadonlyArray<TelegramCommandDefinition> = [
   {
     command: "search",
     description: "Switch web search model: /search <id-or-alias>",
+    kind: "core"
+  },
+  {
+    command: "steer",
+    description: "Inject guidance into an active turn: /steer <message>",
     kind: "core"
   }
 ] as const;

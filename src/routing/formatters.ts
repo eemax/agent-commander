@@ -254,6 +254,11 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
   return `🔧 Tool: ${report.tool}`;
 }
 
+export function formatSteerNotice(message: string): string {
+  const truncated = message.length > 100 ? `${message.slice(0, 100)}...` : message;
+  return `🎯 Steer: ${truncated}`;
+}
+
 export function formatToolProgressNotice(event: ToolProgressEvent): string {
   const elapsedSeconds = Math.max(0, Math.floor(event.elapsedMs / 1000));
   const prefix = `⏳ [${elapsedSeconds}s]`;
