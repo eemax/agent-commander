@@ -38,6 +38,8 @@ This is the canonical `config.json` shape.
     - `context_window`: positive integer or `null` (use `null` when unknown)
     - `max_output_tokens`: positive integer or `null` (status budgeting hint; not sent to Responses API)
     - `default_thinking`: one of `none|minimal|low|medium|high|xhigh`, default `medium`
+    - `compaction_tokens`: positive integer or `null`, default `null` — base token budget for context compaction; `null` disables compaction
+    - `compaction_threshold`: number `0.1`–`1`, default `1` — multiplier applied to `compaction_tokens`; the API receives `compact_threshold = floor(compaction_tokens * compaction_threshold)`
   - model IDs are unique (case-insensitive)
   - aliases are unique across all models and cannot collide with another model ID/alias
   - `openai.model` must match one configured `models[].id`
@@ -45,6 +47,7 @@ This is the canonical `config.json` shape.
   - `/status` uses `context_window` with per-turn usage snapshots to show:
     - `budget`: peak per-call `input / (context_window - max_output_tokens)` when `max_output_tokens` is known and smaller than `context_window` (otherwise `n/a`)
   - `/status full` also reports current-conversation tool-result aggregates (`tool.results_total`, `tool.results_success`, `tool.results_fail`, `tool.results_by_name`) persisted in conversation runtime profiles.
+  - when `compaction_tokens` is set for the active model, each Responses API request includes `context_management: [{ type: "compaction", compact_threshold }]`; the server automatically compacts context when rendered tokens cross the threshold
 - `timeout_ms`: positive integer, default `45000`
 - `max_retries`: non-negative integer, default `2`
 - `retry_base_ms`: positive integer, default `250`

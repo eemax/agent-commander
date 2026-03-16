@@ -168,6 +168,8 @@ export async function runOpenAIToolLoop(params: {
   instructions: string;
   initialInput: OpenAIInputMessage[];
   thinkingEffort: ThinkingEffort;
+  compactionTokens: number | null;
+  compactionThreshold: number;
   promptCacheKey: string;
   promptCacheRetention: "in_memory" | "24h";
   harness: ToolHarness;
@@ -296,6 +298,11 @@ export async function runOpenAIToolLoop(params: {
         );
       }
 
+      const contextManagement =
+        params.compactionTokens !== null
+          ? [{ type: "compaction" as const, compact_threshold: Math.floor(params.compactionTokens * params.compactionThreshold) }]
+          : undefined;
+
       const body: OpenAIResponsesRequestBody =
         previousResponseId === null
           ? {
@@ -307,7 +314,8 @@ export async function runOpenAIToolLoop(params: {
               prompt_cache_key: params.promptCacheKey,
               prompt_cache_retention: params.promptCacheRetention,
               input,
-              tools
+              tools,
+              ...(contextManagement && { context_management: contextManagement })
             }
           : {
               model: params.model,
@@ -318,7 +326,8 @@ export async function runOpenAIToolLoop(params: {
               prompt_cache_key: params.promptCacheKey,
               prompt_cache_retention: params.promptCacheRetention,
               input,
-              tools
+              tools,
+              ...(contextManagement && { context_management: contextManagement })
             };
 
       await reportProgress({

@@ -18,6 +18,8 @@ export type OpenAIModelCatalogEntry = {
   contextWindow: number | null;
   maxOutputTokens: number | null;
   defaultThinking: ThinkingEffort;
+  compactionTokens: number | null;
+  compactionThreshold: number;
 };
 
 export type Config = {

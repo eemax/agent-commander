@@ -26,14 +26,18 @@ const DEFAULT_CONFIG_TEMPLATE = {
         aliases: ["mini"],
         context_window: null,
         max_output_tokens: null,
-        default_thinking: "medium"
+        default_thinking: "medium",
+        compaction_tokens: null,
+        compaction_threshold: 1
       },
       {
         id: "gpt-5.3-codex",
         aliases: ["codex", "g53c"],
         context_window: 400_000,
         max_output_tokens: null,
-        default_thinking: "medium"
+        default_thinking: "medium",
+        compaction_tokens: null,
+        compaction_threshold: 1
       }
     ],
     timeout_ms: 45_000,
@@ -106,7 +110,9 @@ const DEFAULT_OPENAI_MODELS = DEFAULT_CONFIG_TEMPLATE.openai.models.map((item) =
   aliases: [...item.aliases],
   context_window: item.context_window,
   max_output_tokens: item.max_output_tokens,
-  default_thinking: item.default_thinking
+  default_thinking: item.default_thinking,
+  compaction_tokens: item.compaction_tokens,
+  compaction_threshold: item.compaction_threshold
 }));
 const DEFAULT_WEB_SEARCH_MODELS = DEFAULT_CONFIG_TEMPLATE.tools.web_search.available_models.map((item) => ({
   id: item.id,
@@ -125,7 +131,9 @@ const openAIModelSchema = z
     aliases: z.array(optionalNonEmptyString).default([]),
     context_window: positiveInt.nullable().default(null),
     max_output_tokens: positiveInt.nullable().default(null),
-    default_thinking: z.enum(THINKING_EFFORT_VALUES).default("medium")
+    default_thinking: z.enum(THINKING_EFFORT_VALUES).default("medium"),
+    compaction_tokens: positiveInt.nullable().default(null),
+    compaction_threshold: z.number().min(0.1).max(1).default(1)
   })
   .strict();
 
@@ -294,6 +302,8 @@ function normalizeOpenAIModels(
     context_window: number | null;
     max_output_tokens: number | null;
     default_thinking: ThinkingEffort;
+    compaction_tokens: number | null;
+    compaction_threshold: number;
   }>,
   defaultModelId: string
 ): Config["openai"]["models"] {
@@ -335,7 +345,9 @@ function normalizeOpenAIModels(
       aliases,
       contextWindow: item.context_window,
       maxOutputTokens: item.max_output_tokens,
-      defaultThinking: item.default_thinking
+      defaultThinking: item.default_thinking,
+      compactionTokens: item.compaction_tokens,
+      compactionThreshold: item.compaction_threshold
     });
   }
 

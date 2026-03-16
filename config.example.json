@@ -16,7 +16,9 @@
         ],
         "context_window": null,
         "max_output_tokens": null,
-        "default_thinking": "medium"
+        "default_thinking": "medium",
+        "compaction_tokens": null,
+        "compaction_threshold": 1
       },
       {
         "id": "gpt-5.3-codex",
@@ -26,7 +28,9 @@
         ],
         "context_window": 400000,
         "max_output_tokens": null,
-        "default_thinking": "medium"
+        "default_thinking": "medium",
+        "compaction_tokens": null,
+        "compaction_threshold": 1
       }
     ],
     "timeout_ms": 45000,

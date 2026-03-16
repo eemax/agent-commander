@@ -99,6 +99,8 @@ export function createAssistantTurnHandler(params: {
         history: promptContext.historyAfterAppend,
         instructions,
         thinkingEffort,
+        compactionTokens: activeModel.compactionTokens,
+        compactionThreshold: activeModel.compactionThreshold,
         abortSignal: input.abortSignal,
         trace: createChildTraceContext(input.trace, "provider"),
         onTextDelta: input.onTextDelta,

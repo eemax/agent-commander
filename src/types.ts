@@ -47,6 +47,8 @@ export type ProviderRequest = {
   history: PromptMessage[];
   instructions: string;
   thinkingEffort: ThinkingEffort;
+  compactionTokens: number | null;
+  compactionThreshold: number;
   trace?: TraceContext;
   abortSignal?: AbortSignal;
   onTextDelta?: (delta: string) => void | Promise<void>;

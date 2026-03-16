@@ -37,14 +37,18 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
           aliases: ["mini"],
           contextWindow: null,
           maxOutputTokens: null,
-          defaultThinking: "medium"
+          defaultThinking: "medium",
+          compactionTokens: null,
+          compactionThreshold: 1
         },
         {
           id: "gpt-5.3-codex",
           aliases: ["codex", "g53c"],
           contextWindow: 400_000,
           maxOutputTokens: 8_000,
-          defaultThinking: "high"
+          defaultThinking: "high",
+          compactionTokens: null,
+          compactionThreshold: 1
         }
       ],
       timeoutMs: 1_000,

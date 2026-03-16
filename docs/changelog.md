@@ -4,6 +4,10 @@ Release history and architectural decision log for Agent Commander.
 
 ## Releases
 
+### Unreleased
+
+- Added per-model context management (compaction) support via `compaction_tokens` and `compaction_threshold` config fields. When configured, requests to the OpenAI Responses API include `context_management` with the computed `compact_threshold`, enabling automatic server-side context compaction for long conversations.
+
 ### 0.2.0 — 2026-03-12
 
 - Introduced runtime composition layer (`src/runtime/bootstrap.ts`) and explicit runtime contracts.

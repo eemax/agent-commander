@@ -102,6 +102,8 @@ export function createOpenAIProvider(
           instructions: input.instructions,
           initialInput: messages,
           thinkingEffort: input.thinkingEffort,
+          compactionTokens: input.compactionTokens,
+          compactionThreshold: input.compactionThreshold,
           promptCacheKey: buildPromptCacheKey(input),
           promptCacheRetention: "in_memory",
           harness: scopedHarness,

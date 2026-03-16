@@ -115,6 +115,8 @@ describe("createOpenAIProvider", () => {
       model: "gpt-5.3-codex",
       instructions: "Custom instructions",
       thinkingEffort: "high",
+      compactionTokens: null,
+      compactionThreshold: 1,
       history: [
         {
           role: "user",
@@ -213,7 +215,9 @@ describe("createOpenAIProvider", () => {
         model: "gpt-4.1-mini",
         history: [],
         instructions: "x",
-        thinkingEffort: "medium"
+        thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1
       })
     ).resolves.toBe("ok after retry");
 
@@ -256,6 +260,8 @@ describe("createOpenAIProvider", () => {
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1,
         onUsage
       })
     ).resolves.toBe("usage-aware");
@@ -336,6 +342,8 @@ describe("createOpenAIProvider", () => {
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1,
         onUsage
       })
     ).resolves.toBe("done");
@@ -387,6 +395,8 @@ describe("createOpenAIProvider", () => {
         instructions: "x",
         history: [],
         thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1,
         onTextDelta
       })
     ).resolves.toBe("hello world");
@@ -427,7 +437,9 @@ describe("createOpenAIProvider", () => {
         model: "gpt-4.1-mini",
         history: [],
         instructions: "x",
-        thinkingEffort: "medium"
+        thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1
       })
     ).resolves.toBe("ok after retry");
 
@@ -490,7 +502,9 @@ describe("createOpenAIProvider", () => {
         model: "gpt-4.1-mini",
         instructions: "x",
         history: [],
-        thinkingEffort: "medium"
+        thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1
       })
     ).resolves.toBe("hello from provider");
 
@@ -534,7 +548,9 @@ describe("createOpenAIProvider", () => {
         model: "gpt-4.1-mini",
         history: [],
         instructions: "x",
-        thinkingEffort: "medium"
+        thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1
       })
     ).resolves.toBe("ok after retry-after");
 
@@ -557,7 +573,9 @@ describe("createOpenAIProvider", () => {
         model: "gpt-4.1-mini",
         history: [],
         instructions: "x",
-        thinkingEffort: "medium"
+        thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1
       })
     ).rejects.toMatchObject({
       name: "ProviderError",
@@ -611,6 +629,8 @@ describe("createOpenAIProvider", () => {
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1,
         onToolCall
       })
     ).resolves.toBe("tool-assisted");
@@ -715,6 +735,8 @@ describe("createOpenAIProvider", () => {
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1,
         onToolCall
       })
     ).resolves.toBe("handled non-zero exit");
@@ -813,6 +835,8 @@ describe("createOpenAIProvider", () => {
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1,
         onToolCall
       })
     ).resolves.toBe("handled tool failure");
@@ -873,7 +897,9 @@ describe("createOpenAIProvider", () => {
         model: "gpt-4.1-mini",
         history: [],
         instructions: "x",
-        thinkingEffort: "medium"
+        thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1
       })
     ).rejects.toBeInstanceOf(ProviderError);
   });
@@ -900,6 +926,8 @@ describe("createOpenAIProvider", () => {
       history: [],
       instructions: "x",
       thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1,
       abortSignal: abortController.signal
     });
 
@@ -943,7 +971,9 @@ describe("createOpenAIProvider", () => {
         model: "gpt-4.1-mini",
         history: [],
         instructions: "x",
-        thinkingEffort: "medium"
+        thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1
       })
     ).rejects.toMatchObject({
       payload: {
@@ -1006,7 +1036,9 @@ describe("createOpenAIProvider", () => {
         model: "gpt-4.1-mini",
         history: [],
         instructions: "x",
-        thinkingEffort: "medium"
+        thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1
       })
     ).rejects.toMatchObject({
       payload: {
@@ -1073,6 +1105,8 @@ describe("createOpenAIProvider", () => {
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
+        compactionTokens: null,
+        compactionThreshold: 1,
         onToolProgress
       })
     ).resolves.toBe("done");

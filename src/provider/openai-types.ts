@@ -55,4 +55,5 @@ export type OpenAIResponsesRequestBody = {
   prompt_cache_retention?: "in_memory" | "24h";
   input: Array<OpenAIInputMessage | OpenAIFunctionCallOutput>;
   tools: unknown[];
+  context_management?: Array<{ type: "compaction"; compact_threshold: number }>;
 };
