@@ -104,7 +104,8 @@ export function createMessageRouter(params: {
         abortSignal: turn.controller.signal,
         steerChannel: turn.steerChannel,
         interruptedPreviousTurn: turn.interruptedPrevious,
-        onTextDelta: stream?.onTextDelta
+        onTextDelta: stream?.onTextDelta,
+        onToolCallNotice: stream?.onToolCallNotice
       });
     } finally {
       releaseTurn(message.chatId, turn.token);
