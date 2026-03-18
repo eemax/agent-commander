@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { z } from "zod";
+import type { EnvSecrets } from "./env.js";
 import type { Config, LogLevel, TelegramAssistantFormat } from "./runtime/contracts.js";
 import type { WebSearchModelCatalogEntry } from "./web-search-catalog.js";
 import { DEFAULT_OBSERVABILITY_REDACTION } from "./observability.js";
@@ -138,7 +139,7 @@ const openAIModelSchema = z
   })
   .strict();
 
-const configSchema = z
+export const configSchema = z
   .object({
     telegram: z
       .object({
@@ -238,7 +239,7 @@ function ensureConfigTemplate(configPath: string): void {
   fs.writeFileSync(configPath, template, "utf8");
 }
 
-function expandHome(inputPath: string): string {
+export function expandHome(inputPath: string): string {
   if (inputPath === "~") {
     return os.homedir();
   }
@@ -250,7 +251,7 @@ function expandHome(inputPath: string): string {
   return inputPath;
 }
 
-function resolveConfigPath(repoRoot: string, candidate: string): string {
+export function resolveConfigPath(repoRoot: string, candidate: string): string {
   const expanded = expandHome(candidate);
   if (path.isAbsolute(expanded)) {
     return path.resolve(expanded);
@@ -258,7 +259,7 @@ function resolveConfigPath(repoRoot: string, candidate: string): string {
   return path.resolve(repoRoot, expanded);
 }
 
-function formatZodError(error: z.ZodError): string {
+export function formatZodError(error: z.ZodError): string {
   return error.issues
     .map((issue) => {
       const issuePath = issue.path.length > 0 ? `config.${issue.path.join(".")}` : "config";
@@ -267,7 +268,7 @@ function formatZodError(error: z.ZodError): string {
     .join("; ");
 }
 
-function readRawConfig(configPath: string): unknown {
+export function readRawConfig(configPath: string): unknown {
   if (!fs.existsSync(configPath)) {
     ensureConfigTemplate(configPath);
     throw new Error(
@@ -275,12 +276,16 @@ function readRawConfig(configPath: string): unknown {
     );
   }
 
-  const raw = fs.readFileSync(configPath, "utf8");
+  return readJsonFile(configPath);
+}
+
+export function readJsonFile(filePath: string): unknown {
+  const raw = fs.readFileSync(filePath, "utf8");
   try {
     return JSON.parse(raw);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid JSON in config file ${configPath}: ${message}`);
+    throw new Error(`Invalid JSON in ${filePath}: ${message}`);
   }
 }
 
@@ -456,7 +461,7 @@ function normalizeWebSearchModels(
   return normalized;
 }
 
-function requireSecret(value: string, pathLabel: string): string {
+function requireSecret(value: string | null, pathLabel: string): string {
   const trimmed = normalizeSecretCandidate(value);
   if (trimmed === null) {
     throw new Error(`${pathLabel} must be a non-empty string`);
@@ -464,28 +469,24 @@ function requireSecret(value: string, pathLabel: string): string {
   return trimmed;
 }
 
-export function loadConfig(repoRoot = process.cwd()): Config {
-  const configPath = path.resolve(repoRoot, "config.json");
-  const raw = readRawConfig(configPath);
-  const dotEnvDefaults = readDotEnvDefaults(repoRoot);
+function defaultSecretKey(agentId: string, suffix: string): string {
+  return `${agentId.toUpperCase().replace(/-/g, "_")}_${suffix}`;
+}
 
-  const parsed = configSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(`Invalid config in ${configPath}: ${formatZodError(parsed.error)}`);
-  }
+export type ParsedConfig = z.infer<typeof configSchema>;
 
-  const config = parsed.data;
-  const defaultTelegramBotToken = resolveDefaultSecret(dotEnvDefaults, DEFAULT_TELEGRAM_BOT_TOKEN_KEY);
-  const defaultOpenAIApiKey = resolveDefaultSecret(dotEnvDefaults, DEFAULT_OPENAI_API_KEY_KEY);
-  const defaultPerplexityApiKey = resolveDefaultSecret(dotEnvDefaults, DEFAULT_PERPLEXITY_API_KEY_KEY);
-  const telegramBotToken = requireSecret(
-    defaultTelegramBotToken ?? "replace_me",
-    `${DEFAULT_TELEGRAM_BOT_TOKEN_KEY}`
-  );
-  const openAIApiKey = requireSecret(
-    defaultOpenAIApiKey ?? "replace_me",
-    `${DEFAULT_OPENAI_API_KEY_KEY}`
-  );
+export function buildConfigFromParsed(
+  config: ParsedConfig,
+  configPath: string,
+  repoRoot: string,
+  agentId = "default",
+  secrets: EnvSecrets
+): Config {
+  const telegramKey = defaultSecretKey(agentId, "TELEGRAM_BOT_TOKEN");
+  const openaiKey = defaultSecretKey(agentId, "OPENAI_API_KEY");
+  const telegramBotToken = requireSecret(secrets.telegramBotToken, telegramKey);
+  const openAIApiKey = requireSecret(secrets.openaiApiKey, openaiKey);
+  const defaultPerplexityApiKey = normalizeSecretCandidate(secrets.webSearchApiKey);
 
   if (config.openai.retry_max_ms < config.openai.retry_base_ms) {
     throw new Error("config.openai.retry_max_ms must be greater than or equal to config.openai.retry_base_ms");
@@ -497,6 +498,7 @@ export function loadConfig(repoRoot = process.cwd()): Config {
   const defaultCwdInput = config.tools.default_cwd ?? config.paths.workspace_root;
 
   return {
+    agentId,
     configPath,
     telegram: {
       botToken: telegramBotToken,
@@ -567,6 +569,25 @@ export function loadConfig(repoRoot = process.cwd()): Config {
       }
     }
   };
+}
+
+export function loadConfig(repoRoot = process.cwd()): Config {
+  const configPath = path.resolve(repoRoot, "config.json");
+  const raw = readRawConfig(configPath);
+  const dotEnvDefaults = readDotEnvDefaults(repoRoot);
+
+  const parsed = configSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`Invalid config in ${configPath}: ${formatZodError(parsed.error)}`);
+  }
+
+  const secrets: EnvSecrets = {
+    telegramBotToken: resolveDefaultSecret(dotEnvDefaults, DEFAULT_TELEGRAM_BOT_TOKEN_KEY),
+    openaiApiKey: resolveDefaultSecret(dotEnvDefaults, DEFAULT_OPENAI_API_KEY_KEY),
+    webSearchApiKey: resolveDefaultSecret(dotEnvDefaults, DEFAULT_PERPLEXITY_API_KEY_KEY)
+  };
+
+  return buildConfigFromParsed(parsed.data, configPath, repoRoot, "default", secrets);
 }
 
 export function buildConfigTemplate(): string {

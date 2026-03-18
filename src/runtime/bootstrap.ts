@@ -1,5 +1,6 @@
 import type { Config } from "./contracts.js";
-import { loadConfig } from "../config.js";
+import { loadAgentsManifest, loadAgentConfig, validateUniqueBotTokens, type AgentDefinition } from "../agents.js";
+import { loadEnvFile, extractAgentSecrets } from "../env.js";
 import { createToolHarness } from "../harness/index.js";
 import { createLogger } from "../logger.js";
 import { createObservabilitySink, createTraceRootContext } from "../observability.js";
@@ -11,11 +12,65 @@ import { createWorkspaceManager } from "../workspace.js";
 import { resolveActiveModel } from "../model-catalog.js";
 import { resolveActiveWebSearchModel } from "../web-search-catalog.js";
 
+type AgentRuntime = {
+  bot: ReturnType<typeof createTelegramBot>["bot"];
+  logger: ReturnType<typeof createLogger>;
+};
+
 export async function startRuntime(repoRoot: string): Promise<void> {
-  const config = loadConfig(repoRoot);
+  const envMap = loadEnvFile(repoRoot);
+  const manifest = loadAgentsManifest(repoRoot);
+
+  const agentConfigs: Array<{ agent: AgentDefinition; config: Config }> = [];
+  for (const agent of manifest.agents) {
+    const secrets = extractAgentSecrets(envMap, agent.id);
+    const config = loadAgentConfig(repoRoot, agent, secrets);
+    agentConfigs.push({ agent, config });
+  }
+
+  validateUniqueBotTokens(agentConfigs);
+
+  const runtimes: AgentRuntime[] = [];
+  for (const { agent, config } of agentConfigs) {
+    const runtime = await bootstrapAgentRuntime(agent, config);
+    runtimes.push(runtime);
+  }
+
+  const shutdown = (signal: string) => {
+    for (const rt of runtimes) {
+      rt.logger.info(`shutdown: received ${signal}`);
+      try {
+        rt.bot.stop();
+      } catch {
+        // best-effort stop
+      }
+    }
+    process.exit(0);
+  };
+
+  process.once("SIGINT", () => shutdown("SIGINT"));
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+
+  await Promise.all(
+    runtimes.map((rt) =>
+      rt.bot.start({
+        drop_pending_updates: false,
+        onStart: () => {
+          rt.logger.info("startup: bot polling active");
+        }
+      })
+    )
+  );
+}
+
+async function bootstrapAgentRuntime(
+  agent: AgentDefinition,
+  config: Config
+): Promise<AgentRuntime> {
   const logger = createLogger(config.runtime.logLevel, {
     appLogPath: config.paths.appLogPath,
-    flushIntervalMs: config.runtime.appLogFlushIntervalMs
+    flushIntervalMs: config.runtime.appLogFlushIntervalMs,
+    tag: agent.id
   });
 
   const observability = createObservabilitySink({
@@ -36,17 +91,9 @@ export async function startRuntime(repoRoot: string): Promise<void> {
     trace: startupTrace,
     enabled: observability.enabled,
     path: observability.path,
-    configPath: config.configPath
+    configPath: config.configPath,
+    agentId: agent.id
   });
-
-  await bootstrapRuntime(config, logger, observability);
-}
-
-async function bootstrapRuntime(
-  config: Config,
-  logger: ReturnType<typeof createLogger>,
-  observability: ReturnType<typeof createObservabilitySink>
-): Promise<void> {
   const workspace = createWorkspaceManager(config);
   await workspace.bootstrap();
   logger.info(`startup: workspace ready at ${config.paths.workspaceRoot}`);
@@ -138,21 +185,5 @@ async function bootstrapRuntime(
 
   const me = await telegram.bot.api.getMe();
   logger.info(`startup: telegram initialized as @${me.username ?? me.id}`);
-
-  const shutdown = (signal: string) => {
-    logger.info(`shutdown: received ${signal}`);
-    telegram.bot.stop();
-    process.exit(0);
-  };
-
-  process.once("SIGINT", () => shutdown("SIGINT"));
-  process.once("SIGTERM", () => shutdown("SIGTERM"));
-
-  logger.info("startup: starting telegram polling loop");
-  await telegram.bot.start({
-    drop_pending_updates: false,
-    onStart: () => {
-      logger.info("startup: bot polling active");
-    }
-  });
+  return { bot: telegram.bot, logger };
 }

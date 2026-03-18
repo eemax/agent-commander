@@ -21,6 +21,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
   const root = createTempDir("acmd-config-");
 
   const base: Config = {
+    agentId: "default",
     configPath: path.join(root, "config.json"),
     telegram: {
       botToken: "telegram-token",

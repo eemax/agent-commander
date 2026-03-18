@@ -13,14 +13,16 @@ function shouldLog(activeLevel: LogLevel, incomingLevel: LogLevel): boolean {
   return LEVEL_RANK[incomingLevel] >= LEVEL_RANK[activeLevel];
 }
 
-function formatLine(level: LogLevel, message: string): string {
-  return `${new Date().toISOString()} [${level.toUpperCase()}] ${message}`;
+function formatLine(level: LogLevel, message: string, tag?: string): string {
+  const tagPrefix = tag ? ` [${tag}]` : "";
+  return `${new Date().toISOString()} [${level.toUpperCase()}]${tagPrefix} ${message}`;
 }
 
 export function createLogger(
   level: LogLevel,
-  options: { appLogPath?: string; flushIntervalMs?: number } = {}
+  options: { appLogPath?: string; flushIntervalMs?: number; tag?: string } = {}
 ): RuntimeLogger {
+  const tag = options.tag;
   const appLogPath = options.appLogPath;
   if (appLogPath) {
     fs.mkdirSync(path.dirname(appLogPath), { recursive: true });
@@ -101,7 +103,7 @@ export function createLogger(
       return;
     }
 
-    const line = formatLine(targetLevel, message);
+    const line = formatLine(targetLevel, message, tag);
 
     if (targetLevel === "warn") {
       console.warn(line);

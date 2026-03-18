@@ -23,6 +23,7 @@ export type OpenAIModelCatalogEntry = {
 };
 
 export type Config = {
+  agentId: string;
   configPath: string;
   telegram: {
     botToken: string;
