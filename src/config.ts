@@ -6,7 +6,7 @@ import type { EnvSecrets } from "./env.js";
 import type { Config, LogLevel, TelegramAssistantFormat } from "./runtime/contracts.js";
 import type { WebSearchModelCatalogEntry } from "./web-search-catalog.js";
 import { DEFAULT_OBSERVABILITY_REDACTION } from "./observability.js";
-import { THINKING_EFFORT_VALUES, type ThinkingEffort } from "./types.js";
+import { THINKING_EFFORT_VALUES, CACHE_RETENTION_VALUES, type ThinkingEffort, type CacheRetention } from "./types.js";
 
 const LOG_LEVEL_VALUES = ["debug", "info", "warn", "error"] as const;
 const TELEGRAM_ASSISTANT_FORMAT_VALUES = ["plain_text", "markdown_to_html"] as const;
@@ -29,6 +29,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
         context_window: null,
         max_output_tokens: null,
         default_thinking: "medium",
+        cache_retention: "in_memory",
         compaction_tokens: null,
         compaction_threshold: 1
       },
@@ -38,6 +39,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
         context_window: 400_000,
         max_output_tokens: null,
         default_thinking: "medium",
+        cache_retention: "in_memory",
         compaction_tokens: null,
         compaction_threshold: 1
       }
@@ -75,10 +77,12 @@ const DEFAULT_CONFIG_TEMPLATE = {
     max_completed_sessions: 500,
     max_output_chars: 200_000,
     web_search: {
-      model: "sonar",
-      available_models: [
-        { id: "sonar", aliases: ["search"] },
-        { id: "sonar-pro", aliases: ["search-pro"] }
+      default_preset: "pro-search",
+      presets: [
+        { id: "fast-search", aliases: ["fast"] },
+        { id: "pro-search", aliases: ["pro"] },
+        { id: "deep-research", aliases: ["deep"] },
+        { id: "advanced-deep-research", aliases: ["xdeep"] }
       ]
     }
   },
@@ -110,10 +114,11 @@ const DEFAULT_OPENAI_MODELS = DEFAULT_CONFIG_TEMPLATE.openai.models.map((item) =
   context_window: item.context_window,
   max_output_tokens: item.max_output_tokens,
   default_thinking: item.default_thinking,
+  cache_retention: item.cache_retention,
   compaction_tokens: item.compaction_tokens,
   compaction_threshold: item.compaction_threshold
 }));
-const DEFAULT_WEB_SEARCH_MODELS = DEFAULT_CONFIG_TEMPLATE.tools.web_search.available_models.map((item) => ({
+const DEFAULT_WEB_SEARCH_MODELS = DEFAULT_CONFIG_TEMPLATE.tools.web_search.presets.map((item) => ({
   id: item.id,
   aliases: [...item.aliases]
 }));
@@ -131,6 +136,7 @@ const openAIModelSchema = z
     context_window: positiveInt.nullable().default(null),
     max_output_tokens: positiveInt.nullable().default(null),
     default_thinking: z.enum(THINKING_EFFORT_VALUES).default("medium"),
+    cache_retention: z.enum(CACHE_RETENTION_VALUES).default("in_memory"),
     compaction_tokens: positiveInt.nullable().default(null),
     compaction_threshold: z.number().min(0.1).max(1).default(1)
   })
@@ -189,8 +195,8 @@ export const configSchema = z
         max_output_chars: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.tools.max_output_chars),
         web_search: z
           .object({
-            model: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.tools.web_search.model),
-            available_models: z.array(webSearchModelSchema).min(1).default(DEFAULT_WEB_SEARCH_MODELS)
+            default_preset: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.tools.web_search.default_preset),
+            presets: z.array(webSearchModelSchema).min(1).default(DEFAULT_WEB_SEARCH_MODELS)
           })
           .strict()
           .default({})
@@ -347,6 +353,7 @@ function normalizeOpenAIModels(
     context_window: number | null;
     max_output_tokens: number | null;
     default_thinking: ThinkingEffort;
+    cache_retention: CacheRetention;
     compaction_tokens: number | null;
     compaction_threshold: number;
   }>,
@@ -391,6 +398,7 @@ function normalizeOpenAIModels(
       contextWindow: item.context_window,
       maxOutputTokens: item.max_output_tokens,
       defaultThinking: item.default_thinking,
+      cacheRetention: item.cache_retention,
       compactionTokens: item.compaction_tokens,
       compactionThreshold: item.compaction_threshold
     });
@@ -405,7 +413,7 @@ function normalizeOpenAIModels(
 
 function normalizeWebSearchModels(
   models: Array<{ id: string; aliases: string[] }>,
-  defaultModelId: string
+  defaultPresetId: string
 ): WebSearchModelCatalogEntry[] {
   const normalized: WebSearchModelCatalogEntry[] = [];
   const seenModelIds = new Map<string, string>();
@@ -416,7 +424,7 @@ function normalizeWebSearchModels(
     const idKey = id.toLowerCase();
     const priorId = seenModelIds.get(idKey);
     if (priorId) {
-      throw new Error(`config.tools.web_search.available_models has duplicate model id: ${id} (already defined as ${priorId})`);
+      throw new Error(`config.tools.web_search.presets has duplicate preset id: ${id} (already defined as ${priorId})`);
     }
     seenModelIds.set(idKey, id);
 
@@ -435,7 +443,7 @@ function normalizeWebSearchModels(
     for (const lookupKey of [idKey, ...aliases.map((alias) => alias.toLowerCase())]) {
       const owner = lookupOwner.get(lookupKey);
       if (owner && owner !== id) {
-        throw new Error(`config.tools.web_search.available_models has alias collision: '${lookupKey}' used by both ${owner} and ${id}`);
+        throw new Error(`config.tools.web_search.presets has alias collision: '${lookupKey}' used by both ${owner} and ${id}`);
       }
       lookupOwner.set(lookupKey, id);
     }
@@ -443,8 +451,8 @@ function normalizeWebSearchModels(
     normalized.push({ id, aliases });
   }
 
-  if (!normalized.some((item) => item.id === defaultModelId)) {
-    throw new Error(`config.tools.web_search.model '${defaultModelId}' is not present in config.tools.web_search.available_models`);
+  if (!normalized.some((item) => item.id === defaultPresetId)) {
+    throw new Error(`config.tools.web_search.default_preset '${defaultPresetId}' is not present in config.tools.web_search.presets`);
   }
 
   return normalized;
@@ -482,7 +490,7 @@ export function buildConfigFromParsed(
     throw new Error("config.openai.retry_max_ms must be greater than or equal to config.openai.retry_base_ms");
   }
   const openAIModels = normalizeOpenAIModels(config.openai.models, config.openai.model);
-  const webSearchModels = normalizeWebSearchModels(config.tools.web_search.available_models, config.tools.web_search.model);
+  const webSearchModels = normalizeWebSearchModels(config.tools.web_search.presets, config.tools.web_search.default_preset);
 
   const workspaceRoot = resolveConfigPath(repoRoot, config.paths.workspace_root);
   const defaultCwdInput = config.tools.default_cwd ?? config.paths.workspace_root;
@@ -537,8 +545,8 @@ export function buildConfigFromParsed(
       maxOutputChars: config.tools.max_output_chars,
       webSearch: {
         apiKey: defaultPerplexityApiKey,
-        model: config.tools.web_search.model,
-        models: webSearchModels
+        defaultPreset: config.tools.web_search.default_preset,
+        presets: webSearchModels
       }
     },
     paths: {

@@ -388,7 +388,13 @@ describe("model tool output normalizer", () => {
         ok: true,
         summary: "Web search returned results.",
         data: {
-          response_text: "Expected late 2026[1]. No official date[2]."
+          query: "raspberry pi 6",
+          model: "sonar",
+          response_text: "Expected late 2026[1]. No official date[2].",
+          search_results: [
+            { id: 1, title: "Pi 6 Rumors", url: "https://example.com/pi6" },
+            { id: 2, title: "Pi FAQ", url: "https://example.com/faq" }
+          ]
         },
         meta: {
           model: "sonar"

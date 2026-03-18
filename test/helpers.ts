@@ -39,6 +39,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
           contextWindow: null,
           maxOutputTokens: null,
           defaultThinking: "medium",
+          cacheRetention: "in_memory",
           compactionTokens: null,
           compactionThreshold: 1
         },
@@ -48,6 +49,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
           contextWindow: 400_000,
           maxOutputTokens: 8_000,
           defaultThinking: "high",
+          cacheRetention: "24h",
           compactionTokens: null,
           compactionThreshold: 1
         }
@@ -89,10 +91,12 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       maxOutputChars: 200_000,
       webSearch: {
         apiKey: null,
-        model: "sonar",
-        models: [
-          { id: "sonar", aliases: ["search"] },
-          { id: "sonar-pro", aliases: ["search-pro"] }
+        defaultPreset: "pro-search",
+        presets: [
+          { id: "fast-search", aliases: ["fast"] },
+          { id: "pro-search", aliases: ["pro"] },
+          { id: "deep-research", aliases: ["deep"] },
+          { id: "advanced-deep-research", aliases: ["xdeep"] }
         ]
       }
     },
@@ -141,7 +145,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       webSearch: {
         ...base.tools.webSearch,
         ...overrides.tools?.webSearch,
-        models: (overrides.tools?.webSearch?.models as Config["tools"]["webSearch"]["models"] | undefined) ?? base.tools.webSearch.models
+        presets: (overrides.tools?.webSearch?.presets as Config["tools"]["webSearch"]["presets"] | undefined) ?? base.tools.webSearch.presets
       }
     },
     paths: {

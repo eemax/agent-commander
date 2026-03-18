@@ -34,17 +34,17 @@ export function resolveWebSearchModelReference(
 
 export function resolveActiveWebSearchModel(params: {
   models: WebSearchModelCatalogEntry[];
-  defaultModelId: string;
-  overrideModelId: string | null;
+  defaultPresetId: string;
+  overridePresetId: string | null;
 }): WebSearchModelCatalogEntry {
-  const override = params.overrideModelId ? getWebSearchModelById(params.models, params.overrideModelId) : null;
+  const override = params.overridePresetId ? getWebSearchModelById(params.models, params.overridePresetId) : null;
   if (override) {
     return override;
   }
 
-  const fallback = getWebSearchModelById(params.models, params.defaultModelId);
+  const fallback = getWebSearchModelById(params.models, params.defaultPresetId);
   if (!fallback) {
-    throw new Error(`Default web search model missing from catalog: ${params.defaultModelId}`);
+    throw new Error(`Default web search preset missing from catalog: ${params.defaultPresetId}`);
   }
 
   return fallback;

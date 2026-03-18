@@ -104,6 +104,7 @@ describe("loadConfig", () => {
     expect(config.openai.models.find((item) => item.id === "gpt-5.3-codex")?.contextWindow).toBe(400000);
     expect(config.openai.models.find((item) => item.id === "gpt-5.3-codex")?.maxOutputTokens).toBeNull();
     expect(config.openai.models.find((item) => item.id === "gpt-5.3-codex")?.defaultThinking).toBe("medium");
+    expect(config.openai.models.find((item) => item.id === "gpt-5.3-codex")?.cacheRetention).toBe("in_memory");
     expect(config.runtime.logLevel).toBe("info");
     expect(config.runtime.defaultVerbose).toBe(true);
     expect(config.runtime.toolLoopMaxSteps).toBe(30);
@@ -126,24 +127,24 @@ describe("loadConfig", () => {
     expect(config.tools.defaultShell).toBe("/bin/bash");
     expect(config.tools.logPath).toBe(path.join(root, ".agent-commander", "tool-calls.jsonl"));
     expect(config.tools.webSearch.apiKey).toBeNull();
-    expect(config.tools.webSearch.model).toBe("sonar");
-    expect(config.tools.webSearch.models.map((m) => m.id)).toContain("sonar");
+    expect(config.tools.webSearch.defaultPreset).toBe("pro-search");
+    expect(config.tools.webSearch.presets.map((m) => m.id)).toContain("pro-search");
     expect(config.paths.conversationsDir).toBe(path.join(root, ".agent-commander", "conversations"));
     expect(config.paths.stashedConversationsPath).toBe(path.join(root, ".agent-commander", "stashed-conversations.json"));
     expect(config.paths.activeConversationsPath).toBe(path.join(root, ".agent-commander", "active-conversations.json"));
     expect(config.paths.appLogPath).toBe(path.join(root, ".agent-commander", "app.log"));
   });
 
-  it("loads tools.web_search model overrides", () => {
+  it("loads tools.web_search preset overrides", () => {
     const root = createTempDir("acmd-config-web-search-");
     writeConfig(root, {
       ...minimalPayload(),
       tools: {
         web_search: {
-          model: "sonar-pro",
-          available_models: [
-            { id: "sonar", aliases: ["search"] },
-            { id: "sonar-pro", aliases: ["search-pro"] }
+          default_preset: "deep-research",
+          presets: [
+            { id: "fast-search", aliases: ["fast"] },
+            { id: "deep-research", aliases: ["deep"] }
           ]
         }
       }
@@ -151,8 +152,8 @@ describe("loadConfig", () => {
 
     const config = loadConfigWithRequiredDefaults(root);
     expect(config.tools.webSearch.apiKey).toBeNull();
-    expect(config.tools.webSearch.model).toBe("sonar-pro");
-    expect(config.tools.webSearch.models).toHaveLength(2);
+    expect(config.tools.webSearch.defaultPreset).toBe("deep-research");
+    expect(config.tools.webSearch.presets).toHaveLength(2);
   });
 
   it("loads default credentials from .env defaults", () => {
@@ -317,7 +318,8 @@ describe("loadConfig", () => {
             aliases: ["codex"],
             context_window: 400000,
             max_output_tokens: 16000,
-            default_thinking: "high"
+            default_thinking: "high",
+            cache_retention: "24h"
           }
         ]
       }
@@ -326,6 +328,7 @@ describe("loadConfig", () => {
     const config = loadConfigWithRequiredDefaults(root);
     expect(config.openai.models[0]?.maxOutputTokens).toBe(16000);
     expect(config.openai.models[0]?.defaultThinking).toBe("high");
+    expect(config.openai.models[0]?.cacheRetention).toBe("24h");
   });
 
   it("throws when model max_output_tokens is invalid", () => {
@@ -386,6 +389,26 @@ describe("loadConfig", () => {
     });
 
     expect(() => loadConfigWithRequiredDefaults(root)).toThrow("config.openai.models.0.default_thinking");
+  });
+
+  it("throws when model cache_retention is invalid", () => {
+    const root = createTempDir("acmd-config-cache-retention-invalid-");
+    writeConfig(root, {
+      ...minimalPayload(),
+      openai: {
+        model: "gpt-5.3-codex",
+        models: [
+          {
+            id: "gpt-5.3-codex",
+            aliases: ["codex"],
+            context_window: 400000,
+            cache_retention: "7d"
+          }
+        ]
+      }
+    });
+
+    expect(() => loadConfigWithRequiredDefaults(root)).toThrow("config.openai.models.0.cache_retention");
   });
 
   it("throws when strict nested shape is violated", () => {

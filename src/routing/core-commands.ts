@@ -4,8 +4,10 @@ import { resolveActiveModel, resolveModelReference } from "../model-catalog.js";
 import { resolveActiveWebSearchModel, resolveWebSearchModelReference } from "../web-search-catalog.js";
 import type { StateStore, WorkspaceCatalog, Config, StashedConversationSummary } from "../runtime/contracts.js";
 import {
+  CACHE_RETENTION_VALUES,
   THINKING_EFFORT_VALUES,
   type MessageRouteResult,
+  type CacheRetention,
   type NormalizedTelegramCallbackQuery,
   type NormalizedTelegramMessage,
   type TelegramInlineButton,
@@ -15,6 +17,7 @@ import { formatConversationIdForUi, formatConversationIdTail } from "./conversat
 import { buildStatusReply, formatBashReply, formatCompactNumber } from "./formatters.js";
 
 const THINKING_EFFORT_SET: ReadonlySet<string> = new Set(THINKING_EFFORT_VALUES);
+const CACHE_RETENTION_SET: ReadonlySet<string> = new Set(CACHE_RETENTION_VALUES);
 const MENU_PAGE_SIZE = 6;
 const CALLBACK_PREFIX = "convmenu";
 
@@ -45,6 +48,10 @@ export type CoreCommandHandler = {
 
 function isThinkingEffort(value: string): value is (typeof THINKING_EFFORT_VALUES)[number] {
   return THINKING_EFFORT_SET.has(value);
+}
+
+function isCacheRetention(value: string): value is CacheRetention {
+  return CACHE_RETENTION_SET.has(value);
 }
 
 function pluralize(value: number, singular: string): string {
@@ -324,9 +331,10 @@ export function createCoreCommandHandler(params: {
           }
 
           const conversationId = await conversations.ensureActiveConversation(message.chatId);
-          const [verboseEnabled, thinkingEffort, activeModelOverride, webSearchModelOverride, latestUsage, toolResultStats, compactionCount] = await Promise.all([
+          const [verboseEnabled, thinkingEffort, cacheRetention, activeModelOverride, webSearchModelOverride, latestUsage, toolResultStats, compactionCount] = await Promise.all([
             conversations.getVerboseMode(message.chatId),
             conversations.getThinkingEffort(message.chatId),
+            conversations.getCacheRetention(message.chatId),
             conversations.getActiveModelOverride(message.chatId),
             conversations.getActiveWebSearchModelOverride(message.chatId),
             conversations.getLatestUsageSnapshot(message.chatId),
@@ -340,9 +348,9 @@ export function createCoreCommandHandler(params: {
           });
           const webSearchModel = config.tools.webSearch.apiKey !== null
             ? resolveActiveWebSearchModel({
-                models: config.tools.webSearch.models,
-                defaultModelId: config.tools.webSearch.model,
-                overrideModelId: webSearchModelOverride
+                models: config.tools.webSearch.presets,
+                defaultPresetId: config.tools.webSearch.defaultPreset,
+                overridePresetId: webSearchModelOverride
               }).id
             : null;
           const ownedSessions = harness.context.processManager.listSessionsByOwner(message.chatId);
@@ -393,6 +401,7 @@ export function createCoreCommandHandler(params: {
                 workflowLoopBreakerTrips: toolRuntime.workflowLoopBreakerTrips
               },
               toolResultStats,
+              cacheRetention,
               compactionTokens: activeModel.compactionTokens,
               compactionThreshold: activeModel.compactionThreshold,
               compactionCount,
@@ -504,9 +513,14 @@ export function createCoreCommandHandler(params: {
 
           await conversations.setActiveModelOverride(message.chatId, resolved.id, { trace });
           await conversations.setThinkingEffort(message.chatId, resolved.defaultThinking, { trace });
+          await conversations.setCacheRetention(message.chatId, resolved.cacheRetention, { trace });
           return {
             type: "reply",
-            text: [`model: ${resolved.id}`, `thinking effort: ${resolved.defaultThinking} (model default)`].join("\n")
+            text: [
+              `model: ${resolved.id}`,
+              `thinking effort: ${resolved.defaultThinking} (model default)`,
+              `cache retention: ${resolved.cacheRetention} (model default)`
+            ].join("\n")
           };
         }
         case "models": {
@@ -525,14 +539,57 @@ export function createCoreCommandHandler(params: {
             const maxOutput =
               model.maxOutputTokens === null ? "unknown max output" : `${formatCompactNumber(model.maxOutputTokens)} max output`;
             const defaultThinking = `${model.defaultThinking} default think`;
+            const defaultCacheRetention = `${model.cacheRetention} default cache`;
             const aliasText = model.aliases.length > 0 ? `aliases: ${model.aliases.join(", ")}` : "aliases: none";
-            lines.push(`${marker} ${model.id} (${contextWindow}; ${maxOutput}; ${defaultThinking}; ${aliasText})`);
+            lines.push(
+              `${marker} ${model.id} (${contextWindow}; ${maxOutput}; ${defaultThinking}; ${defaultCacheRetention}; ${aliasText})`
+            );
           }
           lines.push(`active model: ${activeModel.id}`);
           lines.push("Use /model <id-or-alias> to switch.");
           return {
             type: "reply",
             text: lines.join("\n")
+          };
+        }
+        case "cache": {
+          const selection = args.trim().toLowerCase();
+          const [current, activeModelOverride] = await Promise.all([
+            conversations.getCacheRetention(message.chatId),
+            conversations.getActiveModelOverride(message.chatId)
+          ]);
+          const activeModel = resolveActiveModel({
+            models: config.openai.models,
+            defaultModelId: config.openai.model,
+            overrideModelId: activeModelOverride
+          });
+
+          if (selection.length === 0) {
+            return {
+              type: "reply",
+              text: [
+                "Usage: /cache <in_memory|24h>",
+                `cache retention: ${current}`,
+                `model default cache retention: ${activeModel.cacheRetention}`
+              ].join("\n")
+            };
+          }
+
+          if (!isCacheRetention(selection)) {
+            return {
+              type: "reply",
+              text: [
+                "Usage: /cache <in_memory|24h>",
+                `cache retention: ${current}`,
+                `model default cache retention: ${activeModel.cacheRetention}`
+              ].join("\n")
+            };
+          }
+
+          await conversations.setCacheRetention(message.chatId, selection, { trace });
+          return {
+            type: "reply",
+            text: `cache retention: ${selection}`
           };
         }
         case "search": {
@@ -546,9 +603,9 @@ export function createCoreCommandHandler(params: {
           const selection = args.trim();
           const wsOverride = await conversations.getActiveWebSearchModelOverride(message.chatId);
           const activeWsModel = resolveActiveWebSearchModel({
-            models: config.tools.webSearch.models,
-            defaultModelId: config.tools.webSearch.model,
-            overrideModelId: wsOverride
+            models: config.tools.webSearch.presets,
+            defaultPresetId: config.tools.webSearch.defaultPreset,
+            overridePresetId: wsOverride
           });
 
           if (selection.length === 0) {
@@ -557,7 +614,7 @@ export function createCoreCommandHandler(params: {
               `search model: ${activeWsModel.id}`,
               "available:"
             ];
-            for (const model of config.tools.webSearch.models) {
+            for (const model of config.tools.webSearch.presets) {
               const marker = model.id === activeWsModel.id ? "*" : "-";
               const aliasText = model.aliases.length > 0 ? `aliases: ${model.aliases.join(", ")}` : "aliases: none";
               lines.push(`${marker} ${model.id} (${aliasText})`);
@@ -568,7 +625,7 @@ export function createCoreCommandHandler(params: {
             };
           }
 
-          const resolved = resolveWebSearchModelReference(config.tools.webSearch.models, selection);
+          const resolved = resolveWebSearchModelReference(config.tools.webSearch.presets, selection);
           if (!resolved) {
             return {
               type: "reply",

@@ -1,6 +1,6 @@
 {
   "telegram": {
-    "streaming_enabled": false,
+    "streaming_enabled": true,
     "streaming_min_update_ms": 1000,
     "assistant_format": "markdown_to_html"
   },
@@ -59,12 +59,12 @@
     "max_completed_sessions": 500,
     "max_output_chars": 200000,
     "web_search": {
-      "model": "sonar-reasoning-pro",
-      "available_models": [
-        { "id": "sonar", "aliases": [ "sonar" ] },
-        { "id": "sonar-pro", "aliases": [ "pro" ] },
-        { "id": "sonar-reasoning-pro", "aliases": [ "think" ] },
-        { "id": "sonar-deep-research", "aliases": [ "deep" ] }
+      "default_preset": "pro-search",
+      "presets": [
+        { "id": "fast-search", "aliases": [ "fast" ] },
+        { "id": "pro-search", "aliases": [ "pro" ] },
+        { "id": "deep-research", "aliases": [ "deep" ] },
+        { "id": "advanced-deep-research", "aliases": [ "xdeep" ] }
       ]
     }
   },

@@ -32,8 +32,8 @@ export function createToolHarness(
   const defaultCwd = path.resolve(config.defaultCwd);
   const webSearchConfig = config.webSearch ?? {
     apiKey: null,
-    model: "sonar",
-    models: []
+    defaultPreset: "pro-search",
+    presets: []
   };
   const logger = new ToolCallLogger(config.logPath, defaultCwd);
   const processManager = new ProcessManager({
@@ -81,8 +81,8 @@ export function createToolHarness(
     })
   );
   if (webSearchConfig.apiKey !== null) {
-    const defaultModel = webSearchConfig.model;
-    const resolveModel = deps.resolveWebSearchModel ?? (async () => defaultModel);
+    const defaultPreset = webSearchConfig.defaultPreset;
+    const resolveModel = deps.resolveWebSearchModel ?? (async () => defaultPreset);
     registry.register(
       createWebSearchTool(
         {

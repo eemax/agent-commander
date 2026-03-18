@@ -102,17 +102,19 @@ async function bootstrapAgentRuntime(
   } else {
     logger.info("startup: web_search enabled");
   }
+  const defaultModel = resolveActiveModel({
+    models: config.openai.models,
+    defaultModelId: config.openai.model,
+    overrideModelId: null
+  });
 
   const conversations = createConversationStore({
     conversationsDir: config.paths.conversationsDir,
     stashedConversationsPath: config.paths.stashedConversationsPath,
     activeConversationsPath: config.paths.activeConversationsPath,
     defaultVerboseMode: config.runtime.defaultVerbose,
-    defaultThinkingEffort: resolveActiveModel({
-      models: config.openai.models,
-      defaultModelId: config.openai.model,
-      overrideModelId: null
-    }).defaultThinking,
+    defaultThinkingEffort: defaultModel.defaultThinking,
+    defaultCacheRetention: defaultModel.cacheRetention,
     sessionCacheMaxEntries: config.runtime.sessionCacheMaxEntries,
     observability
   });
@@ -133,12 +135,12 @@ async function bootstrapAgentRuntime(
     {
       observability,
       resolveWebSearchModel: async (ownerId) => {
-        if (!ownerId) return config.tools.webSearch.model;
+        if (!ownerId) return config.tools.webSearch.defaultPreset;
         const override = await conversations.getActiveWebSearchModelOverride(ownerId);
         return resolveActiveWebSearchModel({
-          models: config.tools.webSearch.models,
-          defaultModelId: config.tools.webSearch.model,
-          overrideModelId: override
+          models: config.tools.webSearch.presets,
+          defaultPresetId: config.tools.webSearch.defaultPreset,
+          overridePresetId: override
         }).id;
       }
     }

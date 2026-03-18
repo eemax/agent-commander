@@ -38,12 +38,14 @@ This is the canonical `config.json` shape.
     - `context_window`: positive integer or `null` (use `null` when unknown)
     - `max_output_tokens`: positive integer or `null` (status budgeting hint; not sent to Responses API)
     - `default_thinking`: one of `none|minimal|low|medium|high|xhigh`, default `medium`
+    - `cache_retention`: `"in_memory" | "24h"`, default `"in_memory"` — prompt cache retention mode used for Responses API `prompt_cache_retention`
     - `compaction_tokens`: positive integer or `null`, default `null` — base token budget for context compaction; `null` disables compaction
     - `compaction_threshold`: number `0.1`–`1`, default `1` — multiplier applied to `compaction_tokens`; the API receives `compact_threshold = floor(compaction_tokens * compaction_threshold)`
   - model IDs are unique (case-insensitive)
   - aliases are unique across all models and cannot collide with another model ID/alias
   - `openai.model` must match one configured `models[].id`
-  - `/model <id-or-alias>` applies the selected model's `default_thinking` to runtime `thinking` mode
+  - `/model <id-or-alias>` applies the selected model's `default_thinking` and `cache_retention` to runtime
+  - `/cache <in_memory|24h>` overrides runtime prompt cache retention for the current conversation
   - `/status` uses `context_window` with per-turn usage snapshots to show:
     - `budget`: peak per-call `input / (context_window - max_output_tokens)` when `max_output_tokens` is known and smaller than `context_window` (otherwise `n/a`)
   - `/status full` also reports current-conversation tool-result aggregates (`tool.results_total`, `tool.results_success`, `tool.results_fail`, `tool.results_by_name`) persisted in conversation runtime profiles.
@@ -97,10 +99,12 @@ This is the canonical `config.json` shape.
 - `web_search`: object (optional, defaults shown)
   - API key source: `DEFAULT_PERPLEXITY_API_KEY` (optional)
     - when unset, the `web_search` tool is disabled at startup (warning only; no startup failure)
-  - `model`: non-empty string, default `"sonar"` — active Perplexity model for search calls
-  - `available_models`: array of model catalog entries for web search, default:
-    - `sonar` (alias: `search`)
-    - `sonar-pro` (alias: `search-pro`)
+  - `default_preset`: non-empty string, default `"pro-search"` — active Perplexity preset for search calls
+  - `presets`: array of preset catalog entries for web search, default:
+    - `fast-search` (alias: `fast`)
+    - `pro-search` (alias: `pro`)
+    - `deep-research` (alias: `deep`)
+    - `advanced-deep-research` (alias: `xdeep`)
     - each entry is:
       - `id`: non-empty string
       - `aliases`: string array, default `[]`

@@ -61,8 +61,8 @@ describe("web_search tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: "pplx-key",
-          model: "sonar",
-          models: [{ id: "sonar", aliases: [] }]
+          defaultPreset: "sonar",
+          presets: [{ id: "sonar", aliases: [] }]
         }
       },
       {
@@ -104,8 +104,8 @@ describe("web_search tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: "pplx-key",
-          model: "sonar",
-          models: [{ id: "sonar", aliases: [] }]
+          defaultPreset: "sonar",
+          presets: [{ id: "sonar", aliases: [] }]
         }
       },
       {
@@ -145,8 +145,8 @@ describe("web_search tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: "pplx-key",
-          model: "sonar",
-          models: [
+          defaultPreset: "sonar",
+          presets: [
             { id: "sonar", aliases: [] },
             { id: "sonar-pro", aliases: [] }
           ]
@@ -188,8 +188,8 @@ describe("web_search tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: "pplx-key",
-          model: "sonar",
-          models: [{ id: "sonar", aliases: [] }]
+          defaultPreset: "sonar",
+          presets: [{ id: "sonar", aliases: [] }]
         }
       },
       {
@@ -225,8 +225,8 @@ describe("web_search tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: "pplx-key",
-          model: "sonar",
-          models: [{ id: "sonar", aliases: [] }]
+          defaultPreset: "sonar",
+          presets: [{ id: "sonar", aliases: [] }]
         }
       },
       {

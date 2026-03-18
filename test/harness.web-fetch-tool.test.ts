@@ -28,8 +28,8 @@ describe("web_fetch tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: null,
-          model: "sonar",
-          models: [{ id: "sonar", aliases: [] }]
+          defaultPreset: "sonar",
+          presets: [{ id: "sonar", aliases: [] }]
         }
       },
       {
@@ -68,8 +68,8 @@ describe("web_fetch tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: "pplx-key",
-          model: "sonar",
-          models: [{ id: "sonar", aliases: [] }]
+          defaultPreset: "sonar",
+          presets: [{ id: "sonar", aliases: [] }]
         }
       },
       {
@@ -139,8 +139,8 @@ describe("web_fetch tool", () => {
         maxOutputChars: 200_000,
         webSearch: {
           apiKey: null,
-          model: "sonar",
-          models: [{ id: "sonar", aliases: [] }]
+          defaultPreset: "sonar",
+          presets: [{ id: "sonar", aliases: [] }]
         }
       },
       {

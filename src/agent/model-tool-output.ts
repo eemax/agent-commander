@@ -510,9 +510,6 @@ function normalizeWebSearchResult(result: unknown): NormalizedToolEnvelopeResult
   const model = readNonEmptyString(record.model);
   const responseText = readNonEmptyString(record.response_text);
 
-  const data: Record<string, unknown> = {};
-  if (responseText) data.response_text = responseText;
-
   const hasContent = responseText !== null;
   const summary = hasContent
     ? "Web search returned results."
@@ -525,7 +522,7 @@ function normalizeWebSearchResult(result: unknown): NormalizedToolEnvelopeResult
     envelope: {
       ok: true,
       summary,
-      data,
+      data: record,
       ...(Object.keys(meta).length > 0 ? { meta } : {})
     },
     report: {

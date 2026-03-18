@@ -197,7 +197,7 @@ Search the web via Perplexity API.
 **Returns:** `query`, `model`, `response_text`, `citations`, `search_results`
 
 - Requires `DEFAULT_PERPLEXITY_API_KEY` to be set (disabled when unset)
-- Model determined by `tools.web_search.model` and `tools.web_search.available_models`
+- Preset determined by `tools.web_search.default_preset` and `tools.web_search.presets`
 
 ### `web_fetch`
 

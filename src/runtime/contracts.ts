@@ -4,6 +4,7 @@ import type {
   ProviderErrorKind,
   ProviderRequest,
   ThinkingEffort,
+  CacheRetention,
   SkillDefinition,
   WorkspaceSnapshot
 } from "../types.js";
@@ -18,6 +19,7 @@ export type OpenAIModelCatalogEntry = {
   contextWindow: number | null;
   maxOutputTokens: number | null;
   defaultThinking: ThinkingEffort;
+  cacheRetention: CacheRetention;
   compactionTokens: number | null;
   compactionThreshold: number;
 };
@@ -72,8 +74,8 @@ export type Config = {
     maxOutputChars: number;
     webSearch: {
       apiKey: string | null;
-      model: string;
-      models: WebSearchModelCatalogEntry[];
+      defaultPreset: string;
+      presets: WebSearchModelCatalogEntry[];
     };
   };
   paths: {
@@ -129,6 +131,8 @@ export type StateStore = {
   setVerboseMode(chatId: string, enabled: boolean, options?: { trace?: TraceContext }): Promise<void>;
   getThinkingEffort(chatId: string): Promise<ThinkingEffort>;
   setThinkingEffort(chatId: string, effort: ThinkingEffort, options?: { trace?: TraceContext }): Promise<void>;
+  getCacheRetention(chatId: string): Promise<CacheRetention>;
+  setCacheRetention(chatId: string, mode: CacheRetention, options?: { trace?: TraceContext }): Promise<void>;
   getActiveModelOverride(chatId: string): Promise<string | null>;
   setActiveModelOverride(chatId: string, modelId: string | null, options?: { trace?: TraceContext }): Promise<void>;
   getActiveWebSearchModelOverride(chatId: string): Promise<string | null>;
