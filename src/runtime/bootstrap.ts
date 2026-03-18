@@ -51,7 +51,7 @@ async function bootstrapRuntime(
   await workspace.bootstrap();
   logger.info(`startup: workspace ready at ${config.paths.workspaceRoot}`);
   if (config.tools.webSearch.apiKey === null) {
-    logger.warn("startup: web_search disabled (config.tools.web_search.api_key is null)");
+    logger.warn("startup: web_search disabled (DEFAULT_PERPLEXITY_API_KEY is unset)");
   } else {
     logger.info("startup: web_search enabled");
   }

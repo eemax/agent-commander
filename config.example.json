@@ -1,12 +1,10 @@
 {
   "telegram": {
-    "bot_token": "replace_me",
     "streaming_enabled": true,
     "streaming_min_update_ms": 100,
     "assistant_format": "plain_text"
   },
   "openai": {
-    "api_key": "replace_me",
     "model": "gpt-4.1-mini",
     "models": [
       {
@@ -71,7 +69,6 @@
     "max_completed_sessions": 500,
     "max_output_chars": 200000,
     "web_search": {
-      "api_key": null,
       "model": "sonar",
       "available_models": [
         { "id": "sonar", "aliases": ["search"] },

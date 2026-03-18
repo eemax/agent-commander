@@ -12,22 +12,22 @@ This is the canonical `config.json` shape.
 
 ## Required Fields
 
-- `telegram.bot_token`
-- `openai.api_key`
+- One Telegram token source:
+  - `DEFAULT_TELEGRAM_BOT_TOKEN` in environment/`.env`
+- One OpenAI API key source:
+  - `DEFAULT_OPENAI_API_KEY` in environment/`.env`
 - `access.allowed_sender_ids` (must contain at least one non-placeholder sender ID)
 
 ## Schema
 
 ### `telegram`
 
-- `bot_token`: string, required, non-empty, not `replace_me`
 - `streaming_enabled`: boolean, default `true`
 - `streaming_min_update_ms`: positive integer, default `100`
 - `assistant_format`: `"plain_text" | "markdown_to_html"`, default `"plain_text"`
 
 ### `openai`
 
-- `api_key`: string, required, non-empty, not `replace_me`
 - `model`: non-empty string, default `"gpt-4.1-mini"`
 - `models`: non-empty array of model catalog entries, default includes:
   - `gpt-4.1-mini` (alias: `mini`, unknown context window)
@@ -93,9 +93,8 @@ This is the canonical `config.json` shape.
 - `max_completed_sessions`: positive integer, default `500`
 - `max_output_chars`: positive integer, default `200000`
 - `web_search`: object (optional, defaults shown)
-  - `api_key`: non-empty string or `null`, default `null`
-    - when `null`, the `web_search` tool is disabled at startup (warning only; no startup failure)
-    - `"replace_me"` is treated as unset/disabled
+  - API key source: `DEFAULT_PERPLEXITY_API_KEY` (optional)
+    - when unset, the `web_search` tool is disabled at startup (warning only; no startup failure)
   - `model`: non-empty string, default `"sonar"` — active Perplexity model for search calls
   - `available_models`: array of model catalog entries for web search, default:
     - `sonar` (alias: `search`)

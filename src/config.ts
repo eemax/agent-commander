@@ -9,16 +9,17 @@ import { THINKING_EFFORT_VALUES, type ThinkingEffort } from "./types.js";
 
 const LOG_LEVEL_VALUES = ["debug", "info", "warn", "error"] as const;
 const TELEGRAM_ASSISTANT_FORMAT_VALUES = ["plain_text", "markdown_to_html"] as const;
+const DEFAULT_TELEGRAM_BOT_TOKEN_KEY = "DEFAULT_TELEGRAM_BOT_TOKEN";
+const DEFAULT_OPENAI_API_KEY_KEY = "DEFAULT_OPENAI_API_KEY";
+const DEFAULT_PERPLEXITY_API_KEY_KEY = "DEFAULT_PERPLEXITY_API_KEY";
 
 const DEFAULT_CONFIG_TEMPLATE = {
   telegram: {
-    bot_token: "replace_me",
     streaming_enabled: true,
     streaming_min_update_ms: 100,
     assistant_format: "plain_text"
   },
   openai: {
-    api_key: "replace_me",
     model: "gpt-4.1-mini",
     models: [
       {
@@ -76,7 +77,6 @@ const DEFAULT_CONFIG_TEMPLATE = {
     max_completed_sessions: 500,
     max_output_chars: 200_000,
     web_search: {
-      api_key: null,
       model: "sonar",
       available_models: [
         { id: "sonar", aliases: ["search"] },
@@ -142,7 +142,6 @@ const configSchema = z
   .object({
     telegram: z
       .object({
-        bot_token: optionalNonEmptyString,
         streaming_enabled: z.boolean().default(DEFAULT_CONFIG_TEMPLATE.telegram.streaming_enabled),
         streaming_min_update_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.streaming_min_update_ms),
         assistant_format: z
@@ -152,7 +151,6 @@ const configSchema = z
       .strict(),
     openai: z
       .object({
-        api_key: optionalNonEmptyString,
         model: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.openai.model),
         models: z.array(openAIModelSchema).min(1).default(DEFAULT_OPENAI_MODELS),
         timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.openai.timeout_ms),
@@ -198,7 +196,6 @@ const configSchema = z
         max_output_chars: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.tools.max_output_chars),
         web_search: z
           .object({
-            api_key: optionalNonEmptyString.nullable().default(DEFAULT_CONFIG_TEMPLATE.tools.web_search.api_key),
             model: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.tools.web_search.model),
             available_models: z.array(webSearchModelSchema).min(1).default(DEFAULT_WEB_SEARCH_MODELS)
           })
@@ -285,6 +282,58 @@ function readRawConfig(configPath: string): unknown {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid JSON in config file ${configPath}: ${message}`);
   }
+}
+
+function normalizeSecretCandidate(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed === "replace_me") {
+    return null;
+  }
+  return trimmed;
+}
+
+function parseDotEnv(content: string): Record<string, string> {
+  const output: Record<string, string> = {};
+  const lines = content.split(/\r?\n/u);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0 || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const match = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/u.exec(trimmed);
+    if (!match || !match[1]) {
+      continue;
+    }
+
+    const rawValue = match[2] ?? "";
+    const singleQuoted = rawValue.startsWith("'") && rawValue.endsWith("'");
+    const doubleQuoted = rawValue.startsWith("\"") && rawValue.endsWith("\"");
+    output[match[1]] = singleQuoted || doubleQuoted ? rawValue.slice(1, -1) : rawValue.trim();
+  }
+
+  return output;
+}
+
+function readDotEnvDefaults(repoRoot: string): Record<string, string> {
+  const envPath = path.resolve(repoRoot, ".env");
+  if (!fs.existsSync(envPath)) {
+    return {};
+  }
+  return parseDotEnv(fs.readFileSync(envPath, "utf8"));
+}
+
+function resolveDefaultSecret(dotEnvValues: Record<string, string>, key: string): string | null {
+  const fromProcess = normalizeSecretCandidate(process.env[key]);
+  if (fromProcess !== null) {
+    return fromProcess;
+  }
+  return normalizeSecretCandidate(dotEnvValues[key]);
 }
 
 function normalizeAllowedSenderIds(value: string[]): Set<string> {
@@ -408,29 +457,17 @@ function normalizeWebSearchModels(
 }
 
 function requireSecret(value: string, pathLabel: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length === 0 || trimmed === "replace_me") {
+  const trimmed = normalizeSecretCandidate(value);
+  if (trimmed === null) {
     throw new Error(`${pathLabel} must be a non-empty string`);
   }
-  return trimmed;
-}
-
-function normalizeOptionalSecret(value: string | null): string | null {
-  if (value === null) {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  if (trimmed.length === 0 || trimmed === "replace_me") {
-    return null;
-  }
-
   return trimmed;
 }
 
 export function loadConfig(repoRoot = process.cwd()): Config {
   const configPath = path.resolve(repoRoot, "config.json");
   const raw = readRawConfig(configPath);
+  const dotEnvDefaults = readDotEnvDefaults(repoRoot);
 
   const parsed = configSchema.safeParse(raw);
   if (!parsed.success) {
@@ -438,6 +475,18 @@ export function loadConfig(repoRoot = process.cwd()): Config {
   }
 
   const config = parsed.data;
+  const defaultTelegramBotToken = resolveDefaultSecret(dotEnvDefaults, DEFAULT_TELEGRAM_BOT_TOKEN_KEY);
+  const defaultOpenAIApiKey = resolveDefaultSecret(dotEnvDefaults, DEFAULT_OPENAI_API_KEY_KEY);
+  const defaultPerplexityApiKey = resolveDefaultSecret(dotEnvDefaults, DEFAULT_PERPLEXITY_API_KEY_KEY);
+  const telegramBotToken = requireSecret(
+    defaultTelegramBotToken ?? "replace_me",
+    `${DEFAULT_TELEGRAM_BOT_TOKEN_KEY}`
+  );
+  const openAIApiKey = requireSecret(
+    defaultOpenAIApiKey ?? "replace_me",
+    `${DEFAULT_OPENAI_API_KEY_KEY}`
+  );
+
   if (config.openai.retry_max_ms < config.openai.retry_base_ms) {
     throw new Error("config.openai.retry_max_ms must be greater than or equal to config.openai.retry_base_ms");
   }
@@ -450,13 +499,13 @@ export function loadConfig(repoRoot = process.cwd()): Config {
   return {
     configPath,
     telegram: {
-      botToken: requireSecret(config.telegram.bot_token, "config.telegram.bot_token"),
+      botToken: telegramBotToken,
       streamingEnabled: config.telegram.streaming_enabled,
       streamingMinUpdateMs: config.telegram.streaming_min_update_ms,
       assistantFormat: config.telegram.assistant_format
     },
     openai: {
-      apiKey: requireSecret(config.openai.api_key, "config.openai.api_key"),
+      apiKey: openAIApiKey,
       model: config.openai.model,
       models: openAIModels,
       timeoutMs: config.openai.timeout_ms,
@@ -495,7 +544,7 @@ export function loadConfig(repoRoot = process.cwd()): Config {
       maxCompletedSessions: config.tools.max_completed_sessions,
       maxOutputChars: config.tools.max_output_chars,
       webSearch: {
-        apiKey: normalizeOptionalSecret(config.tools.web_search.api_key),
+        apiKey: defaultPerplexityApiKey,
         model: config.tools.web_search.model,
         models: webSearchModels
       }

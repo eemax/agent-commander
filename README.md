@@ -18,12 +18,17 @@ npm install
 # 2. Create config from template
 cp config.example.json config.json
 
-# 3. Edit config.json — set these required fields:
-#    - telegram.bot_token
-#    - openai.api_key
+# 3. Create .env defaults for credentials
+cp .env.example .env
+# edit .env:
+#    - DEFAULT_TELEGRAM_BOT_TOKEN
+#    - DEFAULT_OPENAI_API_KEY
+#    - DEFAULT_PERPLEXITY_API_KEY (optional; enables web_search)
+
+# 4. Edit config.json — set required non-secret fields:
 #    - access.allowed_sender_ids (at least one real Telegram user ID)
 
-# 4. Start
+# 5. Start
 npm run dev
 ```
 

@@ -10,12 +10,8 @@ function writeConfig(dir: string, payload: Record<string, unknown>): void {
 
 function minimalPayload(): Record<string, unknown> {
   return {
-    telegram: {
-      bot_token: "tg-token"
-    },
-    openai: {
-      api_key: "oa-key"
-    },
+    telegram: {},
+    openai: {},
     runtime: {},
     access: {
       allowed_sender_ids: ["1001"]
@@ -24,6 +20,56 @@ function minimalPayload(): Record<string, unknown> {
     paths: {},
     observability: {}
   };
+}
+
+function withDefaultSecrets(
+  values: Partial<
+    Record<"DEFAULT_TELEGRAM_BOT_TOKEN" | "DEFAULT_OPENAI_API_KEY" | "DEFAULT_PERPLEXITY_API_KEY", string | null>
+  >,
+  run: () => void
+): void {
+  const keys = ["DEFAULT_TELEGRAM_BOT_TOKEN", "DEFAULT_OPENAI_API_KEY", "DEFAULT_PERPLEXITY_API_KEY"] as const;
+  const previous = new Map<(typeof keys)[number], string | undefined>();
+
+  for (const key of keys) {
+    previous.set(key, process.env[key]);
+    const nextValue = values[key];
+    if (typeof nextValue === "string") {
+      process.env[key] = nextValue;
+    } else {
+      delete process.env[key];
+    }
+  }
+
+  try {
+    run();
+  } finally {
+    for (const key of keys) {
+      const priorValue = previous.get(key);
+      if (typeof priorValue === "string") {
+        process.env[key] = priorValue;
+      } else {
+        delete process.env[key];
+      }
+    }
+  }
+}
+
+function loadConfigWithRequiredDefaults(root: string): ReturnType<typeof loadConfig> {
+  let resolved: ReturnType<typeof loadConfig> | undefined;
+  withDefaultSecrets(
+    {
+      DEFAULT_TELEGRAM_BOT_TOKEN: "tg-default",
+      DEFAULT_OPENAI_API_KEY: "oa-default"
+    },
+    () => {
+      resolved = loadConfig(root);
+    }
+  );
+  if (!resolved) {
+    throw new Error("failed to resolve config with defaults");
+  }
+  return resolved;
 }
 
 describe("loadConfig", () => {
@@ -50,10 +96,10 @@ describe("loadConfig", () => {
     const root = createTempDir("acmd-config-required-");
     writeConfig(root, minimalPayload());
 
-    const config = loadConfig(root);
+    const config = loadConfigWithRequiredDefaults(root);
 
-    expect(config.telegram.botToken).toBe("tg-token");
-    expect(config.openai.apiKey).toBe("oa-key");
+    expect(config.telegram.botToken).toBe("tg-default");
+    expect(config.openai.apiKey).toBe("oa-default");
     expect(config.access.allowedSenderIds).toEqual(new Set(["1001"]));
   });
 
@@ -61,7 +107,7 @@ describe("loadConfig", () => {
     const root = createTempDir("acmd-config-defaults-");
     writeConfig(root, minimalPayload());
 
-    const config = loadConfig(root);
+    const config = loadConfigWithRequiredDefaults(root);
     expect(config.telegram.streamingEnabled).toBe(true);
     expect(config.telegram.streamingMinUpdateMs).toBe(100);
     expect(config.telegram.assistantFormat).toBe("plain_text");
@@ -100,13 +146,12 @@ describe("loadConfig", () => {
     expect(config.paths.appLogPath).toBe(path.join(root, ".agent-commander", "app.log"));
   });
 
-  it("loads tools.web_search overrides", () => {
+  it("loads tools.web_search model overrides", () => {
     const root = createTempDir("acmd-config-web-search-");
     writeConfig(root, {
       ...minimalPayload(),
       tools: {
         web_search: {
-          api_key: "pplx-key",
           model: "sonar-pro",
           available_models: [
             { id: "sonar", aliases: ["search"] },
@@ -116,25 +161,87 @@ describe("loadConfig", () => {
       }
     });
 
-    const config = loadConfig(root);
-    expect(config.tools.webSearch.apiKey).toBe("pplx-key");
+    const config = loadConfigWithRequiredDefaults(root);
+    expect(config.tools.webSearch.apiKey).toBeNull();
     expect(config.tools.webSearch.model).toBe("sonar-pro");
     expect(config.tools.webSearch.models).toHaveLength(2);
   });
 
-  it("treats tools.web_search.api_key placeholder as disabled", () => {
-    const root = createTempDir("acmd-config-web-search-placeholder-");
+  it("loads default credentials from .env defaults", () => {
+    const root = createTempDir("acmd-config-dotenv-defaults-");
+    writeConfig(root, minimalPayload());
+    fs.writeFileSync(
+      path.join(root, ".env"),
+      [
+        "DEFAULT_TELEGRAM_BOT_TOKEN=tg-from-dotenv",
+        "DEFAULT_OPENAI_API_KEY=oa-from-dotenv",
+        "DEFAULT_PERPLEXITY_API_KEY=pplx-from-dotenv"
+      ].join("\n"),
+      "utf8"
+    );
+
+    withDefaultSecrets({}, () => {
+      const config = loadConfig(root);
+      expect(config.telegram.botToken).toBe("tg-from-dotenv");
+      expect(config.openai.apiKey).toBe("oa-from-dotenv");
+      expect(config.tools.webSearch.apiKey).toBe("pplx-from-dotenv");
+    });
+  });
+
+  it("prefers process.env defaults over .env defaults", () => {
+    const root = createTempDir("acmd-config-dotenv-process-defaults-");
+    writeConfig(root, minimalPayload());
+    fs.writeFileSync(
+      path.join(root, ".env"),
+      [
+        "DEFAULT_TELEGRAM_BOT_TOKEN=tg-from-dotenv",
+        "DEFAULT_OPENAI_API_KEY=oa-from-dotenv",
+        "DEFAULT_PERPLEXITY_API_KEY=pplx-from-dotenv"
+      ].join("\n"),
+      "utf8"
+    );
+
+    withDefaultSecrets(
+      {
+        DEFAULT_TELEGRAM_BOT_TOKEN: "tg-from-process",
+        DEFAULT_OPENAI_API_KEY: "oa-from-process",
+        DEFAULT_PERPLEXITY_API_KEY: "pplx-from-process"
+      },
+      () => {
+        const config = loadConfig(root);
+        expect(config.telegram.botToken).toBe("tg-from-process");
+        expect(config.openai.apiKey).toBe("oa-from-process");
+        expect(config.tools.webSearch.apiKey).toBe("pplx-from-process");
+      }
+    );
+  });
+
+  it("rejects deprecated credential keys in config.json", () => {
+    const root = createTempDir("acmd-config-legacy-keys-");
     writeConfig(root, {
       ...minimalPayload(),
+      telegram: {
+        bot_token: "legacy"
+      },
+      openai: {
+        api_key: "legacy"
+      },
       tools: {
         web_search: {
-          api_key: "replace_me"
+          api_key: "legacy"
         }
       }
     });
 
-    const config = loadConfig(root);
-    expect(config.tools.webSearch.apiKey).toBeNull();
+    withDefaultSecrets(
+      {
+        DEFAULT_TELEGRAM_BOT_TOKEN: "tg-from-process",
+        DEFAULT_OPENAI_API_KEY: "oa-from-process"
+      },
+      () => {
+        expect(() => loadConfig(root)).toThrow("config.telegram: Unrecognized key(s) in object: 'bot_token'");
+      }
+    );
   });
 
   it("accepts null runtime.prompt_history_limit as unbounded history", () => {
@@ -146,7 +253,7 @@ describe("loadConfig", () => {
       }
     });
 
-    const config = loadConfig(root);
+    const config = loadConfigWithRequiredDefaults(root);
     expect(config.runtime.promptHistoryLimit).toBeNull();
   });
 
@@ -159,7 +266,7 @@ describe("loadConfig", () => {
       }
     });
 
-    expect(() => loadConfig(root)).toThrow("config.access.allowed_sender_ids must contain at least one sender ID");
+    expect(() => loadConfigWithRequiredDefaults(root)).toThrow("config.access.allowed_sender_ids must contain at least one sender ID");
   });
 
   it("throws for invalid retry bounds", () => {
@@ -167,13 +274,12 @@ describe("loadConfig", () => {
     writeConfig(root, {
       ...minimalPayload(),
       openai: {
-        api_key: "oa-key",
         retry_base_ms: 1000,
         retry_max_ms: 500
       }
     });
 
-    expect(() => loadConfig(root)).toThrow(
+    expect(() => loadConfigWithRequiredDefaults(root)).toThrow(
       "config.openai.retry_max_ms must be greater than or equal to config.openai.retry_base_ms"
     );
   });
@@ -183,7 +289,6 @@ describe("loadConfig", () => {
     writeConfig(root, {
       ...minimalPayload(),
       openai: {
-        api_key: "oa-key",
         model: "gpt-5.3-codex",
         models: [
           {
@@ -195,7 +300,9 @@ describe("loadConfig", () => {
       }
     });
 
-    expect(() => loadConfig(root)).toThrow("config.openai.model 'gpt-5.3-codex' is not present in config.openai.models");
+    expect(() => loadConfigWithRequiredDefaults(root)).toThrow(
+      "config.openai.model 'gpt-5.3-codex' is not present in config.openai.models"
+    );
   });
 
   it("throws when model ids or aliases collide", () => {
@@ -203,7 +310,6 @@ describe("loadConfig", () => {
     writeConfig(root, {
       ...minimalPayload(),
       openai: {
-        api_key: "oa-key",
         model: "gpt-4.1-mini",
         models: [
           {
@@ -220,7 +326,7 @@ describe("loadConfig", () => {
       }
     });
 
-    expect(() => loadConfig(root)).toThrow("config.openai.models has alias collision");
+    expect(() => loadConfigWithRequiredDefaults(root)).toThrow("config.openai.models has alias collision");
   });
 
   it("loads per-model max_output_tokens when provided", () => {
@@ -228,7 +334,6 @@ describe("loadConfig", () => {
     writeConfig(root, {
       ...minimalPayload(),
       openai: {
-        api_key: "oa-key",
         model: "gpt-5.3-codex",
         models: [
           {
@@ -242,7 +347,7 @@ describe("loadConfig", () => {
       }
     });
 
-    const config = loadConfig(root);
+    const config = loadConfigWithRequiredDefaults(root);
     expect(config.openai.models[0]?.maxOutputTokens).toBe(16000);
     expect(config.openai.models[0]?.defaultThinking).toBe("high");
   });
@@ -252,7 +357,6 @@ describe("loadConfig", () => {
     writeConfig(root, {
       ...minimalPayload(),
       openai: {
-        api_key: "oa-key",
         model: "gpt-5.3-codex",
         models: [
           {
@@ -265,7 +369,7 @@ describe("loadConfig", () => {
       }
     });
 
-    expect(() => loadConfig(root)).toThrow("config.openai.models.0.max_output_tokens");
+    expect(() => loadConfigWithRequiredDefaults(root)).toThrow("config.openai.models.0.max_output_tokens");
   });
 
   it("throws when model max_output_tokens is non-integer", () => {
@@ -273,7 +377,6 @@ describe("loadConfig", () => {
     writeConfig(root, {
       ...minimalPayload(),
       openai: {
-        api_key: "oa-key",
         model: "gpt-5.3-codex",
         models: [
           {
@@ -286,7 +389,7 @@ describe("loadConfig", () => {
       }
     });
 
-    expect(() => loadConfig(root)).toThrow("config.openai.models.0.max_output_tokens");
+    expect(() => loadConfigWithRequiredDefaults(root)).toThrow("config.openai.models.0.max_output_tokens");
   });
 
   it("throws when model default_thinking is invalid", () => {
@@ -294,7 +397,6 @@ describe("loadConfig", () => {
     writeConfig(root, {
       ...minimalPayload(),
       openai: {
-        api_key: "oa-key",
         model: "gpt-5.3-codex",
         models: [
           {
@@ -307,7 +409,7 @@ describe("loadConfig", () => {
       }
     });
 
-    expect(() => loadConfig(root)).toThrow("config.openai.models.0.default_thinking");
+    expect(() => loadConfigWithRequiredDefaults(root)).toThrow("config.openai.models.0.default_thinking");
   });
 
   it("throws when strict nested shape is violated", () => {
@@ -315,23 +417,19 @@ describe("loadConfig", () => {
     writeConfig(root, {
       ...minimalPayload(),
       telegram: {
-        bot_token: "tg-token",
         unknown_field: true
       }
     });
 
-    expect(() => loadConfig(root)).toThrow("config.telegram: Unrecognized key(s) in object: 'unknown_field'");
+    expect(() => loadConfigWithRequiredDefaults(root)).toThrow("config.telegram: Unrecognized key(s) in object: 'unknown_field'");
   });
 
-  it("throws when required secrets are placeholders", () => {
+  it("throws when required DEFAULT_* env vars are missing", () => {
     const root = createTempDir("acmd-config-placeholder-");
-    writeConfig(root, {
-      ...minimalPayload(),
-      telegram: {
-        bot_token: "replace_me"
-      }
-    });
+    writeConfig(root, minimalPayload());
 
-    expect(() => loadConfig(root)).toThrow("config.telegram.bot_token must be a non-empty string");
+    withDefaultSecrets({}, () => {
+      expect(() => loadConfig(root)).toThrow("DEFAULT_TELEGRAM_BOT_TOKEN must be a non-empty string");
+    });
   });
 });

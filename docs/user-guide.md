@@ -24,10 +24,20 @@ npm install
 cp config.example.json config.json
 ```
 
-3. Edit `config.json` and fill required fields:
+3. Create `.env` defaults:
 
-- `telegram.bot_token`
-- `openai.api_key`
+```bash
+cp .env.example .env
+```
+
+Set:
+
+- `DEFAULT_TELEGRAM_BOT_TOKEN`
+- `DEFAULT_OPENAI_API_KEY`
+- `DEFAULT_PERPLEXITY_API_KEY` (optional, enables `web_search`)
+
+4. Edit `config.json` and fill required fields:
+
 - `access.allowed_sender_ids` (must contain at least one sender ID)
 
 ## Run
@@ -171,8 +181,8 @@ For the full canonical list (all keys, types, defaults, and validation rules), s
 
 Required:
 
-- `telegram.bot_token`
-- `openai.api_key`
+- `DEFAULT_TELEGRAM_BOT_TOKEN`
+- `DEFAULT_OPENAI_API_KEY`
 - `access.allowed_sender_ids`
 
 Common optional fields:
@@ -243,7 +253,7 @@ Notes:
 
 ### Startup fails: missing/invalid config
 
-Check `config.json` exists and required keys are set to non-placeholder values.
+Check `config.json` exists, `.env` is present (or environment variables are exported), and credentials are non-placeholder values.
 
 ### Unauthorized responses
 
@@ -251,7 +261,7 @@ Ensure Telegram sender ID is present in `access.allowed_sender_ids`.
 
 ### Provider errors (4xx/5xx)
 
-Verify `openai.api_key`, model name, and account quota/limits.
+Verify `DEFAULT_OPENAI_API_KEY`, model name, and account quota/limits.
 
 ### OpenAI 400: invalid_function_parameters
 
