@@ -15,7 +15,7 @@ import type {
   TelegramInlineKeyboard,
   TelegramCommandDefinition
 } from "../types.js";
-import { renderMarkdownToTelegramHtml } from "./assistant-format.js";
+import { renderBasicTelegramHtml, renderMarkdownToTelegramHtml } from "./assistant-format.js";
 import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
 import { normalizeTelegramCallbackQuery, normalizeTelegramMessage } from "./normalize.js";
 
@@ -100,6 +100,25 @@ async function withTelegramRateLimitBackoff<T>(
   throw new Error(`telegram: ${label} failed after retries`);
 }
 
+function tryFormat(
+  params: { text: string; chatId: string; messageId: string; logger: RuntimeLogger },
+  convert: (markdown: string) => string
+): TelegramPreparedReply {
+  try {
+    const formatted = convert(params.text);
+    if (formatted.trim().length === 0) {
+      return { text: params.text };
+    }
+    return { text: formatted, parseMode: "HTML" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    params.logger.warn(
+      `telegram: assistant formatting failed for chat=${params.chatId} message=${params.messageId}: ${message}`
+    );
+    return { text: params.text };
+  }
+}
+
 export function prepareTelegramReply(params: {
   text: string;
   meta: TelegramOutboundReplyMeta;
@@ -109,34 +128,19 @@ export function prepareTelegramReply(params: {
   logger: RuntimeLogger;
   markdownToHtml?: (markdown: string) => string;
 }): TelegramPreparedReply {
-  if (
-    params.assistantFormat !== "markdown_to_html" ||
-    params.meta.resultType !== "reply" ||
-    params.meta.isExtra ||
-    params.meta.origin !== "assistant"
-  ) {
+  if (params.assistantFormat !== "markdown_to_html" || params.meta.resultType !== "reply") {
     return { text: params.text };
   }
 
-  const markdownToHtml = params.markdownToHtml ?? renderMarkdownToTelegramHtml;
-
-  try {
-    const formatted = markdownToHtml(params.text);
-    if (formatted.trim().length === 0) {
-      return { text: params.text };
-    }
-
-    return {
-      text: formatted,
-      parseMode: "HTML"
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    params.logger.warn(
-      `telegram: assistant formatting failed for chat=${params.chatId} message=${params.messageId}: ${message}`
-    );
-    return { text: params.text };
+  if (!params.meta.isExtra && params.meta.origin === "assistant") {
+    return tryFormat(params, params.markdownToHtml ?? renderMarkdownToTelegramHtml);
   }
+
+  if (params.meta.isExtra) {
+    return tryFormat(params, renderBasicTelegramHtml);
+  }
+
+  return { text: params.text };
 }
 
 export async function dispatchTelegramTextMessage(params: {
@@ -157,6 +161,10 @@ export async function dispatchTelegramTextMessage(params: {
   let lastDraftText = "";
   let lastDraftAtMs: number | null = null;
   let draftDisabled = !params.sendDraft;
+
+  let toolCallBuffer = "";
+  let textStreamingStarted = false;
+  const lateToolCallNotices: string[] = [];
 
   await params.observability?.record({
     event: "telegram.inbound.received",
@@ -184,6 +192,47 @@ export async function dispatchTelegramTextMessage(params: {
       error
     });
     await params.onDraftFailure?.(error);
+  };
+
+  const sendOutbound = async (
+    text: string,
+    resultType: OutboundResultType,
+    isExtra: boolean,
+    origin: "assistant" | "system",
+    inlineKeyboard?: TelegramInlineKeyboard
+  ): Promise<void> => {
+    const meta: TelegramOutboundReplyMeta = {
+      resultType,
+      isExtra,
+      origin,
+      ...(inlineKeyboard ? { inlineKeyboard } : {})
+    };
+    await params.observability?.record({
+      event: "telegram.outbound.reply.sent",
+      trace: createChildTraceContext(messageTrace, "telegram"),
+      stage: "completed",
+      chatId: params.message.chatId,
+      messageId: params.message.messageId,
+      senderId: params.message.senderId,
+      resultType,
+      origin,
+      text,
+      isExtra,
+      hasInlineKeyboard: Boolean(inlineKeyboard)
+    });
+    await params.sendReply(text, meta);
+  };
+
+  const commitToolCallBuffer = async (): Promise<void> => {
+    const text = toolCallBuffer.trim();
+    if (text.length === 0) {
+      return;
+    }
+
+    toolCallBuffer = "";
+    lastDraftText = "";
+    lastDraftAtMs = null;
+    await sendOutbound(text, "reply", true, "system");
   };
 
   const flushDraft = async (force: boolean): Promise<void> => {
@@ -219,50 +268,119 @@ export async function dispatchTelegramTextMessage(params: {
     }
   };
 
+  const flushToolCallDraft = async (force: boolean): Promise<void> => {
+    if (draftDisabled || !params.sendDraft) {
+      return;
+    }
+
+    if (toolCallBuffer.trim().length === 0 || toolCallBuffer === lastDraftText) {
+      return;
+    }
+
+    const now = nowMs();
+    if (!force && lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs) {
+      return;
+    }
+
+    try {
+      const truncated = toolCallBuffer.length > TELEGRAM_MESSAGE_LIMIT
+        ? toolCallBuffer.slice(0, TELEGRAM_MESSAGE_LIMIT)
+        : toolCallBuffer;
+      await params.sendDraft(truncated);
+      lastDraftText = toolCallBuffer;
+      lastDraftAtMs = now;
+    } catch (error) {
+      await disableDraft(error);
+    }
+  };
+
   const stream: MessageStreamingSink | undefined = params.sendDraft
     ? {
         onTextDelta: async (delta) => {
+          stopTypingIndicator();
+
+          if (!textStreamingStarted) {
+            textStreamingStarted = true;
+            if (toolCallBuffer.trim().length > 0) {
+              await commitToolCallBuffer();
+            }
+          }
+
           if (draftDisabled || typeof delta !== "string" || delta.length === 0) {
             return;
           }
 
           draftText += delta;
           await flushDraft(false);
+        },
+        onToolCallNotice: async (notice) => {
+          stopTypingIndicator();
+
+          if (typeof notice !== "string" || notice.length === 0) {
+            return;
+          }
+
+          if (textStreamingStarted) {
+            lateToolCallNotices.push(notice);
+            return;
+          }
+
+          const delimiter = toolCallBuffer.length > 0 ? "\n\n" : "";
+          const candidate = toolCallBuffer + delimiter + notice;
+
+          if (candidate.length > TELEGRAM_MESSAGE_LIMIT) {
+            if (toolCallBuffer.trim().length > 0) {
+              await commitToolCallBuffer();
+            }
+            toolCallBuffer = notice.length > TELEGRAM_MESSAGE_LIMIT
+              ? notice.slice(0, TELEGRAM_MESSAGE_LIMIT)
+              : notice;
+          } else {
+            toolCallBuffer = candidate;
+          }
+
+          await flushToolCallDraft(false);
         }
       }
     : undefined;
 
-  const result = await params.handleMessage(params.message, stream, messageTrace);
-  await flushDraft(true);
+  const TYPING_FRAMES = [".", "..", "..."];
+  let typingTimer: ReturnType<typeof setInterval> | null = null;
+  let typingFrameIndex = 0;
 
-  const sendOutbound = async (
-    text: string,
-    resultType: OutboundResultType,
-    isExtra: boolean,
-    origin: "assistant" | "system",
-    inlineKeyboard?: TelegramInlineKeyboard
-  ): Promise<void> => {
-    const meta: TelegramOutboundReplyMeta = {
-      resultType,
-      isExtra,
-      origin,
-      ...(inlineKeyboard ? { inlineKeyboard } : {})
-    };
-    await params.observability?.record({
-      event: "telegram.outbound.reply.sent",
-      trace: createChildTraceContext(messageTrace, "telegram"),
-      stage: "completed",
-      chatId: params.message.chatId,
-      messageId: params.message.messageId,
-      senderId: params.message.senderId,
-      resultType,
-      origin,
-      text,
-      isExtra,
-      hasInlineKeyboard: Boolean(inlineKeyboard)
-    });
-    await params.sendReply(text, meta);
+  const stopTypingIndicator = (): void => {
+    if (typingTimer !== null) {
+      clearInterval(typingTimer);
+      typingTimer = null;
+    }
   };
+
+  if (params.sendDraft && !draftDisabled) {
+    try {
+      await params.sendDraft(TYPING_FRAMES[0]!);
+      typingFrameIndex = 1;
+      typingTimer = setInterval(() => {
+        if (draftDisabled || !params.sendDraft) {
+          stopTypingIndicator();
+          return;
+        }
+
+        const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
+        typingFrameIndex += 1;
+        params.sendDraft(frame).catch(() => {
+          stopTypingIndicator();
+        });
+      }, draftMinUpdateMs);
+    } catch (error) {
+      await disableDraft(error);
+    }
+  }
+
+  const result = await params.handleMessage(params.message, stream, messageTrace);
+  stopTypingIndicator();
+  await flushToolCallDraft(true);
+  await commitToolCallBuffer();
+  await flushDraft(true);
 
   switch (result.type) {
     case "reply": {
@@ -271,6 +389,9 @@ export async function dispatchTelegramTextMessage(params: {
       for (const extra of extras) {
         await sendOutbound(extra, result.type, true, origin);
       }
+      for (const late of lateToolCallNotices) {
+        await sendOutbound(late, result.type, true, "system");
+      }
       await sendOutbound(result.text, result.type, false, origin, result.inlineKeyboard);
       break;
     }
@@ -278,6 +399,9 @@ export async function dispatchTelegramTextMessage(params: {
       const extras = result.extraReplies?.filter((item) => item.trim().length > 0) ?? [];
       for (const extra of extras) {
         await sendOutbound(extra, result.type, true, "system");
+      }
+      for (const late of lateToolCallNotices) {
+        await sendOutbound(late, result.type, true, "system");
       }
       await sendOutbound(result.text, result.type, false, "system", result.inlineKeyboard);
       break;

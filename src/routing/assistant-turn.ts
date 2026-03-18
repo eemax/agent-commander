@@ -22,6 +22,7 @@ export type AssistantTurnHandlerInput = {
   steerChannel?: SteerChannel;
   interruptedPreviousTurn?: boolean;
   onTextDelta?: (delta: string) => void | Promise<void>;
+  onToolCallNotice?: (notice: string) => void | Promise<void>;
 };
 
 export function createAssistantTurnHandler(params: {
@@ -112,12 +113,22 @@ export function createAssistantTurnHandler(params: {
             success: event.success
           });
           if (verboseEnabled) {
-            verboseReplies.push(formatVerboseToolCallNotice(event));
+            const notice = formatVerboseToolCallNotice(event);
+            if (input.onToolCallNotice) {
+              await input.onToolCallNotice(notice);
+            } else {
+              verboseReplies.push(notice);
+            }
           }
         },
         onToolProgress: async (event) => {
           if (event.type === "steer" && verboseEnabled) {
-            verboseReplies.push(formatSteerNotice(event.message));
+            const notice = formatSteerNotice(event.message);
+            if (input.onToolCallNotice) {
+              await input.onToolCallNotice(notice);
+            } else {
+              verboseReplies.push(notice);
+            }
           }
         },
         onUsage: (usage) => conversations.setLatestUsageSnapshot(input.message.chatId, usage),

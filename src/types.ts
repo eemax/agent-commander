@@ -66,6 +66,7 @@ export type Provider = {
 
 export type MessageStreamingSink = {
   onTextDelta?: (delta: string) => void | Promise<void>;
+  onToolCallNotice?: (notice: string) => void | Promise<void>;
 };
 
 export type ToolErrorCode =

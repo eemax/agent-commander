@@ -185,6 +185,12 @@ function insertZwspBreakers(html: string): string {
   );
 }
 
+export function renderBasicTelegramHtml(markdown: string): string {
+  const rendered = marked.parse(markdown, MARKED_OPTIONS);
+  const sanitized = sanitizeHtml(rendered, SANITIZE_OPTIONS);
+  return trimAndCollapseNewlines(sanitized);
+}
+
 export function renderMarkdownToTelegramHtml(markdown: string): string {
   const rendered = marked.parse(markdown, MARKED_OPTIONS);
   const sanitized = sanitizeHtml(rendered, SANITIZE_OPTIONS);

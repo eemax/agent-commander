@@ -54,7 +54,7 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual(["Hel", "Hello!"]);
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([".", "Hel", "Hello!"]);
     expect(sendReply).toHaveBeenCalledWith("Hello!", {
       resultType: "reply",
       isExtra: false,
@@ -81,7 +81,7 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual(["Hello", "Hello world"]);
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([".", "Hello", "Hello world"]);
     expect(sendReply).toHaveBeenCalledWith("Hello world", {
       resultType: "reply",
       isExtra: false,
@@ -112,7 +112,9 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
+    // Typing indicator (".") is the first call which fails, disabling all further drafts
     expect(sendDraft).toHaveBeenCalledTimes(1);
+    expect(sendDraft.mock.calls[0]?.[0]).toBe(".");
     expect(onDraftFailure).toHaveBeenCalledTimes(1);
     expect(sendReply).toHaveBeenCalledWith("Hi there", {
       resultType: "reply",
@@ -153,7 +155,7 @@ describe("dispatchTelegramTextMessage", () => {
     });
   });
 
-  it("sends extra replies before final reply", async () => {
+  it("sends extra replies before final reply (non-streaming fallback)", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
 
     await dispatchTelegramTextMessage({
@@ -306,5 +308,247 @@ describe("dispatchTelegramTextMessage", () => {
     const outboundEntries = entries.filter((entry) => entry.event === "telegram.outbound.reply.sent");
     expect(outboundEntries.map((entry) => entry.text)).toEqual(["tool-1", "tool-2", "final"]);
     expect(outboundEntries.map((entry) => entry.isExtra)).toEqual([true, true, false]);
+  });
+
+  it("draft-streams tool call notices with double newline delimiter", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
+        clock = 120;
+        await stream?.onToolCallNotice?.("✍️ Write: `bar.ts`");
+        clock = 240;
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
+      ".",
+      "📖 Read: `foo.ts`",
+      "📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`"
+    ]);
+    expect(sendReply).toHaveBeenCalledTimes(2);
+    expect(sendReply.mock.calls.map((call) => call[0])).toEqual([
+      "📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`",
+      "done"
+    ]);
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({
+      resultType: "reply",
+      isExtra: true,
+      origin: "system"
+    });
+  });
+
+  it("commits tool call batch at 4096 limit and starts new draft", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    const longNotice = "x".repeat(4080);
+    const shortNotice = "📖 Read: `file.ts`";
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onToolCallNotice?.(longNotice);
+        clock = 120;
+        await stream?.onToolCallNotice?.(shortNotice);
+        clock = 240;
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // First notice is drafted, then when second would exceed 4096, first is committed
+    expect(sendReply).toHaveBeenCalledTimes(3);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(longNotice);
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({
+      resultType: "reply",
+      isExtra: true,
+      origin: "system"
+    });
+    expect(sendReply.mock.calls[1]?.[0]).toBe(shortNotice);
+    expect(sendReply.mock.calls[2]?.[0]).toBe("done");
+  });
+
+  it("commits tool call buffer when text streaming starts", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
+        clock = 120;
+        await stream?.onTextDelta?.("Reply ");
+        clock = 240;
+        await stream?.onTextDelta?.("text");
+        return { type: "reply", text: "Reply text" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // Draft: typing indicator, tool call, then text drafts
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
+      ".",
+      "📖 Read: `foo.ts`",
+      "Reply ",
+      "Reply text"
+    ]);
+    // sendReply: committed tool call buffer, then final reply
+    expect(sendReply).toHaveBeenCalledTimes(2);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({
+      resultType: "reply",
+      isExtra: true,
+      origin: "system"
+    });
+    expect(sendReply.mock.calls[1]?.[0]).toBe("Reply text");
+  });
+
+  it("uses extraReplies when streaming is disabled (no sendDraft)", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        // stream is undefined when no sendDraft, so onToolCallNotice is unavailable
+        expect(stream).toBeUndefined();
+        return {
+          type: "reply",
+          text: "final",
+          extraReplies: ["tool-1", "tool-2"]
+        };
+      },
+      sendReply
+    });
+
+    expect(sendReply).toHaveBeenCalledTimes(3);
+    expect(sendReply.mock.calls.map((call) => call[0])).toEqual(["tool-1", "tool-2", "final"]);
+  });
+
+  it("commits tool call buffer as real message even when draft fails", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi
+      .fn<(...args: [string]) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("draft failed"));
+    const onDraftFailure = vi.fn();
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
+        clock = 120;
+        await stream?.onToolCallNotice?.("✍️ Write: `bar.ts`");
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendDraft,
+      onDraftFailure,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // Typing indicator (".") fails, disabling all further drafts.
+    // Buffer is still committed as real message.
+    expect(sendDraft).toHaveBeenCalledTimes(1);
+    expect(sendDraft.mock.calls[0]?.[0]).toBe(".");
+    expect(onDraftFailure).toHaveBeenCalledTimes(1);
+    expect(sendReply).toHaveBeenCalledTimes(2);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`");
+    expect(sendReply.mock.calls[1]?.[0]).toBe("done");
+  });
+
+  it("sends late tool call notices after main reply", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
+        clock = 120;
+        await stream?.onTextDelta?.("Reply");
+        clock = 240;
+        // Late tool call after text started
+        await stream?.onToolCallNotice?.("✍️ Write: `bar.ts`");
+        return { type: "reply", text: "Reply" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // sendReply: committed buffer, late notice, final reply
+    expect(sendReply).toHaveBeenCalledTimes(3);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
+    expect(sendReply.mock.calls[1]?.[0]).toBe("✍️ Write: `bar.ts`");
+    expect(sendReply.mock.calls[2]?.[0]).toBe("Reply");
+  });
+
+  it("commits tool calls even when handler returns ignore", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
+        clock = 120;
+        return { type: "ignore" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // Tool call buffer committed as real message even though result is ignore
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
+  });
+
+  it("truncates single tool call notice exceeding 4096 chars", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+
+    const hugeNotice = "x".repeat(5000);
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onToolCallNotice?.(hugeNotice);
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => 0
+    });
+
+    // First draft is typing indicator, second is the truncated tool call
+    expect(sendDraft.mock.calls[0]?.[0]).toBe(".");
+    expect(sendDraft.mock.calls[1]?.[0]).toHaveLength(4096);
+    // The committed real message is also truncated (stored as 4096 in buffer)
+    expect(sendReply.mock.calls[0]?.[0]).toHaveLength(4096);
   });
 });

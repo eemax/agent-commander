@@ -3,6 +3,7 @@ import { formatConversationIdForUi } from "./conversation-id.js";
 
 const BASH_MAX_OUTPUT_CHARS = 3_000;
 const TOOL_ERROR_MAX_CHARS = 200;
+const VERBOSE_COMMAND_MAX_CHARS = 150;
 
 function truncateOutput(text: string, maxChars = BASH_MAX_OUTPUT_CHARS): string {
   if (text.length <= maxChars) {
@@ -44,6 +45,47 @@ function formatError(value: string | null): string {
 
 function formatFailure(base: string, error: string | null): string {
   return `${base} - ${formatError(error)}`;
+}
+
+function truncateCommand(command: string, maxChars = VERBOSE_COMMAND_MAX_CHARS): string {
+  const normalized = command.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxChars)}...[TRUNCATED: +${normalized.length - maxChars} chars]`;
+}
+
+function formatBashCommand(command: string): string {
+  const isMultiLine = command.includes("\n");
+  const truncated = truncateCommand(command);
+
+  if (isMultiLine) {
+    return `\n\`\`\`\n${truncated}\n\`\`\``;
+  }
+
+  return `\`${truncated}\``;
+}
+
+function extractPatchFilePaths(patch: unknown): string[] {
+  if (typeof patch !== "string") {
+    return [];
+  }
+
+  const paths: string[] = [];
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("*** Add File: ") || line.startsWith("*** Delete File: ") || line.startsWith("*** Update File: ")) {
+      const colonIndex = line.indexOf(": ");
+      if (colonIndex !== -1) {
+        const filePath = line.slice(colonIndex + 2).trim();
+        if (filePath.length > 0) {
+          paths.push(filePath);
+        }
+      }
+    }
+  }
+
+  return paths;
 }
 
 const COMPACT_NUMBER_FORMAT = new Intl.NumberFormat("en-US", {
@@ -198,17 +240,27 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
 
     if (report.tool === "bash") {
       const command = readString(args.command) ?? "(unknown command)";
-      return formatFailure(`⚠️ Bash failed: ${command}`, report.error);
+      return `⚠️ Bash failed: ${formatBashCommand(command)} - ${formatError(report.error)}`;
     }
 
-    return formatFailure(`⚠️ ${report.tool} failed`, report.error);
+    if (report.tool === "replace_in_file") {
+      return formatFailure(`⚠️ Replace failed: in \`${formatPath(args.path)}\``, report.error);
+    }
+
+    if (report.tool === "apply_patch") {
+      const files = extractPatchFilePaths(args.patch);
+      const filesDisplay = files.length > 0 ? ` ${files.map((f) => `\`${f}\``).join(", ")}` : "";
+      return formatFailure(`⚠️ Patch failed:${filesDisplay}`, report.error);
+    }
+
+    return formatFailure(`⚠️ \`${report.tool}\` failed`, report.error);
   }
 
   if (report.tool === "read_file") {
     const sourcePath = formatPath(result.path ?? args.path);
     const content = typeof result.content === "string" ? result.content : null;
     const size = content === null ? "" : ` (${content.length} chars)`;
-    return `📖 Read: from \`${sourcePath}\`${size}`;
+    return `📖 Read: \`${sourcePath}\`${size}`;
   }
 
   if (report.tool === "write_file") {
@@ -218,30 +270,34 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
     const sizeFromResult = typeof result.size === "number" ? result.size : null;
     const charCount = sizeFromArgs ?? sizeFromResult;
     const size = typeof charCount === "number" ? ` (${charCount} chars)` : "";
-    return `✍️ Write: to \`${targetPath}\`${size}`;
+    return `✍️ Write: \`${targetPath}\`${size}`;
   }
 
   if (report.tool === "bash") {
     const command = readString(args.command) ?? "(unknown command)";
-    return `>_ Bash: ${command}`;
+    return `>_ Bash: ${formatBashCommand(command)}`;
   }
 
   if (report.tool === "replace_in_file") {
-    return `🔁 Replace: in \`${formatPath(args.path)}\``;
+    return `🔁 Replace: \`${formatPath(args.path)}\``;
   }
 
   if (report.tool === "apply_patch") {
-    return `🩹 Patch: cwd \`${formatPath(args.cwd)}\``;
+    const files = extractPatchFilePaths(args.patch);
+    if (files.length === 0) {
+      return `🩹 Patch: \`${formatPath(args.cwd)}\``;
+    }
+    return `🩹 Patch: ${files.map((f) => `\`${f}\``).join(", ")}`;
   }
 
   if (report.tool === "process") {
     const action = readString(args.action) ?? "unknown";
-    return `>_ Process: ${action}`;
+    return `>_ Process: \`${action}\``;
   }
 
   if (report.tool === "web_fetch") {
     const url = readString(args.url) ?? "(unknown url)";
-    return `🌐 Web fetch: ${url}`;
+    return `🌐 Web fetch: \`${url}\``;
   }
 
   if (report.tool === "web_search") {
@@ -251,7 +307,7 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
     return `🔎 Web search: ${queryDisplay} · ${model}`;
   }
 
-  return `🔧 Tool: ${report.tool}`;
+  return `🔧 Tool: \`${report.tool}\``;
 }
 
 export function formatSteerNotice(message: string): string {

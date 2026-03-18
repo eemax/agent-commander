@@ -871,9 +871,9 @@ describe("createMessageRouter", () => {
       expect(result.text).toBe("assistant-reply");
       expect(result.origin).toBe("assistant");
       expect(result.extraReplies).toEqual([
-        "📖 Read: from `scripts/refresh-lazy-skills.py` (3 chars)",
-        "✍️ Write: to `refresh_lazy.py` (4 chars)",
-        ">_ Bash: echo hi"
+        "📖 Read: `scripts/refresh-lazy-skills.py` (3 chars)",
+        "✍️ Write: `refresh_lazy.py` (4 chars)",
+        ">_ Bash: `echo hi`"
       ]);
       expect(result.extraReplies?.some((line) => line.includes("<tool_call>"))).toBe(false);
       expect(result.extraReplies?.some((line) => line.includes("<tool_result"))).toBe(false);
@@ -929,7 +929,7 @@ describe("createMessageRouter", () => {
     expect(onTextDelta).not.toHaveBeenCalled();
     expect(result.type).toBe("reply");
     if (result.type === "reply") {
-      expect(result.extraReplies).toEqual(["📖 Read: from `README.md` (5 chars)"]);
+      expect(result.extraReplies).toEqual(["📖 Read: `README.md` (5 chars)"]);
       expect(result.extraReplies?.some((line) => line.includes("⏳"))).toBe(false);
     }
   });
@@ -1025,7 +1025,7 @@ describe("createMessageRouter", () => {
     expect(onTextDelta).not.toHaveBeenCalled();
     expect(result.type).toBe("reply");
     if (result.type === "reply") {
-      expect(result.extraReplies).toEqual(["📖 Read: from `README.md` (5 chars)"]);
+      expect(result.extraReplies).toEqual(["📖 Read: `README.md` (5 chars)"]);
       expect(result.extraReplies?.some((line) => line.includes("⏳"))).toBe(false);
     }
   });
