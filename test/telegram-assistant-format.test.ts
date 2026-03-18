@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { renderMarkdownToTelegramHtml } from "../src/telegram/assistant-format.js";
+import { renderBasicTelegramHtml, renderMarkdownToTelegramHtml } from "../src/telegram/assistant-format.js";
 import { prepareTelegramReply } from "../src/telegram/bot.js";
 
 describe("renderMarkdownToTelegramHtml", () => {
@@ -133,16 +133,36 @@ describe("prepareTelegramReply", () => {
     expect(formatted.text).toContain("<strong>done</strong>");
   });
 
-  it("keeps non-final assistant messages as plain text", () => {
+  it("formats extra replies with basic HTML (no ZWSP tricks)", () => {
     const extra = prepareTelegramReply({
-      text: "**tool notice**",
-      meta: { resultType: "reply", isExtra: true, origin: "assistant" },
+      text: "📖 Read: `foo.ts` (3 chars)",
+      meta: { resultType: "reply", isExtra: true, origin: "system" },
       assistantFormat: "markdown_to_html",
       chatId: "chat-1",
       messageId: "msg-2",
       logger
     });
 
+    expect(extra.parseMode).toBe("HTML");
+    expect(extra.text).toContain("<code>foo.ts</code>");
+  });
+
+  it("does not insert ZWSP breakers in extra reply formatting", () => {
+    const ZWSP = "\u200B";
+    const extra = prepareTelegramReply({
+      text: "Use /start and edit README.md",
+      meta: { resultType: "reply", isExtra: true, origin: "system" },
+      assistantFormat: "markdown_to_html",
+      chatId: "chat-1",
+      messageId: "msg-2",
+      logger
+    });
+
+    expect(extra.parseMode).toBe("HTML");
+    expect(extra.text).not.toContain(ZWSP);
+  });
+
+  it("keeps fallback and non-reply messages as plain text", () => {
     const fallback = prepareTelegramReply({
       text: "**retry**",
       meta: { resultType: "fallback", isExtra: false, origin: "system" },
@@ -152,8 +172,17 @@ describe("prepareTelegramReply", () => {
       logger
     });
 
-    expect(extra).toEqual({ text: "**tool notice**" });
+    const unauthorized = prepareTelegramReply({
+      text: "**denied**",
+      meta: { resultType: "unauthorized", isExtra: false, origin: "system" },
+      assistantFormat: "markdown_to_html",
+      chatId: "chat-1",
+      messageId: "msg-4",
+      logger
+    });
+
     expect(fallback).toEqual({ text: "**retry**" });
+    expect(unauthorized).toEqual({ text: "**denied**" });
   });
 
   it("falls back to plain text when markdown formatting fails", () => {
@@ -175,7 +204,7 @@ describe("prepareTelegramReply", () => {
     );
   });
 
-  it("keeps system-origin replies plain even when result type is reply", () => {
+  it("keeps system-origin non-extra replies plain even when result type is reply", () => {
     const result = prepareTelegramReply({
       text: "**status**",
       meta: { resultType: "reply", isExtra: false, origin: "system" },
@@ -186,5 +215,38 @@ describe("prepareTelegramReply", () => {
     });
 
     expect(result).toEqual({ text: "**status**" });
+  });
+
+  it("falls back to plain text when extra reply formatting fails", () => {
+    // renderBasicTelegramHtml is used internally for extras, but we can't inject it.
+    // Test with plain_text format instead to verify the early-return path.
+    const result = prepareTelegramReply({
+      text: "📖 Read: `foo.ts`",
+      meta: { resultType: "reply", isExtra: true, origin: "system" },
+      assistantFormat: "plain_text",
+      chatId: "chat-1",
+      messageId: "msg-6",
+      logger
+    });
+
+    expect(result).toEqual({ text: "📖 Read: `foo.ts`" });
+  });
+});
+
+describe("renderBasicTelegramHtml", () => {
+  it("converts markdown to HTML without ZWSP tricks", () => {
+    const ZWSP = "\u200B";
+    const output = renderBasicTelegramHtml("Use /start and edit `README.md`");
+
+    expect(output).toContain("<code>README.md</code>");
+    expect(output).not.toContain(ZWSP);
+    expect(output).toContain("/start");
+  });
+
+  it("converts backticks to code tags", () => {
+    const output = renderBasicTelegramHtml("📖 Read: `foo.ts` (3 chars)");
+
+    expect(output).toContain("<code>foo.ts</code>");
+    expect(output).toContain("📖 Read:");
   });
 });

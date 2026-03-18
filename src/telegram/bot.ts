@@ -15,7 +15,7 @@ import type {
   TelegramInlineKeyboard,
   TelegramCommandDefinition
 } from "../types.js";
-import { renderMarkdownToTelegramHtml } from "./assistant-format.js";
+import { renderBasicTelegramHtml, renderMarkdownToTelegramHtml } from "./assistant-format.js";
 import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
 import { normalizeTelegramCallbackQuery, normalizeTelegramMessage } from "./normalize.js";
 
@@ -100,6 +100,25 @@ async function withTelegramRateLimitBackoff<T>(
   throw new Error(`telegram: ${label} failed after retries`);
 }
 
+function tryFormat(
+  params: { text: string; chatId: string; messageId: string; logger: RuntimeLogger },
+  convert: (markdown: string) => string
+): TelegramPreparedReply {
+  try {
+    const formatted = convert(params.text);
+    if (formatted.trim().length === 0) {
+      return { text: params.text };
+    }
+    return { text: formatted, parseMode: "HTML" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    params.logger.warn(
+      `telegram: assistant formatting failed for chat=${params.chatId} message=${params.messageId}: ${message}`
+    );
+    return { text: params.text };
+  }
+}
+
 export function prepareTelegramReply(params: {
   text: string;
   meta: TelegramOutboundReplyMeta;
@@ -109,34 +128,19 @@ export function prepareTelegramReply(params: {
   logger: RuntimeLogger;
   markdownToHtml?: (markdown: string) => string;
 }): TelegramPreparedReply {
-  if (
-    params.assistantFormat !== "markdown_to_html" ||
-    params.meta.resultType !== "reply" ||
-    params.meta.isExtra ||
-    params.meta.origin !== "assistant"
-  ) {
+  if (params.assistantFormat !== "markdown_to_html" || params.meta.resultType !== "reply") {
     return { text: params.text };
   }
 
-  const markdownToHtml = params.markdownToHtml ?? renderMarkdownToTelegramHtml;
-
-  try {
-    const formatted = markdownToHtml(params.text);
-    if (formatted.trim().length === 0) {
-      return { text: params.text };
-    }
-
-    return {
-      text: formatted,
-      parseMode: "HTML"
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    params.logger.warn(
-      `telegram: assistant formatting failed for chat=${params.chatId} message=${params.messageId}: ${message}`
-    );
-    return { text: params.text };
+  if (!params.meta.isExtra && params.meta.origin === "assistant") {
+    return tryFormat(params, params.markdownToHtml ?? renderMarkdownToTelegramHtml);
   }
+
+  if (params.meta.isExtra) {
+    return tryFormat(params, renderBasicTelegramHtml);
+  }
+
+  return { text: params.text };
 }
 
 export async function dispatchTelegramTextMessage(params: {

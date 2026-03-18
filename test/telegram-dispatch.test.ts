@@ -352,7 +352,7 @@ describe("dispatchTelegramTextMessage", () => {
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
 
-    const longNotice = "x".repeat(4000);
+    const longNotice = "x".repeat(4080);
     const shortNotice = "📖 Read: `file.ts`";
 
     await dispatchTelegramTextMessage({
