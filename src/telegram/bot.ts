@@ -293,6 +293,8 @@ export async function dispatchTelegramTextMessage(params: {
   const stream: MessageStreamingSink | undefined = params.sendDraft
     ? {
         onTextDelta: async (delta) => {
+          stopTypingIndicator();
+
           if (!textStreamingStarted) {
             textStreamingStarted = true;
             if (toolCallBuffer.trim().length > 0) {
@@ -308,6 +310,8 @@ export async function dispatchTelegramTextMessage(params: {
           await flushDraft(false);
         },
         onToolCallNotice: async (notice) => {
+          stopTypingIndicator();
+
           if (typeof notice !== "string" || notice.length === 0) {
             return;
           }
@@ -336,15 +340,40 @@ export async function dispatchTelegramTextMessage(params: {
       }
     : undefined;
 
+  const TYPING_FRAMES = [".", "..", "..."];
+  let typingTimer: ReturnType<typeof setInterval> | null = null;
+  let typingFrameIndex = 0;
+
+  const stopTypingIndicator = (): void => {
+    if (typingTimer !== null) {
+      clearInterval(typingTimer);
+      typingTimer = null;
+    }
+  };
+
   if (params.sendDraft && !draftDisabled) {
     try {
-      await params.sendDraft("...");
+      await params.sendDraft(TYPING_FRAMES[0]!);
+      typingFrameIndex = 1;
+      typingTimer = setInterval(() => {
+        if (draftDisabled || !params.sendDraft) {
+          stopTypingIndicator();
+          return;
+        }
+
+        const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
+        typingFrameIndex += 1;
+        params.sendDraft(frame).catch(() => {
+          stopTypingIndicator();
+        });
+      }, draftMinUpdateMs);
     } catch (error) {
       await disableDraft(error);
     }
   }
 
   const result = await params.handleMessage(params.message, stream, messageTrace);
+  stopTypingIndicator();
   await flushToolCallDraft(true);
   await commitToolCallBuffer();
   await flushDraft(true);
