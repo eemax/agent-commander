@@ -46,11 +46,14 @@ All four checks (lint, typecheck, build, test) must pass before any handoff.
 ## Config
 
 `config.json` at repo root, strict Zod schema. Required fields:
-- `telegram.bot_token`
-- `openai.api_key`
-- `access.allowed_sender_ids` (at least one real ID)
+- no secrets (credentials come from `.env` / environment variables)
 
-See `docs/config-reference.md` for the full schema. See `config.example.json` for a working template.
+`agents.json` at repo root contains per-agent routing and allowlist settings:
+- `id`
+- `config_dir`
+- `telegram_allowlist` (sender IDs allowed to message that bot)
+
+See `docs/config-reference.md` for the full schema.
 
 ## Message flow
 

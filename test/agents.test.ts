@@ -14,7 +14,6 @@ function minimalRootConfig(): Record<string, unknown> {
     telegram: {},
     openai: {},
     runtime: {},
-    access: { allowed_sender_ids: ["1001"] },
     tools: {},
     paths: {},
     observability: {}
@@ -60,10 +59,11 @@ describe("loadAgentsManifest", () => {
     expect(manifest.agents[0].configDir).toBe(".");
 
     const persisted = JSON.parse(fs.readFileSync(path.join(root, "agents.json"), "utf8")) as {
-      agents: Array<{ id: string; config_dir: string }>;
+      agents: Array<{ id: string; config_dir: string; telegram_allowlist: string[] }>;
     };
     expect(persisted.agents[0]?.id).toBe("default");
     expect(persisted.agents[0]?.config_dir).toBe(".");
+    expect(persisted.agents[0]?.telegram_allowlist).toEqual([]);
   });
 
   it("loads agents from agents.json", () => {
@@ -71,8 +71,8 @@ describe("loadAgentsManifest", () => {
     fs.mkdirSync(path.join(root, "agents", "coder"), { recursive: true });
     writeJson(path.join(root, "agents.json"), {
       agents: [
-        { id: "default", aliases: ["main"], config_dir: "." },
-        { id: "coder", aliases: ["dev"], config_dir: "./agents/coder" }
+        { id: "default", aliases: ["main"], config_dir: ".", telegram_allowlist: ["1001"] },
+        { id: "coder", aliases: ["dev"], config_dir: "./agents/coder", telegram_allowlist: ["1002"] }
       ]
     });
 
@@ -87,7 +87,7 @@ describe("loadAgentsManifest", () => {
     const root = createTempDir("acmd-agents-nodefault-");
     fs.mkdirSync(path.join(root, "agents", "coder"), { recursive: true });
     writeJson(path.join(root, "agents.json"), {
-      agents: [{ id: "coder", aliases: [], config_dir: "./agents/coder" }]
+      agents: [{ id: "coder", aliases: [], config_dir: "./agents/coder", telegram_allowlist: [] }]
     });
 
     const manifest = loadAgentsManifest(root);
@@ -100,7 +100,7 @@ describe("loadAgentsManifest", () => {
     writeJson(path.join(root, "agents.json"), {
       agents: [
         { id: "default", aliases: [], config_dir: "." },
-        { id: "default", aliases: [], config_dir: "." }
+        { id: "default", aliases: [], config_dir: ".", telegram_allowlist: [] }
       ]
     });
 
@@ -113,8 +113,8 @@ describe("loadAgentsManifest", () => {
     fs.mkdirSync(path.join(root, "agents", "b"), { recursive: true });
     writeJson(path.join(root, "agents.json"), {
       agents: [
-        { id: "agent-a", aliases: ["shared"], config_dir: "./agents/a" },
-        { id: "agent-b", aliases: ["shared"], config_dir: "./agents/b" }
+        { id: "agent-a", aliases: ["shared"], config_dir: "./agents/a", telegram_allowlist: [] },
+        { id: "agent-b", aliases: ["shared"], config_dir: "./agents/b", telegram_allowlist: [] }
       ]
     });
 
@@ -124,7 +124,7 @@ describe("loadAgentsManifest", () => {
   it("rejects missing config_dir", () => {
     const root = createTempDir("acmd-agents-nodir-");
     writeJson(path.join(root, "agents.json"), {
-      agents: [{ id: "ghost", aliases: [], config_dir: "./does-not-exist" }]
+      agents: [{ id: "ghost", aliases: [], config_dir: "./does-not-exist", telegram_allowlist: [] }]
     });
 
     expect(() => loadAgentsManifest(root)).toThrow("does not exist");
@@ -136,7 +136,7 @@ describe("loadAgentConfig", () => {
     const root = createTempDir("acmd-agentcfg-default-");
     writeJson(path.join(root, "config.json"), minimalRootConfig());
 
-    const config = loadAgentConfig(root, { id: "default", aliases: [], configDir: "." }, {
+    const config = loadAgentConfig(root, { id: "default", aliases: [], configDir: ".", telegramAllowlist: ["1001"] }, {
       telegramBotToken: "tg-default",
       openaiApiKey: "oa-default",
       webSearchApiKey: null
@@ -145,6 +145,7 @@ describe("loadAgentConfig", () => {
     expect(config.agentId).toBe("default");
     expect(config.telegram.botToken).toBe("tg-default");
     expect(config.openai.apiKey).toBe("oa-default");
+    expect(config.access.allowedSenderIds).toEqual(new Set(["1001"]));
   });
 
   it("deep merges agent config over root config", () => {
@@ -157,7 +158,7 @@ describe("loadAgentConfig", () => {
       openai: { model: "gpt-5.3-codex" }
     });
 
-    const config = loadAgentConfig(root, { id: "coder", aliases: [], configDir: "./agents/coder" }, {
+    const config = loadAgentConfig(root, { id: "coder", aliases: [], configDir: "./agents/coder", telegramAllowlist: ["1002"] }, {
       telegramBotToken: "tg-coder",
       openaiApiKey: "oa-coder",
       webSearchApiKey: null
@@ -176,7 +177,7 @@ describe("loadAgentConfig", () => {
     const agentDir = path.join(root, "agents", "coder");
     fs.mkdirSync(agentDir, { recursive: true });
 
-    const config = loadAgentConfig(root, { id: "coder", aliases: [], configDir: "./agents/coder" }, {
+    const config = loadAgentConfig(root, { id: "coder", aliases: [], configDir: "./agents/coder", telegramAllowlist: [] }, {
       telegramBotToken: "tg-coder",
       openaiApiKey: "oa-coder",
       webSearchApiKey: null
@@ -191,7 +192,7 @@ describe("loadAgentConfig", () => {
     const root = createTempDir("acmd-agentcfg-defpath-");
     writeJson(path.join(root, "config.json"), minimalRootConfig());
 
-    const config = loadAgentConfig(root, { id: "default", aliases: [], configDir: "." }, {
+    const config = loadAgentConfig(root, { id: "default", aliases: [], configDir: ".", telegramAllowlist: [] }, {
       telegramBotToken: "tg-default",
       openaiApiKey: "oa-default",
       webSearchApiKey: null
@@ -207,7 +208,7 @@ describe("loadAgentConfig", () => {
     const agentDir = path.join(root, "agents", "coder");
     fs.mkdirSync(agentDir, { recursive: true });
 
-    const config = loadAgentConfig(root, { id: "coder", aliases: [], configDir: "./agents/coder" }, {
+    const config = loadAgentConfig(root, { id: "coder", aliases: [], configDir: "./agents/coder", telegramAllowlist: [] }, {
       telegramBotToken: "tg-coder",
       openaiApiKey: "oa-coder",
       webSearchApiKey: null
@@ -222,7 +223,7 @@ describe("loadAgentConfig", () => {
     writeJson(path.join(root, "config.json"), minimalRootConfig());
 
     expect(() =>
-      loadAgentConfig(root, { id: "default", aliases: [], configDir: "." }, {
+      loadAgentConfig(root, { id: "default", aliases: [], configDir: ".", telegramAllowlist: [] }, {
         telegramBotToken: null,
         openaiApiKey: null,
         webSearchApiKey: null
@@ -234,16 +235,16 @@ describe("loadAgentConfig", () => {
 describe("validateUniqueBotTokens", () => {
   it("passes with unique tokens", () => {
     const entries = [
-      { agent: { id: "a", aliases: [], configDir: "." }, config: makeConfig({ telegram: { botToken: "t1" } }) },
-      { agent: { id: "b", aliases: [], configDir: "." }, config: makeConfig({ telegram: { botToken: "t2" } }) }
+      { agent: { id: "a", aliases: [], configDir: ".", telegramAllowlist: [] }, config: makeConfig({ telegram: { botToken: "t1" } }) },
+      { agent: { id: "b", aliases: [], configDir: ".", telegramAllowlist: [] }, config: makeConfig({ telegram: { botToken: "t2" } }) }
     ];
     expect(() => validateUniqueBotTokens(entries)).not.toThrow();
   });
 
   it("throws on duplicate tokens", () => {
     const entries = [
-      { agent: { id: "a", aliases: [], configDir: "." }, config: makeConfig({ telegram: { botToken: "same" } }) },
-      { agent: { id: "b", aliases: [], configDir: "." }, config: makeConfig({ telegram: { botToken: "same" } }) }
+      { agent: { id: "a", aliases: [], configDir: ".", telegramAllowlist: [] }, config: makeConfig({ telegram: { botToken: "same" } }) },
+      { agent: { id: "b", aliases: [], configDir: ".", telegramAllowlist: [] }, config: makeConfig({ telegram: { botToken: "same" } }) }
     ];
     expect(() => validateUniqueBotTokens(entries)).toThrow("share the same Telegram bot token");
   });

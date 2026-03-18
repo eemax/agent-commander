@@ -35,7 +35,7 @@ Current stability, known constraints, and recommended next steps.
 npm install                          # 1. install deps
 npm run dev                          # 2. first run creates config.json template
 # create .env with DEFAULT_TELEGRAM_BOT_TOKEN and DEFAULT_OPENAI_API_KEY
-# edit config.json: set access.allowed_sender_ids
+# edit agents.json: set telegram_allowlist
 npm run dev                          # 3. start runtime
 # verify with a Telegram message to the bot
 ```

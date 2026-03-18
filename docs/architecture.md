@@ -51,7 +51,7 @@ Agent Commander is intentionally small:
 1. Telegram delivers an update to the bot (text message or callback query).
 2. `normalizeTelegramMessage` / `normalizeTelegramCallbackQuery` produce normalized routing payloads.
 3. Bot syncs command catalog at startup and on workspace catalog changes.
-4. Router checks sender allowlist (`access.allowed_sender_ids`).
+4. Router checks sender allowlist (`agents.json` → `telegram_allowlist` for the active agent).
 5. Router handles command or normal turn:
 - Core command (`/new`, `/stash`, `/status`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/model`, `/models`) handled directly.
 - Conversation-menu callbacks are validated and handled via single-use menu tokens.

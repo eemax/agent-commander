@@ -15,20 +15,17 @@ A minimal, single-process Telegram bot runtime backed by OpenAI with local tool 
 # 1. Install Node.js 22.12+, then:
 npm install
 
-# 2. Create config from template
-cp config.example.json config.json
-
-# 3. Create .env defaults for credentials
+# 2. Create .env defaults for credentials
 cp .env.example .env
 # edit .env:
 #    - DEFAULT_TELEGRAM_BOT_TOKEN
 #    - DEFAULT_OPENAI_API_KEY
 #    - DEFAULT_PERPLEXITY_API_KEY (optional; enables web_search)
 
-# 4. Edit config.json — set required non-secret fields:
-#    - access.allowed_sender_ids (at least one real Telegram user ID)
+# 3. Edit agents.json and set per-agent allowlists:
+#    - telegram_allowlist (Telegram sender IDs)
 
-# 5. Start
+# 4. Start
 npm run dev
 ```
 

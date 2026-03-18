@@ -15,6 +15,7 @@ export type AgentDefinition = {
   id: string;
   aliases: string[];
   configDir: string;
+  telegramAllowlist: string[];
 };
 
 export type AgentsManifest = {
@@ -27,7 +28,8 @@ const agentSchema = z
       .string()
       .regex(/^[a-z][a-z0-9_-]*$/, "agent id must be lowercase alphanumeric (hyphens/underscores allowed), starting with a letter"),
     aliases: z.array(z.string().trim().min(1)).default([]),
-    config_dir: z.string().trim().min(1)
+    config_dir: z.string().trim().min(1),
+    telegram_allowlist: z.array(z.string()).default([])
   })
   .strict();
 
@@ -37,11 +39,11 @@ const agentsJsonSchema = z
   })
   .strict();
 
-const DEFAULT_AGENT: AgentDefinition = { id: "default", aliases: [], configDir: "." };
+const DEFAULT_AGENT: AgentDefinition = { id: "default", aliases: [], configDir: ".", telegramAllowlist: [] };
 
 function writeDefaultManifest(manifestPath: string): void {
   const payload = {
-    agents: [{ id: "default", aliases: [], config_dir: "." }]
+    agents: [{ id: "default", aliases: [], config_dir: ".", telegram_allowlist: [] }]
   };
   fs.writeFileSync(manifestPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
@@ -63,7 +65,8 @@ export function loadAgentsManifest(repoRoot: string): AgentsManifest {
   const agents: AgentDefinition[] = parsed.data.agents.map((a) => ({
     id: a.id,
     aliases: a.aliases,
-    configDir: a.config_dir
+    configDir: a.config_dir,
+    telegramAllowlist: a.telegram_allowlist
   }));
 
   if (!agents.some((a) => a.id === "default")) {
@@ -194,7 +197,7 @@ export function loadAgentConfig(
   }
 
   const configPath = agent.configDir === "." ? rootConfigPath : agentConfigPath;
-  return buildConfigFromParsed(parsed.data as ParsedConfig, configPath, repoRoot, agent.id, envSecrets);
+  return buildConfigFromParsed(parsed.data as ParsedConfig, configPath, repoRoot, agent.id, envSecrets, agent.telegramAllowlist);
 }
 
 export function validateUniqueBotTokens(

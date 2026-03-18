@@ -60,7 +60,7 @@ export async function runMessageGatekeeping(params: {
   const gatekeepingTrace = createChildTraceContext(params.trace, "routing");
 
   if (!params.config.access.allowedSenderIds.has(params.messageSenderId)) {
-    params.logger.warn(`telegram: sender ${params.messageSenderId} is not in allowed_sender_ids`);
+    params.logger.warn(`telegram: sender ${params.messageSenderId} is not in telegram_allowlist`);
     await params.observability?.record({
       event: "routing.gatekeeping.checked",
       trace: gatekeepingTrace,

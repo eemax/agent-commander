@@ -18,13 +18,7 @@ Agent Commander is a Telegram bot runtime that routes messages to OpenAI, can ex
 npm install
 ```
 
-2. Create `config.json` in repo root:
-
-```bash
-cp config.example.json config.json
-```
-
-3. Create `.env` defaults:
+2. Create `.env` defaults:
 
 ```bash
 cp .env.example .env
@@ -36,9 +30,9 @@ Set:
 - `DEFAULT_OPENAI_API_KEY`
 - `DEFAULT_PERPLEXITY_API_KEY` (optional, enables `web_search`)
 
-4. Edit `config.json` and fill required fields:
+3. Edit `agents.json` and fill required fields:
 
-- `access.allowed_sender_ids` (must contain at least one sender ID)
+- `telegram_allowlist` for each agent
 
 ## Run
 
@@ -173,7 +167,7 @@ Dynamic commands:
 ## Access Control
 
 All incoming messages are authorized by sender ID only.
-Senders not listed in `access.allowed_sender_ids` receive deterministic unauthorized replies.
+Senders not listed in the active agent's `telegram_allowlist` receive deterministic unauthorized replies.
 
 ## Key `config.json` Fields
 
@@ -183,7 +177,7 @@ Required:
 
 - `DEFAULT_TELEGRAM_BOT_TOKEN`
 - `DEFAULT_OPENAI_API_KEY`
-- `access.allowed_sender_ids`
+- `agents.json` → `telegram_allowlist`
 
 Common optional fields:
 
@@ -257,7 +251,7 @@ Check `config.json` exists, `.env` is present (or environment variables are expo
 
 ### Unauthorized responses
 
-Ensure Telegram sender ID is present in `access.allowed_sender_ids`.
+Ensure Telegram sender ID is present in the active agent's `telegram_allowlist`.
 
 ### Provider errors (4xx/5xx)
 

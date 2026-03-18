@@ -12,7 +12,7 @@ Agent Commander is a minimal runtime — read [AGENTS.md](../AGENTS.md) for the 
 src/           Source code (TypeScript strict mode)
 test/          Vitest test suite
 docs/          Documentation
-config.json    Runtime config (not tracked, see config.example.json)
+config.json    Runtime config (tracked; contains no secrets)
 ```
 
 ## Development commands

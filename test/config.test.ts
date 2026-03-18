@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildConfigTemplate, loadConfig } from "../src/config.js";
+import { loadConfig } from "../src/config.js";
 import { createTempDir } from "./helpers.js";
 
 function writeConfig(dir: string, payload: Record<string, unknown>): void {
@@ -13,9 +13,6 @@ function minimalPayload(): Record<string, unknown> {
     telegram: {},
     openai: {},
     runtime: {},
-    access: {
-      allowed_sender_ids: ["1001"]
-    },
     tools: {},
     paths: {},
     observability: {}
@@ -80,16 +77,7 @@ describe("loadConfig", () => {
 
     const created = fs.readFileSync(path.join(root, "config.json"), "utf8");
     expect(created).toContain("\"telegram\"");
-    expect(created).toContain("\"allowed_sender_ids\"");
-  });
-
-  it("keeps config.example.json in sync with generated template keys", () => {
-    const generated = JSON.parse(buildConfigTemplate()) as Record<string, unknown>;
-    const trackedExample = JSON.parse(fs.readFileSync(path.resolve("config.example.json"), "utf8")) as Record<
-      string,
-      unknown
-    >;
-    expect(Object.keys(trackedExample).sort()).toEqual(Object.keys(generated).sort());
+    expect(created).toContain("\"tools\"");
   });
 
   it("loads required fields from nested config", () => {
@@ -100,7 +88,7 @@ describe("loadConfig", () => {
 
     expect(config.telegram.botToken).toBe("tg-default");
     expect(config.openai.apiKey).toBe("oa-default");
-    expect(config.access.allowedSenderIds).toEqual(new Set(["1001"]));
+    expect(config.access.allowedSenderIds).toEqual(new Set());
   });
 
   it("applies defaults and resolves repo-relative paths", () => {
@@ -255,18 +243,6 @@ describe("loadConfig", () => {
 
     const config = loadConfigWithRequiredDefaults(root);
     expect(config.runtime.promptHistoryLimit).toBeNull();
-  });
-
-  it("throws when allowed_sender_ids is empty", () => {
-    const root = createTempDir("acmd-config-allowlist-");
-    writeConfig(root, {
-      ...minimalPayload(),
-      access: {
-        allowed_sender_ids: []
-      }
-    });
-
-    expect(() => loadConfigWithRequiredDefaults(root)).toThrow("config.access.allowed_sender_ids must contain at least one sender ID");
   });
 
   it("throws for invalid retry bounds", () => {

@@ -1,0 +1,96 @@
+{
+  "telegram": {
+    "streaming_enabled": false,
+    "streaming_min_update_ms": 1000,
+    "assistant_format": "markdown_to_html"
+  },
+  "openai": {
+    "model": "gpt-5-mini-2025-08-07",
+    "models": [
+      {
+        "id": "gpt-5.3-codex",
+        "context_window": 400000,
+        "max_output_tokens": 128000,
+        "default_thinking": "medium",
+        "compaction_tokens": 272000,
+        "compaction_threshold": 0.95,
+        "aliases": [ "codex" ]
+      },
+      {
+        "id": "gpt-5-mini-2025-08-07",
+        "context_window": 400000,
+        "max_output_tokens": 128000,
+        "default_thinking": "medium",
+        "compaction_tokens": 272000,
+        "compaction_threshold": 0.95,
+        "aliases": [ "mini" ]
+      }
+    ],
+    "timeout_ms": 45000,
+    "max_retries": 2,
+    "retry_base_ms": 250,
+    "retry_max_ms": 2000
+  },
+  "runtime": {
+    "log_level": "info",
+    "prompt_history_limit": null,
+    "default_verbose": true,
+    "tool_loop_max_steps": 150,
+    "tool_workflow_timeout_ms": 1200000,
+    "tool_command_timeout_ms": 60000,
+    "tool_poll_interval_ms": 2000,
+    "tool_poll_max_attempts": 5,
+    "tool_idle_output_threshold_ms": 8000,
+    "tool_heartbeat_interval_ms": 5000,
+    "tool_cleanup_grace_ms": 3000,
+    "tool_failure_breaker_threshold": 5,
+    "session_cache_max_entries": 200,
+    "app_log_flush_interval_ms": 250,
+    "message_queue_mode": "batch"
+  },
+  "tools": {
+    "default_cwd": "~/.agent-commander",
+    "default_shell": "/bin/bash",
+    "exec_timeout_ms": 1800000,
+    "exec_yield_ms": 10000,
+    "process_log_tail_lines": 200,
+    "log_path": ".agent-commander/main/tool-calls.jsonl",
+    "completed_session_retention_ms": 3600000,
+    "max_completed_sessions": 500,
+    "max_output_chars": 200000,
+    "web_search": {
+      "model": "sonar-reasoning-pro",
+      "available_models": [
+        { "id": "sonar", "aliases": [ "sonar" ] },
+        { "id": "sonar-pro", "aliases": [ "pro" ] },
+        { "id": "sonar-reasoning-pro", "aliases": [ "think" ] },
+        { "id": "sonar-deep-research", "aliases": [ "deep" ] }
+      ]
+    }
+  },
+  "paths": {
+    "workspace_root": "~/.agent-commander",
+    "conversations_dir": ".agent-commander/main/conversations",
+    "stashed_conversations_path": ".agent-commander/main/stashed-conversations.json",
+    "active_conversations_path": ".agent-commander/main/active-conversations.json",
+    "context_snapshots_dir": ".agent-commander/main/context-snapshots",
+    "app_log_path": ".agent-commander/app.log"
+  },
+  "observability": {
+    "enabled": true,
+    "log_path": ".agent-commander/observability.jsonl",
+    "redaction": {
+      "enabled": true,
+      "max_string_chars": 4000,
+      "redact_keys": [
+        "authorization",
+        "api_key",
+        "token",
+        "secret",
+        "password",
+        "cookie",
+        "set-cookie"
+      ]
+    }
+  }
+}

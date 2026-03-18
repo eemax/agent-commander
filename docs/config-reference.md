@@ -16,7 +16,7 @@ This is the canonical `config.json` shape.
   - `DEFAULT_TELEGRAM_BOT_TOKEN` in environment/`.env`
 - One OpenAI API key source:
   - `DEFAULT_OPENAI_API_KEY` in environment/`.env`
-- `access.allowed_sender_ids` (must contain at least one non-placeholder sender ID)
+- `agents.json` with at least one agent entry (default is auto-created) and per-agent `telegram_allowlist`
 
 ## Schema
 
@@ -75,11 +75,13 @@ This is the canonical `config.json` shape.
   - `"batch"`: all queued messages are combined (joined with `\n\n`) and sent as a single follow-up turn
   - `"multi_turn"`: queued messages are fired one at a time, each as its own sequential turn
 
-### `access`
+### `agents.json`
 
-- `allowed_sender_ids`: string array, required
-  - empty strings and `replace_me` values are ignored
-  - startup fails if no valid sender IDs remain
+- `agents`: array of agent definitions
+  - `id`: lowercase identifier
+  - `aliases`: string array
+  - `config_dir`: path to agent-local config overlay directory
+  - `telegram_allowlist`: string array of allowed sender IDs for this bot
 
 ### `tools`
 

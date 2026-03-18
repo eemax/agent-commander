@@ -64,9 +64,6 @@ const DEFAULT_CONFIG_TEMPLATE = {
     app_log_flush_interval_ms: 1_000,
     message_queue_mode: "batch"
   },
-  access: {
-    allowed_sender_ids: ["replace_me"]
-  },
   tools: {
     default_cwd: null,
     default_shell: "/bin/bash",
@@ -177,11 +174,6 @@ export const configSchema = z
         session_cache_max_entries: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.session_cache_max_entries),
         app_log_flush_interval_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.app_log_flush_interval_ms),
         message_queue_mode: z.enum(["batch", "multi_turn"]).default(DEFAULT_CONFIG_TEMPLATE.runtime.message_queue_mode as "batch" | "multi_turn")
-      })
-      .strict(),
-    access: z
-      .object({
-        allowed_sender_ids: z.array(z.string())
       })
       .strict(),
     tools: z
@@ -345,9 +337,6 @@ function normalizeAllowedSenderIds(value: string[]): Set<string> {
   const ids = value
     .map((item) => item.trim())
     .filter((item) => item.length > 0 && item !== "replace_me");
-  if (ids.length === 0) {
-    throw new Error("config.access.allowed_sender_ids must contain at least one sender ID");
-  }
   return new Set(ids);
 }
 
@@ -480,7 +469,8 @@ export function buildConfigFromParsed(
   configPath: string,
   repoRoot: string,
   agentId = "default",
-  secrets: EnvSecrets
+  secrets: EnvSecrets,
+  telegramAllowlist: string[] = []
 ): Config {
   const telegramKey = defaultSecretKey(agentId, "TELEGRAM_BOT_TOKEN");
   const openaiKey = defaultSecretKey(agentId, "OPENAI_API_KEY");
@@ -533,7 +523,7 @@ export function buildConfigFromParsed(
       messageQueueMode: config.runtime.message_queue_mode
     },
     access: {
-      allowedSenderIds: normalizeAllowedSenderIds(config.access.allowed_sender_ids)
+      allowedSenderIds: normalizeAllowedSenderIds(telegramAllowlist)
     },
     tools: {
       defaultCwd: resolveConfigPath(repoRoot, defaultCwdInput),
@@ -587,7 +577,7 @@ export function loadConfig(repoRoot = process.cwd()): Config {
     webSearchApiKey: resolveDefaultSecret(dotEnvDefaults, DEFAULT_PERPLEXITY_API_KEY_KEY)
   };
 
-  return buildConfigFromParsed(parsed.data, configPath, repoRoot, "default", secrets);
+  return buildConfigFromParsed(parsed.data, configPath, repoRoot, "default", secrets, []);
 }
 
 export function buildConfigTemplate(): string {
