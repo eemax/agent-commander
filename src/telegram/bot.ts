@@ -336,6 +336,14 @@ export async function dispatchTelegramTextMessage(params: {
       }
     : undefined;
 
+  if (params.sendDraft && !draftDisabled) {
+    try {
+      await params.sendDraft("...");
+    } catch (error) {
+      await disableDraft(error);
+    }
+  }
+
   const result = await params.handleMessage(params.message, stream, messageTrace);
   await flushToolCallDraft(true);
   await commitToolCallBuffer();
