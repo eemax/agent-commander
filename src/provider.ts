@@ -105,7 +105,7 @@ export function createOpenAIProvider(
           compactionTokens: input.compactionTokens,
           compactionThreshold: input.compactionThreshold,
           promptCacheKey: buildPromptCacheKey(input),
-          promptCacheRetention: "in_memory",
+          promptCacheRetention: input.cacheRetention ?? "in_memory",
           harness: scopedHarness,
           maxSteps: config.runtime.toolLoopMaxSteps,
           extractAssistantText,

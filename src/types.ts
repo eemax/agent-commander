@@ -5,6 +5,8 @@ export type PromptRole = "user" | "assistant";
 
 export const THINKING_EFFORT_VALUES = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
 export type ThinkingEffort = (typeof THINKING_EFFORT_VALUES)[number];
+export const CACHE_RETENTION_VALUES = ["in_memory", "24h"] as const;
+export type CacheRetention = (typeof CACHE_RETENTION_VALUES)[number];
 
 export type NormalizedTelegramMessage = {
   chatId: string;
@@ -48,6 +50,7 @@ export type ProviderRequest = {
   history: PromptMessage[];
   instructions: string;
   thinkingEffort: ThinkingEffort;
+  cacheRetention?: CacheRetention;
   compactionTokens: number | null;
   compactionThreshold: number;
   trace?: TraceContext;

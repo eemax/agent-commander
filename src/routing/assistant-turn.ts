@@ -37,9 +37,10 @@ export function createAssistantTurnHandler(params: {
 
   return async (input: AssistantTurnHandlerInput): Promise<MessageRouteResult> => {
     const conversationId = await conversations.ensureActiveConversation(input.message.chatId);
-    const [verboseEnabled, thinkingEffort, activeModelOverride] = await Promise.all([
+    const [verboseEnabled, thinkingEffort, cacheRetention, activeModelOverride] = await Promise.all([
       conversations.getVerboseMode(input.message.chatId),
       conversations.getThinkingEffort(input.message.chatId),
+      conversations.getCacheRetention(input.message.chatId),
       conversations.getActiveModelOverride(input.message.chatId)
     ]);
     const activeModel = resolveActiveModel({
@@ -101,6 +102,7 @@ export function createAssistantTurnHandler(params: {
         history: promptContext.historyAfterAppend,
         instructions,
         thinkingEffort,
+        cacheRetention,
         compactionTokens: activeModel.compactionTokens,
         compactionThreshold: activeModel.compactionThreshold,
         abortSignal: input.abortSignal,
