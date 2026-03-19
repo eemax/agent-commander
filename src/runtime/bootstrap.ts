@@ -112,6 +112,7 @@ async function bootstrapAgentRuntime(
     conversationsDir: config.paths.conversationsDir,
     stashedConversationsPath: config.paths.stashedConversationsPath,
     activeConversationsPath: config.paths.activeConversationsPath,
+    defaultWorkingDirectory: config.tools.defaultCwd,
     defaultVerboseMode: config.runtime.defaultVerbose,
     defaultThinkingEffort: defaultModel.defaultThinking,
     defaultCacheRetention: defaultModel.cacheRetention,
@@ -134,6 +135,10 @@ async function bootstrapAgentRuntime(
     },
     {
       observability,
+      resolveDefaultCwd: async (ownerId) => {
+        if (!ownerId) return config.tools.defaultCwd;
+        return conversations.getWorkingDirectory(ownerId);
+      },
       resolveWebSearchModel: async (ownerId) => {
         if (!ownerId) return config.tools.webSearch.defaultPreset;
         const override = await conversations.getActiveWebSearchModelOverride(ownerId);

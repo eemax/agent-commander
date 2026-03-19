@@ -87,7 +87,7 @@ This is the canonical `config.json` shape.
 
 ### `tools`
 
-- `default_cwd`: string or `null`, default `null` (`null` means `paths.workspace_root`)
+- `default_cwd`: string or `null`, default `null` (`null` means `paths.workspace_root`); this is the initial cwd for new conversations and the fallback cwd when no per-conversation override is set
 - `default_shell`: non-empty string, default `"/bin/bash"`
 - `exec_timeout_ms`: positive integer, default `1800000`
 - `exec_yield_ms`: positive integer, default `10000`

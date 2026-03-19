@@ -5,10 +5,12 @@ export type CoreCommandName =
   | "new"
   | "stash"
   | "status"
+  | "cwd"
   | "stop"
   | "bash"
   | "verbose"
   | "thinking"
+  | "cache"
   | "model"
   | "models"
   | "search"
@@ -36,6 +38,11 @@ export const CORE_COMMANDS: ReadonlyArray<TelegramCommandDefinition> = [
     kind: "core"
   },
   {
+    command: "cwd",
+    description: "Set cwd for this conversation: /cwd <absolute-path>",
+    kind: "core"
+  },
+  {
     command: "stop",
     description: "Stop running tool sessions for this chat",
     kind: "core"
@@ -53,6 +60,11 @@ export const CORE_COMMANDS: ReadonlyArray<TelegramCommandDefinition> = [
   {
     command: "thinking",
     description: "Set reasoning effort: /thinking <none|minimal|low|medium|high|xhigh>",
+    kind: "core"
+  },
+  {
+    command: "cache",
+    description: "Set prompt cache retention: /cache <in_memory|24h>",
     kind: "core"
   },
   {

@@ -21,8 +21,10 @@ describe("telegram command registry", () => {
     expect(catalog.map((item) => item.command)).toContain("start");
     expect(catalog.map((item) => item.command)).toContain("new");
     expect(catalog.map((item) => item.command)).toContain("stash");
+    expect(catalog.map((item) => item.command)).toContain("cwd");
     expect(catalog.map((item) => item.command)).toContain("verbose");
     expect(catalog.map((item) => item.command)).toContain("thinking");
+    expect(catalog.map((item) => item.command)).toContain("cache");
     expect(catalog.map((item) => item.command)).toContain("model");
     expect(catalog.map((item) => item.command)).toContain("models");
     expect(catalog.map((item) => item.command)).toContain("research");
@@ -55,9 +57,17 @@ describe("telegram command registry", () => {
       command: "model",
       args: "codex"
     });
+    expect(parseTelegramCommand("/cache 24h")).toEqual({
+      command: "cache",
+      args: "24h"
+    });
     expect(parseTelegramCommand("/models")).toEqual({
       command: "models",
       args: ""
+    });
+    expect(parseTelegramCommand("/cwd /tmp/project")).toEqual({
+      command: "cwd",
+      args: "/tmp/project"
     });
     expect(parseTelegramCommand("/stash deep_work")).toEqual({
       command: "stash",

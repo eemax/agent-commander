@@ -11,6 +11,7 @@ const baseParams = {
   fullObservabilityEnabled: false,
   verboseEnabled: false,
   thinkingEffort: "medium" as const,
+  cwd: "/tmp/workspace",
   sessions: [],
   completedProcessCount: 0,
   stateHealth: {
@@ -46,6 +47,7 @@ const baseParams = {
     fail: 0,
     byTool: {}
   },
+  cacheRetention: "in_memory" as const,
   compactionTokens: null,
   compactionThreshold: 1,
   compactionCount: 0
@@ -60,7 +62,7 @@ describe("buildStatusReply", () => {
 
     expect(text).toContain("🧮 Tokens: n/a");
     expect(text).toContain("📚 Context budget: n/a");
-    expect(text).toContain("🗄️ Cache: n/a");
+    expect(text).toContain("🗄️ Cache: n/a · mode: in_memory");
   });
 
   it("shows budget context summary and cache details when usage is available", () => {
@@ -83,8 +85,10 @@ describe("buildStatusReply", () => {
     expect(text).toContain("🧮 Tokens: 8.7k in / 138 out · 42 reasoning");
     expect(text).toContain("📚 Context budget: 8.7k/392k (2%)");
     expect(text).toContain("🗄️ Cache: 95% hit");
+    expect(text).toContain("· mode: in_memory");
     expect(text).toContain("⚙️ Runtime: think: high · verbose: on · observability: off");
     expect(text).toContain("🏃 Processes: 0 running");
+    expect(text).toContain("📁 CWD: /tmp/workspace");
     expect(text).not.toContain("conversation:");
   });
 
@@ -177,6 +181,7 @@ describe("buildStatusReply", () => {
     expect(text).toContain("tool.error_codes: none");
     expect(text).toContain("completed processes: 0");
     expect(text).toContain("running processes: 0");
+    expect(text).toContain("cwd: /tmp/workspace");
     expect(text).not.toContain("workspace.manifest_hash:");
     expect(text).not.toContain("workspace.snapshot_signature:");
     expect(text).not.toContain("model: ");
@@ -303,7 +308,7 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("🗄️ Cache: 95% hit · 8.3k cached, 400 new · last 2m ago");
+    expect(text).toContain("🗄️ Cache: 95% hit · 8.3k cached, 400 new · last 2m ago · mode: in_memory");
   });
 
   it("places context budget before tokens in row order", () => {

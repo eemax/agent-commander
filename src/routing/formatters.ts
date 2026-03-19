@@ -1,4 +1,4 @@
-import type { ProviderUsageSnapshot, ThinkingEffort, ToolCallReport, ToolProgressEvent } from "../types.js";
+import type { ProviderUsageSnapshot, ThinkingEffort, CacheRetention, ToolCallReport, ToolProgressEvent } from "../types.js";
 import { formatConversationIdForUi } from "./conversation-id.js";
 
 const BASH_MAX_OUTPUT_CHARS = 3_000;
@@ -118,9 +118,9 @@ function formatRelativeTime(deltaMs: number): string {
   return `${hours}h ago`;
 }
 
-function formatCacheSummary(usage: ProviderUsageSnapshot | null, nowMs?: number): string {
+function formatCacheSummary(usage: ProviderUsageSnapshot | null, cacheRetention: CacheRetention, nowMs?: number): string {
   if (!usage || usage.inputTokens === null || usage.cachedTokens === null || usage.inputTokens <= 0) {
-    return "🗄️ Cache: n/a";
+    return `🗄️ Cache: n/a · mode: ${cacheRetention}`;
   }
 
   const cachedTokens = Math.min(usage.cachedTokens, usage.inputTokens);
@@ -133,6 +133,8 @@ function formatCacheSummary(usage: ProviderUsageSnapshot | null, nowMs?: number)
     const now = nowMs ?? Date.now();
     line += ` · last ${formatRelativeTime(now - lastHitAt)}`;
   }
+
+  line += ` · mode: ${cacheRetention}`;
 
   return line;
 }
@@ -440,6 +442,7 @@ export function buildStatusReply(params: {
   fullObservabilityEnabled: boolean;
   verboseEnabled: boolean;
   thinkingEffort: ThinkingEffort;
+  cwd: string;
   latestUsage: ProviderUsageSnapshot | null;
   sessions: Array<{ sessionId: string; command: string }>;
   completedProcessCount: number;
@@ -479,6 +482,7 @@ export function buildStatusReply(params: {
   compactionTokens: number | null;
   compactionThreshold: number;
   compactionCount: number;
+  cacheRetention: CacheRetention;
   includeDiagnostics?: boolean;
   nowMs?: number;
 }): string {
@@ -493,13 +497,13 @@ export function buildStatusReply(params: {
     ...(params.webSearchModel ? [`🔎 perplexity/${params.webSearchModel}`] : []),
     formatContextSummary(params.modelContextWindow, params.modelMaxOutputTokens, params.latestUsage, params.compactionTokens, params.compactionThreshold, params.compactionCount),
     formatTokenSummary(params.latestUsage),
-    formatCacheSummary(params.latestUsage, params.nowMs),
+    formatCacheSummary(params.latestUsage, params.cacheRetention, params.nowMs),
     `⚙️ Runtime: ${runtimeDetails.join(" · ")}`,
     `🏃 Processes: ${params.sessions.length} running`
   ];
 
   if (!includeDiagnostics) {
-    return summaryLines.join("\n");
+    return [...summaryLines, `📁 CWD: ${params.cwd}`].join("\n");
   }
 
   const errorCounts = Object.entries(params.toolRuntime.errorCodeCounts).sort(([left], [right]) =>
@@ -549,6 +553,7 @@ export function buildStatusReply(params: {
   lines.push(`process.truncated_combined_chars: ${params.processHealth.truncatedCombinedChars}`);
   lines.push(`process.truncated_stdout_chars: ${params.processHealth.truncatedStdoutChars}`);
   lines.push(`process.truncated_stderr_chars: ${params.processHealth.truncatedStderrChars}`);
+  lines.push(`cwd: ${params.cwd}`);
 
   return lines.join("\n");
 }

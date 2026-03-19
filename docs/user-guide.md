@@ -77,7 +77,7 @@ Startup fails if frontmatter is missing/invalid, slug generation is invalid, or 
 - Current conversation per chat is tracked in `paths.active_conversations_path` (default `.agent-commander/active-conversations.json`).
 - Stashed conversations per chat are tracked in `paths.stashed_conversations_path` (default `.agent-commander/stashed-conversations.json`).
 - Conversation events are JSONL files in `paths.conversations_dir/<chatId>/<conversationId>.jsonl`.
-- Conversation runtime profiles persist `verboseMode`, `thinkingEffort`, `activeModelOverride`, `latestUsage`, and `toolResults`.
+- Conversation runtime profiles persist `verboseMode`, `thinkingEffort`, `cacheRetention`, `activeModelOverride`, `latestUsage`, and `toolResults`.
 - `/new` opens an inline menu; current conversation is archived only when a menu option is selected.
 - `/stash <name>` stashes current conversation under an alias, then switches to selected stash or a new conversation.
 - `/stash list` shows stashed conversations with alias, conversation tail, and relative stash age.
@@ -106,10 +106,12 @@ Core commands:
 - `/stash list`
 - `/status`
 - `/status full` (extended diagnostics)
+- `/cwd <absolute-path>`
 - `/stop`
 - `/bash <command>`
 - `/verbose <on|off>`
 - `/thinking <none|minimal|low|medium|high|xhigh>`
+- `/cache <in_memory|24h>`
 - `/model <id-or-alias>`
 - `/models`
 - `/search <id-or-alias>`
@@ -121,9 +123,12 @@ Core commands:
 `/stash list` returns a text list of stashes without opening a menu.
 Menus are single-use; stale callback clicks are rejected and require reopening the menu command.
 
-`/model <id-or-alias>` switches the active model and applies that model's configured `openai.models[].default_thinking` to runtime thinking effort.
+`/model <id-or-alias>` switches the active model and applies that model's configured defaults to runtime thinking effort and cache retention.
 
-`/status` returns the model/runtime emoji summary block (model, latest turn token usage including reasoning tokens, budget context-window pressure summary, prompt-cache hit metrics, runtime thinking/verbose mode, and running process count).
+`/cache <in_memory|24h>` switches prompt cache retention mode for the current conversation.
+`/cwd <absolute-path>` sets the working directory for the current conversation. New conversations start with the configured default cwd.
+
+`/status` returns the model/runtime emoji summary block (model, latest turn token usage including reasoning tokens, budget context-window pressure summary, prompt-cache hit metrics, runtime thinking/verbose mode, running process count, and active cwd).
 Use `/status full` to include observability state and runtime health counters for process output truncation, tool-result aggregates, running/completed processes, and state/workspace counters:
 - `tool.results_total`
 - `tool.results_success`
@@ -182,7 +187,7 @@ Required:
 Common optional fields:
 
 - `openai.model` (default `gpt-4.1-mini`)
-- `openai.models` (catalog of switchable models with aliases and optional `context_window`, `max_output_tokens`, and `default_thinking`)
+- `openai.models` (catalog of switchable models with aliases and optional `context_window`, `max_output_tokens`, `default_thinking`, and `cache_retention`)
 - `runtime.log_level` (`debug|info|warn|error`)
 - `runtime.default_verbose` (default `true`, applied to new conversations)
 - `telegram.streaming_enabled` (default `true`)
@@ -194,7 +199,7 @@ Common optional fields:
 - `observability.redaction.max_string_chars` (default `4000`)
 - `observability.redaction.redact_keys` (default `authorization, api_key, token, secret, password, cookie, set-cookie`)
 - `paths.workspace_root`
-- `tools.default_cwd` (default: `paths.workspace_root`, usually `~/.agent-commander/`)
+- `tools.default_cwd` (default: `paths.workspace_root`, usually `~/.agent-commander/`; used as the initial cwd for new conversations)
 - `tools.default_shell` (default: `/bin/bash`)
 - `paths.conversations_dir`
 - `paths.stashed_conversations_path`

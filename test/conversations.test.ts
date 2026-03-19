@@ -140,7 +140,9 @@ describe("conversation store", () => {
     const conversationA = await store.ensureActiveConversation(chatId);
 
     await store.setVerboseMode(chatId, false);
+    await store.setWorkingDirectory(chatId, "/tmp/project-focus");
     await store.setThinkingEffort(chatId, "high");
+    await store.setCacheRetention(chatId, "24h");
     await store.setActiveModelOverride(chatId, "gpt-5.3-codex");
     await store.setLatestUsageSnapshot(chatId, {
       inputTokens: 100,
@@ -154,8 +156,10 @@ describe("conversation store", () => {
     expect(stashResult.stashedConversationId).toBe(conversationA);
     expect(stashResult.stashedAlias).toBe("focus");
 
+    expect(await store.getWorkingDirectory(chatId)).toBe(process.cwd());
     expect(await store.getVerboseMode(chatId)).toBe(true);
     expect(await store.getThinkingEffort(chatId)).toBe("medium");
+    expect(await store.getCacheRetention(chatId)).toBe("in_memory");
     expect(await store.getActiveModelOverride(chatId)).toBeNull();
     expect(await store.getLatestUsageSnapshot(chatId)).toBeNull();
     expect(await store.getToolResultStats(chatId)).toEqual({
@@ -168,8 +172,10 @@ describe("conversation store", () => {
     await store.completeNewSelection(chatId, { type: "stash", conversationId: conversationA }, "manual_new");
 
     expect(await store.getActiveConversation(chatId)).toBe(conversationA);
+    expect(await store.getWorkingDirectory(chatId)).toBe("/tmp/project-focus");
     expect(await store.getVerboseMode(chatId)).toBe(false);
     expect(await store.getThinkingEffort(chatId)).toBe("high");
+    expect(await store.getCacheRetention(chatId)).toBe("24h");
     expect(await store.getActiveModelOverride(chatId)).toBe("gpt-5.3-codex");
     expect(await store.getLatestUsageSnapshot(chatId)).toEqual({
       inputTokens: 100,
@@ -266,7 +272,9 @@ describe("conversation store", () => {
 
     const chatId = "chat-1";
     const conversationA = await firstStore.ensureActiveConversation(chatId);
+    await firstStore.setWorkingDirectory(chatId, "/tmp/project-alpha");
     await firstStore.setVerboseMode(chatId, false);
+    await firstStore.setCacheRetention(chatId, "24h");
 
     await firstStore.completeStashSelection(chatId, "alpha", { type: "new" }, "manual_stash");
 
@@ -281,7 +289,9 @@ describe("conversation store", () => {
     expect(stashes[0]?.alias).toBe("alpha");
 
     await secondStore.completeNewSelection(chatId, { type: "stash", conversationId: conversationA }, "manual_new");
+    expect(await secondStore.getWorkingDirectory(chatId)).toBe("/tmp/project-alpha");
     expect(await secondStore.getVerboseMode(chatId)).toBe(false);
+    expect(await secondStore.getCacheRetention(chatId)).toBe("24h");
   });
 
   it("starts fresh when legacy runtime-settings/index schema is present", async () => {
@@ -444,13 +454,16 @@ describe("conversation store", () => {
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
       stashedConversationsPath: path.join(root, "active.json"),
+      defaultWorkingDirectory: "/tmp/default-cwd",
       defaultVerboseMode: false,
       defaultThinkingEffort: "xhigh"
     });
 
     await store.ensureActiveConversation("chat-1");
+    expect(await store.getWorkingDirectory("chat-1")).toBe("/tmp/default-cwd");
     expect(await store.getVerboseMode("chat-1")).toBe(false);
     expect(await store.getThinkingEffort("chat-1")).toBe("xhigh");
+    expect(await store.getCacheRetention("chat-1")).toBe("in_memory");
   });
 
   it("emits full conversation event payloads to observability when enabled", async () => {

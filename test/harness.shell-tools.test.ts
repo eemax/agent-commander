@@ -238,4 +238,40 @@ describe("shell tools", () => {
       })
     );
   });
+
+  it("resolves default cwd per owner when a resolver is configured", async () => {
+    const root = mkdtemp("acmd-shell-owner-cwd-root-");
+    const ownerOneCwd = mkdtemp("acmd-shell-owner-cwd-1-");
+    const ownerTwoCwd = mkdtemp("acmd-shell-owner-cwd-2-");
+    const harness = createToolHarness(
+      {
+        defaultCwd: root,
+        defaultShell: "/bin/bash",
+        execTimeoutMs: 30_000,
+        execYieldMs: 1_000,
+        processLogTailLines: 200,
+        logPath: ".agent-commander/tool-calls.jsonl",
+        completedSessionRetentionMs: 3_600_000,
+        maxCompletedSessions: 500,
+        maxOutputChars: 200_000
+      },
+      {
+        resolveDefaultCwd: async (ownerId) => {
+          if (ownerId === "chat-1") {
+            return ownerOneCwd;
+          }
+          if (ownerId === "chat-2") {
+            return ownerTwoCwd;
+          }
+          return root;
+        }
+      }
+    );
+
+    const one = await harness.executeWithOwner("chat-1", "bash", { command: "pwd" });
+    const two = await harness.executeWithOwner("chat-2", "bash", { command: "pwd" });
+
+    expect(fs.realpathSync((one as { stdout: string }).stdout.trim())).toBe(fs.realpathSync(ownerOneCwd));
+    expect(fs.realpathSync((two as { stdout: string }).stdout.trim())).toBe(fs.realpathSync(ownerTwoCwd));
+  });
 });

@@ -27,7 +27,7 @@ Run a shell command in the local environment.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `command` | string | yes | — | Shell command to execute |
-| `cwd` | string | no | `tools.default_cwd` | Working directory |
+| `cwd` | string | no | active conversation cwd (falls back to `tools.default_cwd`) | Working directory |
 | `env` | object | no | — | Environment variables (string key-value pairs) |
 | `timeoutMs` | integer | no | `tools.exec_timeout_ms` | Command timeout in ms |
 | `yieldMs` | integer | no | `tools.exec_yield_ms` | Max wait before returning running status |

@@ -127,6 +127,8 @@ export type StashedConversationSummary = {
 export type StateStore = {
   ensureActiveConversation(chatId: string): Promise<string>;
   getActiveConversation(chatId: string): Promise<string | null>;
+  getWorkingDirectory(chatId: string): Promise<string>;
+  setWorkingDirectory(chatId: string, cwd: string, options?: { trace?: TraceContext }): Promise<void>;
   getVerboseMode(chatId: string): Promise<boolean>;
   setVerboseMode(chatId: string, enabled: boolean, options?: { trace?: TraceContext }): Promise<void>;
   getThinkingEffort(chatId: string): Promise<ThinkingEffort>;

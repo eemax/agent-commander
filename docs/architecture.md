@@ -42,7 +42,7 @@ Agent Commander is intentionally small:
 - `src/routing/*`
   Routing internals split into gatekeeping, core-command handling, assistant-turn orchestration, and reply formatters.
 - `src/telegram/commands.ts`
-  Typed command registry + parsing (`/start`, `/new`, `/stash`, `/status` with optional `full` flag, `/stop`, `/bash`, `/verbose`, `/thinking`, `/model`, `/models`, dynamic skill commands).
+  Typed command registry + parsing (`/start`, `/new`, `/stash`, `/status` with optional `full` flag, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`, dynamic skill commands).
 - `src/telegram/bot.ts`
   Telegram wiring, command registration sync (`setMyCommands`), text message + callback query dispatch (including inline keyboards and extra verbose replies), and safe error replies.
 
@@ -53,7 +53,7 @@ Agent Commander is intentionally small:
 3. Bot syncs command catalog at startup and on workspace catalog changes.
 4. Router checks sender allowlist (`agents.json` → `telegram_allowlist` for the active agent).
 5. Router handles command or normal turn:
-- Core command (`/new`, `/stash`, `/status`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/model`, `/models`) handled directly.
+- Core command (`/new`, `/stash`, `/status`, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`) handled directly.
 - Conversation-menu callbacks are validated and handled via single-use menu tokens.
 - Skill command (`/<skill_slug>`) triggers one-shot skill invocation.
 - Normal text uses an atomic append+prompt-context read from conversation store and requests provider reply.
@@ -73,7 +73,7 @@ Agent Commander is intentionally small:
 
 - JSON object mapping `chatId -> current conversation record`.
 - Each record contains `conversationId`, optional `alias`, and a conversation runtime profile.
-- Runtime profile fields: `verboseMode`, `thinkingEffort`, `activeModelOverride`, `latestUsage`, `toolResults`.
+- Runtime profile fields: `workingDirectory`, `verboseMode`, `thinkingEffort`, `cacheRetention`, `activeModelOverride`, `activeWebSearchModelOverride`, `latestUsage`, `toolResults`, `compactionCount`.
 - Default filenames are `.agent-commander/stashed-conversations.json` and `.agent-commander/active-conversations.json`.
 - No automatic migration is performed from the previous filename layout.
 

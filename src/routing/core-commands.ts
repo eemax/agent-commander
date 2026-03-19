@@ -1,3 +1,5 @@
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type { ToolHarness } from "../harness/index.js";
 import type { TraceContext } from "../observability.js";
 import { resolveActiveModel, resolveModelReference } from "../model-catalog.js";
@@ -331,7 +333,18 @@ export function createCoreCommandHandler(params: {
           }
 
           const conversationId = await conversations.ensureActiveConversation(message.chatId);
-          const [verboseEnabled, thinkingEffort, cacheRetention, activeModelOverride, webSearchModelOverride, latestUsage, toolResultStats, compactionCount] = await Promise.all([
+          const [
+            conversationCwd,
+            verboseEnabled,
+            thinkingEffort,
+            cacheRetention,
+            activeModelOverride,
+            webSearchModelOverride,
+            latestUsage,
+            toolResultStats,
+            compactionCount
+          ] = await Promise.all([
+            conversations.getWorkingDirectory(message.chatId),
             conversations.getVerboseMode(message.chatId),
             conversations.getThinkingEffort(message.chatId),
             conversations.getCacheRetention(message.chatId),
@@ -378,6 +391,7 @@ export function createCoreCommandHandler(params: {
               fullObservabilityEnabled: config.observability.enabled,
               verboseEnabled,
               thinkingEffort,
+              cwd: conversationCwd,
               latestUsage,
               sessions: runningSessions,
               completedProcessCount,
@@ -409,6 +423,49 @@ export function createCoreCommandHandler(params: {
             })
           };
         }
+        case "cwd": {
+          const selection = args.trim();
+          const current = await conversations.getWorkingDirectory(message.chatId);
+
+          if (selection.length === 0) {
+            return {
+              type: "reply",
+              text: ["Usage: /cwd <absolute-path>", `cwd: ${current}`].join("\n")
+            };
+          }
+
+          if (!path.isAbsolute(selection)) {
+            return {
+              type: "reply",
+              text: ["Usage: /cwd <absolute-path>", `cwd: ${current}`].join("\n")
+            };
+          }
+
+          let stat;
+          try {
+            stat = await fs.stat(selection);
+          } catch {
+            return {
+              type: "reply",
+              text: `Invalid cwd: ${selection} (path does not exist)`
+            };
+          }
+
+          if (!stat.isDirectory()) {
+            return {
+              type: "reply",
+              text: `Invalid cwd: ${selection} (not a directory)`
+            };
+          }
+
+          const resolved = await fs.realpath(selection).catch(() => path.resolve(selection));
+          await conversations.setWorkingDirectory(message.chatId, resolved, { trace });
+
+          return {
+            type: "reply",
+            text: `cwd: ${resolved}`
+          };
+        }
         case "stop": {
           const killed = harness.context.processManager.killRunningSessionsByOwner(message.chatId);
           const lines = [`stopped sessions: ${killed.killed}`];
@@ -429,13 +486,36 @@ export function createCoreCommandHandler(params: {
             };
           }
 
-          const result = await harness.executeWithOwner(message.chatId, "bash", {
-            command: args
-          });
+          const cwd = await conversations.getWorkingDirectory(message.chatId);
+          const lines = args
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0);
+          const commands = lines.length > 0 ? lines : [args];
+
+          if (commands.length === 1) {
+            const result = await harness.executeWithOwner(message.chatId, "bash", {
+              command: commands[0],
+              cwd
+            });
+            return {
+              type: "reply",
+              text: formatBashReply(result)
+            };
+          }
+
+          const parts: string[] = [];
+          for (const commandText of commands) {
+            const result = await harness.executeWithOwner(message.chatId, "bash", {
+              command: commandText,
+              cwd
+            });
+            parts.push([`$ ${commandText}`, formatBashReply(result)].join("\n"));
+          }
 
           return {
             type: "reply",
-            text: formatBashReply(result)
+            text: parts.join("\n\n")
           };
         }
         case "verbose": {

@@ -9,11 +9,13 @@ import {
   type TraceContext
 } from "../observability.js";
 import {
+  CACHE_RETENTION_VALUES,
   THINKING_EFFORT_VALUES,
   type PromptMessage,
   type ProviderErrorKind,
   type ProviderUsageSnapshot,
-  type ThinkingEffort
+  type ThinkingEffort,
+  type CacheRetention
 } from "../types.js";
 import {
   type ConversationArchiveEvent,
@@ -26,8 +28,10 @@ import {
 } from "./events.js";
 
 type ConversationRuntimeProfile = {
+  workingDirectory: string;
   verboseMode: boolean;
   thinkingEffort: ThinkingEffort;
+  cacheRetention: CacheRetention;
   activeModelOverride: string | null;
   activeWebSearchModelOverride: string | null;
   latestUsage: ProviderUsageSnapshot | null;
@@ -62,8 +66,10 @@ type ConversationStoreParams = {
   conversationsDir: string;
   stashedConversationsPath: string;
   activeConversationsPath?: string;
+  defaultWorkingDirectory?: string;
   defaultVerboseMode?: boolean;
   defaultThinkingEffort?: ThinkingEffort;
+  defaultCacheRetention?: CacheRetention;
   sessionCacheMaxEntries?: number;
   observability?: ObservabilitySink;
 };
@@ -106,9 +112,14 @@ async function atomicWriteJson(targetPath: string, payload: unknown): Promise<vo
 }
 
 const THINKING_EFFORT_SET: ReadonlySet<string> = new Set(THINKING_EFFORT_VALUES);
+const CACHE_RETENTION_SET: ReadonlySet<string> = new Set(CACHE_RETENTION_VALUES);
 
 function isThinkingEffort(value: unknown): value is ThinkingEffort {
   return typeof value === "string" && THINKING_EFFORT_SET.has(value);
+}
+
+function isCacheRetention(value: unknown): value is CacheRetention {
+  return typeof value === "string" && CACHE_RETENTION_SET.has(value);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -197,12 +208,16 @@ function cloneUsageSnapshot(snapshot: ProviderUsageSnapshot): ProviderUsageSnaps
 }
 
 function createDefaultRuntimeProfile(params: {
+  defaultWorkingDirectory: string;
   defaultVerboseMode: boolean;
   defaultThinkingEffort: ThinkingEffort;
+  defaultCacheRetention: CacheRetention;
 }): ConversationRuntimeProfile {
   return {
+    workingDirectory: params.defaultWorkingDirectory,
     verboseMode: params.defaultVerboseMode,
     thinkingEffort: params.defaultThinkingEffort,
+    cacheRetention: params.defaultCacheRetention,
     activeModelOverride: null,
     activeWebSearchModelOverride: null,
     latestUsage: null,
@@ -213,8 +228,10 @@ function createDefaultRuntimeProfile(params: {
 
 function cloneRuntimeProfile(profile: ConversationRuntimeProfile): ConversationRuntimeProfile {
   return {
+    workingDirectory: profile.workingDirectory,
     verboseMode: profile.verboseMode,
     thinkingEffort: profile.thinkingEffort,
+    cacheRetention: profile.cacheRetention,
     activeModelOverride: profile.activeModelOverride,
     activeWebSearchModelOverride: profile.activeWebSearchModelOverride,
     latestUsage: profile.latestUsage ? cloneUsageSnapshot(profile.latestUsage) : null,
@@ -226,8 +243,10 @@ function cloneRuntimeProfile(profile: ConversationRuntimeProfile): ConversationR
 function normalizeRuntimeProfile(
   value: unknown,
   defaults: {
+    defaultWorkingDirectory: string;
     defaultVerboseMode: boolean;
     defaultThinkingEffort: ThinkingEffort;
+    defaultCacheRetention: CacheRetention;
   }
 ): ConversationRuntimeProfile | null {
   if (!isPlainObject(value)) {
@@ -247,8 +266,10 @@ function normalizeRuntimeProfile(
       : null;
 
   return {
+    workingDirectory: normalizeNonEmptyString(value.workingDirectory) ?? defaults.defaultWorkingDirectory,
     verboseMode: typeof value.verboseMode === "boolean" ? value.verboseMode : defaults.defaultVerboseMode,
     thinkingEffort: isThinkingEffort(value.thinkingEffort) ? value.thinkingEffort : defaults.defaultThinkingEffort,
+    cacheRetention: isCacheRetention(value.cacheRetention) ? value.cacheRetention : defaults.defaultCacheRetention,
     activeModelOverride,
     activeWebSearchModelOverride,
     latestUsage: isUsageSnapshot(value.latestUsage) ? cloneUsageSnapshot(value.latestUsage) : null,
@@ -260,8 +281,10 @@ function normalizeRuntimeProfile(
 function parseCurrentConversationsIndex(
   raw: string,
   defaults: {
+    defaultWorkingDirectory: string;
     defaultVerboseMode: boolean;
     defaultThinkingEffort: ThinkingEffort;
+    defaultCacheRetention: CacheRetention;
   }
 ): CurrentConversationsIndex {
   const parsed = JSON.parse(raw) as unknown;
@@ -300,8 +323,10 @@ function parseCurrentConversationsIndex(
 function parseActiveConversationsIndex(
   raw: string,
   defaults: {
+    defaultWorkingDirectory: string;
     defaultVerboseMode: boolean;
     defaultThinkingEffort: ThinkingEffort;
+    defaultCacheRetention: CacheRetention;
   }
 ): ActiveConversationsIndex {
   const parsed = JSON.parse(raw) as unknown;
@@ -398,8 +423,10 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     params.activeConversationsPath ??
     path.join(path.dirname(params.stashedConversationsPath), "active-conversations.json");
   const defaults = {
+    defaultWorkingDirectory: params.defaultWorkingDirectory ?? process.cwd(),
     defaultVerboseMode: params.defaultVerboseMode ?? true,
-    defaultThinkingEffort: params.defaultThinkingEffort ?? "medium"
+    defaultThinkingEffort: params.defaultThinkingEffort ?? "medium",
+    defaultCacheRetention: params.defaultCacheRetention ?? "in_memory"
   };
 
   let activeConversationsCache: ActiveConversationsIndex | null = null;
@@ -710,6 +737,45 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       return index[chatId]?.conversationId ?? null;
     },
 
+    async getWorkingDirectory(chatId): Promise<string> {
+      return enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
+        return ensured.record.runtime.workingDirectory;
+      });
+    },
+
+    async setWorkingDirectory(chatId, cwd, options): Promise<void> {
+      await enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start", options?.trace);
+        const normalizedCwd = cwd.trim();
+        if (normalizedCwd.length === 0 || ensured.record.runtime.workingDirectory === normalizedCwd) {
+          return;
+        }
+
+        const nextCurrent = {
+          ...ensured.index,
+          [chatId]: {
+            ...ensured.record,
+            runtime: {
+              ...ensured.record.runtime,
+              workingDirectory: normalizedCwd
+            }
+          }
+        };
+
+        await saveCurrentConversations(nextCurrent);
+        await params.observability?.record({
+          event: "runtime.setting.updated",
+          trace: options?.trace ? createChildTraceContext(options.trace, "state") : createTraceRootContext("state"),
+          stage: "completed",
+          chatId,
+          conversationId: ensured.record.conversationId,
+          setting: "workingDirectory",
+          value: normalizedCwd
+        });
+      });
+    },
+
     async getVerboseMode(chatId): Promise<boolean> {
       return enqueueMutation(async () => {
         const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
@@ -721,6 +787,13 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       return enqueueMutation(async () => {
         const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
         return ensured.record.runtime.thinkingEffort;
+      });
+    },
+
+    async getCacheRetention(chatId): Promise<CacheRetention> {
+      return enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
+        return ensured.record.runtime.cacheRetention;
       });
     },
 
@@ -782,6 +855,37 @@ export function createConversationStore(params: ConversationStoreParams): Conver
           conversationId: ensured.record.conversationId,
           setting: "thinkingEffort",
           value: effort
+        });
+      });
+    },
+
+    async setCacheRetention(chatId, mode, options): Promise<void> {
+      await enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start", options?.trace);
+        if (ensured.record.runtime.cacheRetention === mode) {
+          return;
+        }
+
+        const nextCurrent = {
+          ...ensured.index,
+          [chatId]: {
+            ...ensured.record,
+            runtime: {
+              ...ensured.record.runtime,
+              cacheRetention: mode
+            }
+          }
+        };
+
+        await saveCurrentConversations(nextCurrent);
+        await params.observability?.record({
+          event: "runtime.setting.updated",
+          trace: options?.trace ? createChildTraceContext(options.trace, "state") : createTraceRootContext("state"),
+          stage: "completed",
+          chatId,
+          conversationId: ensured.record.conversationId,
+          setting: "cacheRetention",
+          value: mode
         });
       });
     },

@@ -120,7 +120,8 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
+        stashedConversationsPath: config.paths.stashedConversationsPath,
+        defaultWorkingDirectory: config.tools.defaultCwd
       }),
       workspace,
       harness: makeHarnessMock()
@@ -146,7 +147,8 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
+        stashedConversationsPath: config.paths.stashedConversationsPath,
+        defaultWorkingDirectory: config.tools.defaultCwd
       }),
       workspace,
       harness: makeHarnessMock()
@@ -190,7 +192,8 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
+        stashedConversationsPath: config.paths.stashedConversationsPath,
+        defaultWorkingDirectory: config.tools.defaultCwd
       }),
       workspace,
       harness: makeHarnessMock()
@@ -216,7 +219,8 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath
+      stashedConversationsPath: config.paths.stashedConversationsPath,
+      defaultWorkingDirectory: config.tools.defaultCwd
     });
 
     const router = createMessageRouter({
@@ -363,7 +367,8 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath
+      stashedConversationsPath: config.paths.stashedConversationsPath,
+      defaultWorkingDirectory: config.tools.defaultCwd
     });
 
     const router = createMessageRouter({
@@ -446,7 +451,8 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath
+      stashedConversationsPath: config.paths.stashedConversationsPath,
+      defaultWorkingDirectory: config.tools.defaultCwd
     });
 
     for (let index = 1; index <= 7; index += 1) {
@@ -506,7 +512,8 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
+        stashedConversationsPath: config.paths.stashedConversationsPath,
+        defaultWorkingDirectory: config.tools.defaultCwd
       }),
       workspace,
       harness
@@ -514,7 +521,106 @@ describe("createMessageRouter", () => {
 
     const result = await router.handleIncomingMessage(sampleIncoming({ text: "/bash echo hi" }));
     expect(result.type).toBe("reply");
-    expect(harness.executeWithOwner).toHaveBeenCalledWith("chat-1", "bash", { command: "echo hi" });
+    expect(harness.executeWithOwner).toHaveBeenCalledWith("chat-1", "bash", {
+      command: "echo hi",
+      cwd: config.tools.defaultCwd
+    });
+  });
+
+  it("anchors multi-line /bash commands to the conversation cwd", async () => {
+    const config = makeConfig();
+    const workspace = createWorkspaceManager(config);
+    await workspace.bootstrap();
+
+    const harness = makeHarnessMock();
+    const router = createMessageRouter({
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      provider: { generateReply: vi.fn(async () => "unused") },
+      config,
+      conversations: createConversationStore({
+        conversationsDir: config.paths.conversationsDir,
+        stashedConversationsPath: config.paths.stashedConversationsPath,
+        defaultWorkingDirectory: config.tools.defaultCwd
+      }),
+      workspace,
+      harness
+    });
+
+    const result = await router.handleIncomingMessage(
+      sampleIncoming({
+        text: "/bash pwd\ncd ~\npwd",
+        messageId: "msg-2"
+      })
+    );
+    expect(result.type).toBe("reply");
+    expect(harness.executeWithOwner).toHaveBeenNthCalledWith(1, "chat-1", "bash", {
+      command: "pwd",
+      cwd: config.tools.defaultCwd
+    });
+    expect(harness.executeWithOwner).toHaveBeenNthCalledWith(2, "chat-1", "bash", {
+      command: "cd ~",
+      cwd: config.tools.defaultCwd
+    });
+    expect(harness.executeWithOwner).toHaveBeenNthCalledWith(3, "chat-1", "bash", {
+      command: "pwd",
+      cwd: config.tools.defaultCwd
+    });
+  });
+
+  it("supports /cwd for per-conversation working directory and reflects it in /status", async () => {
+    const config = makeConfig();
+    const workspace = createWorkspaceManager(config);
+    await workspace.bootstrap();
+
+    const conversations = createConversationStore({
+      conversationsDir: config.paths.conversationsDir,
+      stashedConversationsPath: config.paths.stashedConversationsPath,
+      defaultWorkingDirectory: config.tools.defaultCwd
+    });
+    const harness = makeHarnessMock();
+
+    const router = createMessageRouter({
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      provider: { generateReply: vi.fn(async () => "unused") },
+      config,
+      conversations,
+      workspace,
+      harness
+    });
+
+    const projectDir = path.join(config.paths.workspaceRoot, "project-a");
+    fs.mkdirSync(projectDir, { recursive: true });
+    const resolvedProjectDir = fs.realpathSync(projectDir);
+
+    const usage = await router.handleIncomingMessage(sampleIncoming({ text: "/cwd", messageId: "msg-1" }));
+    expect(usage).toEqual({
+      type: "reply",
+      text: `Usage: /cwd <absolute-path>\ncwd: ${config.tools.defaultCwd}`
+    });
+
+    const relative = await router.handleIncomingMessage(sampleIncoming({ text: "/cwd project-a", messageId: "msg-2" }));
+    expect(relative).toEqual({
+      type: "reply",
+      text: `Usage: /cwd <absolute-path>\ncwd: ${config.tools.defaultCwd}`
+    });
+
+    const switched = await router.handleIncomingMessage(sampleIncoming({ text: `/cwd ${projectDir}`, messageId: "msg-3" }));
+    expect(switched).toEqual({
+      type: "reply",
+      text: `cwd: ${resolvedProjectDir}`
+    });
+
+    const status = await router.handleIncomingMessage(sampleIncoming({ text: "/status", messageId: "msg-4" }));
+    expect(status.type).toBe("reply");
+    if (status.type === "reply") {
+      expect(status.text).toContain(`📁 CWD: ${resolvedProjectDir}`);
+    }
+
+    await router.handleIncomingMessage(sampleIncoming({ text: "/bash pwd", messageId: "msg-5" }));
+    expect(harness.executeWithOwner).toHaveBeenLastCalledWith("chat-1", "bash", {
+      command: "pwd",
+      cwd: resolvedProjectDir
+    });
   });
 
   it("toggles verbose mode through core commands", async () => {
@@ -626,10 +732,11 @@ describe("createMessageRouter", () => {
     const switched = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "/model codex" }));
     expect(switched).toEqual({
       type: "reply",
-      text: "model: gpt-5.3-codex\nthinking effort: high (model default)"
+      text: "model: gpt-5.3-codex\nthinking effort: high (model default)\ncache retention: 24h (model default)"
     });
     expect(await conversations.getActiveModelOverride("chat-1")).toBe("gpt-5.3-codex");
     expect(await conversations.getThinkingEffort("chat-1")).toBe("high");
+    expect(await conversations.getCacheRetention("chat-1")).toBe("24h");
 
     const listAfter = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-3", text: "/models" }));
     expect(listAfter.type).toBe("reply");
@@ -668,6 +775,46 @@ describe("createMessageRouter", () => {
     const request = vi.mocked(provider.generateReply).mock.calls[0]?.[0];
     expect(request?.model).toBe("gpt-5.3-codex");
     expect(request?.thinkingEffort).toBe("high");
+    expect(request?.cacheRetention).toBe("24h");
+  });
+
+  it("switches cache retention via /cache", async () => {
+    const config = makeConfig();
+    const workspace = createWorkspaceManager(config);
+    await workspace.bootstrap();
+
+    const conversations = createConversationStore({
+      conversationsDir: config.paths.conversationsDir,
+      stashedConversationsPath: config.paths.stashedConversationsPath
+    });
+
+    const router = createMessageRouter({
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      provider: { generateReply: vi.fn(async () => "unused") },
+      config,
+      conversations,
+      workspace,
+      harness: makeHarnessMock()
+    });
+
+    const usage = await router.handleIncomingMessage(sampleIncoming({ text: "/cache" }));
+    expect(usage).toEqual({
+      type: "reply",
+      text: "Usage: /cache <in_memory|24h>\ncache retention: in_memory\nmodel default cache retention: in_memory"
+    });
+
+    const changed = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "/cache 24h" }));
+    expect(changed).toEqual({
+      type: "reply",
+      text: "cache retention: 24h"
+    });
+    expect(await conversations.getCacheRetention("chat-1")).toBe("24h");
+
+    const invalid = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-3", text: "/cache forever" }));
+    expect(invalid).toEqual({
+      type: "reply",
+      text: "Usage: /cache <in_memory|24h>\ncache retention: 24h\nmodel default cache retention: in_memory"
+    });
   });
 
   it("renders n/a token/cache summary before any successful provider usage is captured", async () => {
@@ -692,7 +839,7 @@ describe("createMessageRouter", () => {
     if (result.type === "reply") {
       expect(result.text).toContain("🧮 Tokens: n/a");
       expect(result.text).toContain("📚 Context budget: n/a");
-      expect(result.text).toContain("🗄️ Cache: n/a");
+      expect(result.text).toContain("🗄️ Cache: n/a · mode: in_memory");
     }
   });
 

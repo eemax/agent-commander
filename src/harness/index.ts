@@ -25,6 +25,7 @@ export function createToolHarness(
   deps: {
     observability?: ObservabilitySink;
     createWebSearchClient?: WebSearchClientFactory;
+    resolveDefaultCwd?: (ownerId: string | null) => Promise<string>;
     resolveWebSearchModel?: (ownerId: string | null) => Promise<string>;
     runDefuddle?: DefuddleRunner;
   } = {}
@@ -96,23 +97,41 @@ export function createToolHarness(
     );
   }
 
-  const executeWithOwner = (ownerId: string, name: string, args: unknown, trace?: TraceContext, abortSignal?: AbortSignal): Promise<JsonValue> => {
-    const scopedContext: ToolContext = {
-      ...context,
-      ownerId,
-      trace,
-      abortSignal
-    };
+  const executeScoped = (
+    ownerId: string | null,
+    name: string,
+    args: unknown,
+    trace?: TraceContext,
+    abortSignal?: AbortSignal
+  ): Promise<JsonValue> => {
+    return (async () => {
+      const resolvedDefaultCwd = deps.resolveDefaultCwd
+        ? path.resolve(await deps.resolveDefaultCwd(ownerId))
+        : defaultCwd;
+      const scopedContext: ToolContext = {
+        ...context,
+        config: {
+          ...context.config,
+          defaultCwd: resolvedDefaultCwd
+        },
+        ownerId,
+        trace,
+        abortSignal
+      };
 
-    return registry.execute(name, args, scopedContext);
+      return registry.execute(name, args, scopedContext);
+    })();
   };
+
+  const executeWithOwner = (ownerId: string, name: string, args: unknown, trace?: TraceContext, abortSignal?: AbortSignal): Promise<JsonValue> =>
+    executeScoped(ownerId, name, args, trace, abortSignal);
 
   return {
     config: context.config,
     context,
     registry,
     metrics,
-    execute: (name, args, trace, abortSignal) => registry.execute(name, args, { ...context, trace, abortSignal }),
+    execute: (name, args, trace, abortSignal) => executeScoped(null, name, args, trace, abortSignal),
     executeWithOwner,
     exportProviderTools: () => registry.exportProviderTools()
   };
