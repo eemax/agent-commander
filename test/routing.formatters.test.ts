@@ -61,8 +61,8 @@ describe("buildStatusReply", () => {
     });
 
     expect(text).toContain("🧮 Tokens: n/a");
-    expect(text).toContain("📚 Context budget: n/a");
-    expect(text).toContain("🗄️ Cache: n/a · mode: in_memory");
+    expect(text).toContain("📚 Context: n/a");
+    expect(text).toContain("🗄️ Cache: n/a · last: never");
   });
 
   it("shows budget context summary and cache details when usage is available", () => {
@@ -81,14 +81,14 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("🧠 openai/gpt-5.3-codex");
+    expect(text).toContain("🧠 gpt-5.3-codex");
     expect(text).toContain("🧮 Tokens: 8.7k in / 138 out · 42 reasoning");
-    expect(text).toContain("📚 Context budget: 8.7k/392k (2%)");
+    expect(text).toContain("📚 Context: 8.7k / 392k (2%)");
     expect(text).toContain("🗄️ Cache: 95% hit");
-    expect(text).toContain("· mode: in_memory");
-    expect(text).toContain("⚙️ Runtime: think: high · verbose: on · observability: off");
-    expect(text).toContain("🏃 Processes: 0 running");
-    expect(text).toContain("📁 CWD: /tmp/workspace");
+    expect(text).toContain("⚙️ Think: high · cache: in_memory · processes: 0 running");
+    expect(text).toContain("📁 `/tmp/workspace`");
+    expect(text).not.toContain("verbose: on");
+    expect(text).not.toContain("observability: off");
     expect(text).not.toContain("conversation:");
   });
 
@@ -107,7 +107,7 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("📚 Context budget: n/a");
+    expect(text).toContain("📚 Context: n/a");
   });
 
   it("shows unknown denominator when context_window is unavailable", () => {
@@ -125,7 +125,7 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("📚 Context budget: 3.5k/unknown (n/a)");
+    expect(text).toContain("📚 Context: 3.5k / unknown (n/a)");
   });
 
   it("shows zero budget usage against available context at the start of a turn", () => {
@@ -143,7 +143,7 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("📚 Context budget: 0/272k (0%)");
+    expect(text).toContain("📚 Context: 0 / 272k (0%)");
   });
 
   it("shows n/a budget context when max_output_tokens is not less than context_window", () => {
@@ -162,7 +162,7 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("📚 Context budget: n/a");
+    expect(text).toContain("📚 Context: n/a");
   });
 
   it("includes diagnostics when requested", () => {
@@ -173,6 +173,8 @@ describe("buildStatusReply", () => {
     });
 
     expect(text).toContain("conversation: conv...nv_1");
+    expect(text).toContain("verbose: off");
+    expect(text).toContain("observability: off");
     expect(text).toContain("state.cache: 1/200");
     expect(text).toContain("workspace.refresh: 1");
     expect(text).toContain("process.truncated_combined_chars: 0");
@@ -181,7 +183,7 @@ describe("buildStatusReply", () => {
     expect(text).toContain("tool.error_codes: none");
     expect(text).toContain("completed processes: 0");
     expect(text).toContain("running processes: 0");
-    expect(text).toContain("cwd: /tmp/workspace");
+    expect(text).toContain("📁 `/tmp/workspace`");
     expect(text).not.toContain("workspace.manifest_hash:");
     expect(text).not.toContain("workspace.snapshot_signature:");
     expect(text).not.toContain("model: ");
@@ -247,7 +249,7 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("📚 Context budget: 8.7k/392k (2%) · compact: 160k");
+    expect(text).toContain("📚 Context: 8.7k / 392k (2%) · compact at: 160k");
     expect(text).not.toContain("hits");
   });
 
@@ -268,7 +270,7 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("📚 Context budget: 8.7k/392k (2%) · compact: 160k (3 hits)");
+    expect(text).toContain("📚 Context: 8.7k / 392k (2%) · compact at: 160k (3 hits)");
   });
 
   it("shows singular hit label for single compaction", () => {
@@ -288,7 +290,7 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("· compact: 200k (1 hit)");
+    expect(text).toContain("· compact at: 200k (1 hit)");
   });
 
   it("shows last cache hit relative time on cache row", () => {
@@ -308,7 +310,7 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("🗄️ Cache: 95% hit · 8.3k cached, 400 new · last 2m ago · mode: in_memory");
+    expect(text).toContain("🗄️ Cache: 95% hit · 8.3k cached · 400 new · last: 2m ago");
   });
 
   it("places context budget before tokens in row order", () => {

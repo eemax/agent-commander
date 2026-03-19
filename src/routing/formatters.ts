@@ -118,23 +118,23 @@ function formatRelativeTime(deltaMs: number): string {
   return `${hours}h ago`;
 }
 
-function formatCacheSummary(usage: ProviderUsageSnapshot | null, cacheRetention: CacheRetention, nowMs?: number): string {
+function formatCacheSummary(usage: ProviderUsageSnapshot | null, nowMs?: number): string {
   if (!usage || usage.inputTokens === null || usage.cachedTokens === null || usage.inputTokens <= 0) {
-    return `🗄️ Cache: n/a · mode: ${cacheRetention}`;
+    return "🗄️ Cache: n/a · last: never";
   }
 
   const cachedTokens = Math.min(usage.cachedTokens, usage.inputTokens);
   const newTokens = Math.max(usage.inputTokens - cachedTokens, 0);
   const cacheHitPercent = Math.round((cachedTokens / usage.inputTokens) * 100);
-  let line = `🗄️ Cache: ${cacheHitPercent}% hit · ${formatCompactNumber(cachedTokens)} cached, ${formatCompactNumber(newTokens)} new`;
+  let line = `🗄️ Cache: ${cacheHitPercent}% hit · ${formatCompactNumber(cachedTokens)} cached · ${formatCompactNumber(newTokens)} new`;
 
   const lastHitAt = usage.lastCacheHitAt;
   if (lastHitAt != null && lastHitAt > 0) {
     const now = nowMs ?? Date.now();
-    line += ` · last ${formatRelativeTime(now - lastHitAt)}`;
+    line += ` · last: ${formatRelativeTime(now - lastHitAt)}`;
+  } else {
+    line += " · last: never";
   }
-
-  line += ` · mode: ${cacheRetention}`;
 
   return line;
 }
@@ -145,11 +145,11 @@ function formatContextRatio(tokens: number | null, contextWindow: number | null)
   }
 
   if (contextWindow === null) {
-    return `${formatCompactNumber(tokens)}/unknown (n/a)`;
+    return `${formatCompactNumber(tokens)} / unknown (n/a)`;
   }
 
   const percent = Math.round((tokens / contextWindow) * 100);
-  return `${formatCompactNumber(tokens)}/${formatCompactNumber(contextWindow)} (${percent}%)`;
+  return `${formatCompactNumber(tokens)} / ${formatCompactNumber(contextWindow)} (${percent}%)`;
 }
 
 function resolveBudgetContextTokens(
@@ -188,7 +188,7 @@ function formatContextSummary(
   compactionCount: number
 ): string {
   if (!usage) {
-    return "📚 Context budget: n/a";
+    return "📚 Context: n/a";
   }
 
   const invalidBudgetWindow =
@@ -198,14 +198,14 @@ function formatContextSummary(
     ? null
     : resolveBudgetContextWindow(contextWindow, modelMaxOutputTokens);
   if (budgetTokens === null) {
-    return "📚 Context budget: n/a";
+    return "📚 Context: n/a";
   }
 
-  let line = `📚 Context budget: ${formatContextRatio(budgetTokens, budgetContextWindow)}`;
+  let line = `📚 Context: ${formatContextRatio(budgetTokens, budgetContextWindow)}`;
 
   if (compactionTokens !== null) {
     const compactThreshold = Math.floor(compactionTokens * compactionThreshold);
-    line += ` · compact: ${formatCompactNumber(compactThreshold)}`;
+    line += ` · compact at: ${formatCompactNumber(compactThreshold)}`;
     if (compactionCount > 0) {
       line += ` (${compactionCount} ${compactionCount === 1 ? "hit" : "hits"})`;
     }
@@ -277,7 +277,7 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
 
   if (report.tool === "bash") {
     const command = readString(args.command) ?? "(unknown command)";
-    return `>_ Bash: ${formatBashCommand(command)}`;
+    return `🐚 Bash: ${formatBashCommand(command)}`;
   }
 
   if (report.tool === "replace_in_file") {
@@ -299,7 +299,7 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
 
   if (report.tool === "web_fetch") {
     const url = readString(args.url) ?? "(unknown url)";
-    return `🌐 Web fetch: \`${url}\``;
+    return `🔗 Web fetch: \`${url}\``;
   }
 
   if (report.tool === "web_search") {
@@ -487,23 +487,18 @@ export function buildStatusReply(params: {
   nowMs?: number;
 }): string {
   const includeDiagnostics = params.includeDiagnostics ?? false;
-  const runtimeDetails = [
-    `think: ${params.thinkingEffort}`,
-    `verbose: ${params.verboseEnabled ? "on" : "off"}`,
-    `observability: ${params.fullObservabilityEnabled ? "on" : "off"}`
-  ];
   const summaryLines = [
-    `🧠 openai/${params.model}`,
-    ...(params.webSearchModel ? [`🔎 perplexity/${params.webSearchModel}`] : []),
+    `🧠 ${params.model}`,
+    ...(params.webSearchModel ? [`🔎 ${params.webSearchModel}`] : []),
     formatContextSummary(params.modelContextWindow, params.modelMaxOutputTokens, params.latestUsage, params.compactionTokens, params.compactionThreshold, params.compactionCount),
     formatTokenSummary(params.latestUsage),
-    formatCacheSummary(params.latestUsage, params.cacheRetention, params.nowMs),
-    `⚙️ Runtime: ${runtimeDetails.join(" · ")}`,
-    `🏃 Processes: ${params.sessions.length} running`
+    formatCacheSummary(params.latestUsage, params.nowMs),
+    `⚙️ Think: ${params.thinkingEffort} · cache: ${params.cacheRetention} · processes: ${params.sessions.length} running`,
+    `📁 \`${params.cwd}\``
   ];
 
   if (!includeDiagnostics) {
-    return [...summaryLines, `📁 CWD: ${params.cwd}`].join("\n");
+    return summaryLines.join("\n");
   }
 
   const errorCounts = Object.entries(params.toolRuntime.errorCodeCounts).sort(([left], [right]) =>
@@ -517,6 +512,8 @@ export function buildStatusReply(params: {
   const lines = [
     ...summaryLines,
     "",
+    `verbose: ${params.verboseEnabled ? "on" : "off"}`,
+    `observability: ${params.fullObservabilityEnabled ? "on" : "off"}`,
     `conversation: ${formatConversationIdForUi(params.conversationId)}`,
     `skills: ${params.skillsCount}`,
     `tool.success_count: ${params.toolRuntime.toolSuccessCount}`,
@@ -553,7 +550,6 @@ export function buildStatusReply(params: {
   lines.push(`process.truncated_combined_chars: ${params.processHealth.truncatedCombinedChars}`);
   lines.push(`process.truncated_stdout_chars: ${params.processHealth.truncatedStdoutChars}`);
   lines.push(`process.truncated_stderr_chars: ${params.processHealth.truncatedStderrChars}`);
-  lines.push(`cwd: ${params.cwd}`);
 
   return lines.join("\n");
 }

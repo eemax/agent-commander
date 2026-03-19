@@ -981,13 +981,18 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     async setLatestUsageSnapshot(chatId, usage): Promise<void> {
       await enqueueMutation(async () => {
         const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
+        const previousLastCacheHitAt = ensured.record.runtime.latestUsage?.lastCacheHitAt ?? null;
+        const mergedUsage: ProviderUsageSnapshot = {
+          ...cloneUsageSnapshot(usage),
+          lastCacheHitAt: usage.lastCacheHitAt ?? previousLastCacheHitAt
+        };
         const nextCurrent = {
           ...ensured.index,
           [chatId]: {
             ...ensured.record,
             runtime: {
               ...ensured.record.runtime,
-              latestUsage: cloneUsageSnapshot(usage)
+              latestUsage: mergedUsage
             }
           }
         };

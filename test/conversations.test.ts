@@ -181,7 +181,8 @@ describe("conversation store", () => {
       inputTokens: 100,
       outputTokens: 20,
       cachedTokens: 40,
-      reasoningTokens: 10
+      reasoningTokens: 10,
+      lastCacheHitAt: null
     });
     expect(await store.getToolResultStats(chatId)).toEqual({
       total: 1,
@@ -256,6 +257,67 @@ describe("conversation store", () => {
     await store.completeNewSelection(chatId, { type: "stash", conversationId: conversationA }, "manual_new");
     const stashesAfter = await store.listStashedConversations(chatId);
     expect(stashesAfter.map((item) => item.alias)).toEqual(["beta"]);
+  });
+
+  it("preserves last cache-hit timestamp across no-hit updates and restart", async () => {
+    const root = createTempDir("acmd-conv-cache-hit-");
+    const conversationsDir = path.join(root, "conversations");
+    const stashedConversationsPath = path.join(root, "stashed.json");
+    const activeConversationsPath = path.join(root, "active.json");
+    const chatId = "chat-1";
+
+    const firstStore = createConversationStore({
+      conversationsDir,
+      stashedConversationsPath,
+      activeConversationsPath
+    });
+    const conversationId = await firstStore.ensureActiveConversation(chatId);
+    const firstHitAt = 1_700_000_000_000;
+
+    await firstStore.setLatestUsageSnapshot(chatId, {
+      inputTokens: 100,
+      outputTokens: 20,
+      cachedTokens: 10,
+      reasoningTokens: 3,
+      lastCacheHitAt: firstHitAt
+    });
+    await firstStore.setLatestUsageSnapshot(chatId, {
+      inputTokens: 120,
+      outputTokens: 25,
+      cachedTokens: 0,
+      reasoningTokens: 2,
+      lastCacheHitAt: null
+    });
+    expect(await firstStore.getLatestUsageSnapshot(chatId)).toEqual({
+      inputTokens: 120,
+      outputTokens: 25,
+      cachedTokens: 0,
+      reasoningTokens: 2,
+      lastCacheHitAt: firstHitAt
+    });
+
+    await firstStore.completeStashSelection(chatId, "warm", { type: "new" }, "manual_stash");
+    await firstStore.completeNewSelection(chatId, { type: "stash", conversationId }, "manual_new");
+    expect(await firstStore.getLatestUsageSnapshot(chatId)).toEqual({
+      inputTokens: 120,
+      outputTokens: 25,
+      cachedTokens: 0,
+      reasoningTokens: 2,
+      lastCacheHitAt: firstHitAt
+    });
+
+    const secondStore = createConversationStore({
+      conversationsDir,
+      stashedConversationsPath,
+      activeConversationsPath
+    });
+    expect(await secondStore.getLatestUsageSnapshot(chatId)).toEqual({
+      inputTokens: 120,
+      outputTokens: 25,
+      cachedTokens: 0,
+      reasoningTokens: 2,
+      lastCacheHitAt: firstHitAt
+    });
   });
 
   it("persists current and stashed runtime profiles across restart", async () => {

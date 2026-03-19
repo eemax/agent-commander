@@ -613,7 +613,7 @@ describe("createMessageRouter", () => {
     const status = await router.handleIncomingMessage(sampleIncoming({ text: "/status", messageId: "msg-4" }));
     expect(status.type).toBe("reply");
     if (status.type === "reply") {
-      expect(status.text).toContain(`📁 CWD: ${resolvedProjectDir}`);
+      expect(status.text).toContain(`📁 \`${resolvedProjectDir}\``);
     }
 
     await router.handleIncomingMessage(sampleIncoming({ text: "/bash pwd", messageId: "msg-5" }));
@@ -655,7 +655,7 @@ describe("createMessageRouter", () => {
     });
     expect(await conversations.getVerboseMode("chat-1")).toBe(true);
 
-    const status = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-3", text: "/status" }));
+    const status = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-3", text: "/status full" }));
     expect(status.type).toBe("reply");
     if (status.type === "reply") {
       expect(status.text).toContain("verbose: on");
@@ -697,7 +697,7 @@ describe("createMessageRouter", () => {
     const status = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-3", text: "/status" }));
     expect(status.type).toBe("reply");
     if (status.type === "reply") {
-      expect(status.text).toContain("⚙️ Runtime: think: xhigh");
+      expect(status.text).toContain("⚙️ Think: xhigh");
       expect(status.text).not.toContain("conversation:");
     }
   });
@@ -838,8 +838,8 @@ describe("createMessageRouter", () => {
     expect(result.type).toBe("reply");
     if (result.type === "reply") {
       expect(result.text).toContain("🧮 Tokens: n/a");
-      expect(result.text).toContain("📚 Context budget: n/a");
-      expect(result.text).toContain("🗄️ Cache: n/a · mode: in_memory");
+      expect(result.text).toContain("📚 Context: n/a");
+      expect(result.text).toContain("🗄️ Cache: n/a · last: never");
     }
   });
 
@@ -903,9 +903,9 @@ describe("createMessageRouter", () => {
     const result = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "/status" }));
     expect(result.type).toBe("reply");
     if (result.type === "reply") {
-      expect(result.text).toContain("🧠 openai/gpt-5.3-codex");
+      expect(result.text).toContain("🧠 gpt-5.3-codex");
       expect(result.text).toContain("🧮 Tokens: 8.7k in / 138 out · 42 reasoning");
-      expect(result.text).toContain("📚 Context budget: 8.7k/392k (2%)");
+      expect(result.text).toContain("📚 Context: 8.7k / 392k (2%)");
       expect(result.text).toContain("🗄️ Cache: 95% hit");
       expect(result.text).not.toContain("conversation:");
     }
@@ -961,7 +961,7 @@ describe("createMessageRouter", () => {
     expect(status.type).toBe("reply");
     if (status.type === "reply") {
       expect(status.text).toContain("🧮 Tokens: 1.2k in / 160 out · 25 reasoning");
-      expect(status.text).toContain("📚 Context budget: 1.2k/392k (0%)");
+      expect(status.text).toContain("📚 Context: 1.2k / 392k (0%)");
       expect(status.text).toContain("🗄️ Cache: 75% hit");
     }
   });
@@ -1020,7 +1020,7 @@ describe("createMessageRouter", () => {
       expect(result.extraReplies).toEqual([
         "📖 Read: `scripts/refresh-lazy-skills.py` (3 chars)",
         "✍️ Write: `refresh_lazy.py` (4 chars)",
-        ">_ Bash: `echo hi`"
+        "🐚 Bash: `echo hi`"
       ]);
       expect(result.extraReplies?.some((line) => line.includes("<tool_call>"))).toBe(false);
       expect(result.extraReplies?.some((line) => line.includes("<tool_result"))).toBe(false);
@@ -1385,7 +1385,6 @@ describe("createMessageRouter", () => {
     const result = await router.handleIncomingMessage(sampleIncoming({ text: "/status full" }));
     expect(result.type).toBe("reply");
     if (result.type === "reply") {
-      expect(result.text).toContain("⚙️ Runtime:");
       expect(result.text).toContain("observability: on");
     }
   });
