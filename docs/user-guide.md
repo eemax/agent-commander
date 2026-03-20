@@ -77,7 +77,7 @@ Startup fails if frontmatter is missing/invalid, slug generation is invalid, or 
 - Current conversation per chat is tracked in `paths.active_conversations_path` (default `.agent-commander/active-conversations.json`).
 - Stashed conversations per chat are tracked in `paths.stashed_conversations_path` (default `.agent-commander/stashed-conversations.json`).
 - Conversation events are JSONL files in `paths.conversations_dir/<chatId>/<conversationId>.jsonl`.
-- Conversation runtime profiles persist `verboseMode`, `thinkingEffort`, `cacheRetention`, `activeModelOverride`, `latestUsage`, and `toolResults`.
+- Conversation runtime profiles persist `verboseMode`, `thinkingEffort`, `cacheRetention`, `activeModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, and `lastProviderFailure`.
 - `/new` opens an inline menu; current conversation is archived only when a menu option is selected.
 - `/stash <name>` stashes current conversation under an alias, then switches to selected stash or a new conversation.
 - `/stash list` shows stashed conversations with alias, conversation tail, and relative stash age.
@@ -134,6 +134,11 @@ Use `/status full` to include observability state and runtime health counters fo
 - `tool.results_success`
 - `tool.results_fail`
 - `tool.results_by_name` (for example `Write=10, Bash=1`)
+- `provider.last_failure_kind`
+- `provider.last_failure_status`
+- `provider.last_failure_attempts`
+- `provider.last_failure_at`
+- `provider.last_failure_reason`
 The context denominator comes from `openai.models[].context_window` for the active model.
 Status context summary:
 - `budget`: peak per-call `input / (context_window - max_output_tokens)` when `openai.models[].max_output_tokens` is set and less than `context_window` (otherwise `n/a`)
@@ -261,6 +266,7 @@ Ensure Telegram sender ID is present in the active agent's `telegram_allowlist`.
 ### Provider errors (4xx/5xx)
 
 Verify `DEFAULT_OPENAI_API_KEY`, model name, and account quota/limits.
+If observability is disabled, check `paths.app_log_path` for the structured final failure line (`reason`, OpenAI `type/code/param`, and `request_id`).
 
 ### OpenAI 400: invalid_function_parameters
 

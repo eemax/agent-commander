@@ -22,6 +22,25 @@ export type ResponsesRequestOptions = {
 };
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const STREAM_FAILURE_REASON_MAX_CHARS = 300;
+
+function sanitizeReason(reason: string): string {
+  const normalized = reason
+    .replace(/\s+/g, " ")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
+    .replace(/\bsk-[A-Za-z0-9_-]+\b/g, "sk-[REDACTED]")
+    .trim();
+
+  if (normalized.length === 0) {
+    return "Provider request failed";
+  }
+
+  if (normalized.length <= STREAM_FAILURE_REASON_MAX_CHARS) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, STREAM_FAILURE_REASON_MAX_CHARS - 3)}...`;
+}
 
 function redactHeaders(headers: Record<string, string>): Record<string, string> {
   const redacted: Record<string, string> = {};
@@ -89,7 +108,16 @@ export function createResponsesRequestWithRetry(
       kind: "unknown",
       statusCode: null,
       message: "OpenAI request failed",
-      retryAfterMs: null
+      retryAfterMs: null,
+      detail: {
+        reason: "OpenAI request failed",
+        openaiErrorType: null,
+        openaiErrorCode: null,
+        openaiErrorParam: null,
+        requestId: null,
+        retryAfterMs: null,
+        timedOutBy: null
+      }
     };
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -127,7 +155,9 @@ export function createResponsesRequestWithRetry(
       });
 
       const timeoutController = new AbortController();
+      let localTimeoutFired = false;
       const timeout = setTimeout(() => {
+        localTimeoutFired = true;
         timeoutController.abort();
       }, config.openai.timeoutMs);
       const signal = options.abortSignal
@@ -151,6 +181,7 @@ export function createResponsesRequestWithRetry(
             status: response.status,
             body: responseBody,
             retryAfterHeader: response.headers.get("retry-after"),
+            requestIdHeader: response.headers.get("x-request-id"),
             nowMs: nowMsImpl()
           });
 
@@ -215,14 +246,26 @@ export function createResponsesRequestWithRetry(
         }
       } catch (error) {
         const streamFailureMessage = error instanceof Error ? error.message : String(error);
-        const failureFromError = classifyFetchError(error);
+        const failureFromError = classifyFetchError(error, {
+          localTimeoutFired,
+          upstreamAbortSignal: options.abortSignal
+        });
         lastFailure = streamDeltaCount > 0
           ? {
               retryable: false,
               kind: "invalid_response",
               statusCode: null,
               message: `OpenAI streaming response failed after partial output: ${streamFailureMessage}`,
-              retryAfterMs: null
+              retryAfterMs: null,
+              detail: {
+                reason: sanitizeReason(`OpenAI streaming response failed after partial output: ${streamFailureMessage}`),
+                openaiErrorType: null,
+                openaiErrorCode: null,
+                openaiErrorParam: null,
+                requestId: null,
+                retryAfterMs: null,
+                timedOutBy: null
+              }
             }
           : failureFromError;
 
@@ -245,7 +288,8 @@ export function createResponsesRequestWithRetry(
           failure: {
             kind: lastFailure.kind,
             message: lastFailure.message,
-            statusCode: lastFailure.statusCode
+            statusCode: lastFailure.statusCode,
+            detail: lastFailure.detail
           },
           stream: {
             deltaCount: streamDeltaCount,
@@ -270,14 +314,16 @@ export function createResponsesRequestWithRetry(
           retryable: lastFailure.retryable,
           kind: lastFailure.kind,
           statusCode: lastFailure.statusCode,
-          message: lastFailure.message
+          message: lastFailure.message,
+          detail: lastFailure.detail
         });
         throw new ProviderError({
           message: lastFailure.message,
           kind: lastFailure.kind,
           statusCode: lastFailure.statusCode,
           attempts: attempt,
-          retryable: lastFailure.retryable
+          retryable: lastFailure.retryable,
+          detail: lastFailure.detail
         });
       }
 
@@ -315,7 +361,8 @@ export function createResponsesRequestWithRetry(
       kind: lastFailure.kind,
       statusCode: lastFailure.statusCode,
       attempts: maxAttempts,
-      retryable: lastFailure.retryable
+      retryable: lastFailure.retryable,
+      detail: lastFailure.detail
     });
   };
 }

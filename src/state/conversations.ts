@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createConversationId } from "../id.js";
-import type { StashedConversationSummary, StateStore, ToolResultStats } from "../runtime/contracts.js";
+import type { ProviderFailureSummary, StashedConversationSummary, StateStore, ToolResultStats } from "../runtime/contracts.js";
 import {
   createChildTraceContext,
   createTraceRootContext,
@@ -37,6 +37,7 @@ type ConversationRuntimeProfile = {
   latestUsage: ProviderUsageSnapshot | null;
   toolResults: ToolResultStats;
   compactionCount: number;
+  lastProviderFailure: ProviderFailureSummary | null;
 };
 
 type CurrentConversationRecord = {
@@ -113,6 +114,15 @@ async function atomicWriteJson(targetPath: string, payload: unknown): Promise<vo
 
 const THINKING_EFFORT_SET: ReadonlySet<string> = new Set(THINKING_EFFORT_VALUES);
 const CACHE_RETENTION_SET: ReadonlySet<string> = new Set(CACHE_RETENTION_VALUES);
+const PROVIDER_ERROR_KIND_SET: ReadonlySet<string> = new Set([
+  "timeout",
+  "network",
+  "rate_limit",
+  "server_error",
+  "client_error",
+  "invalid_response",
+  "unknown"
+]);
 
 function isThinkingEffort(value: unknown): value is ThinkingEffort {
   return typeof value === "string" && THINKING_EFFORT_SET.has(value);
@@ -120,6 +130,10 @@ function isThinkingEffort(value: unknown): value is ThinkingEffort {
 
 function isCacheRetention(value: unknown): value is CacheRetention {
   return typeof value === "string" && CACHE_RETENTION_SET.has(value);
+}
+
+function isProviderErrorKind(value: unknown): value is ProviderErrorKind {
+  return typeof value === "string" && PROVIDER_ERROR_KIND_SET.has(value);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -207,6 +221,30 @@ function cloneUsageSnapshot(snapshot: ProviderUsageSnapshot): ProviderUsageSnaps
   return { ...snapshot };
 }
 
+function isProviderFailureSummary(value: unknown): value is ProviderFailureSummary {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  return (
+    normalizeNonEmptyString(value.at) !== null &&
+    isProviderErrorKind(value.kind) &&
+    (value.statusCode === null || (typeof value.statusCode === "number" && Number.isInteger(value.statusCode))) &&
+    isNonNegativeInteger(value.attempts) &&
+    normalizeNonEmptyString(value.reason) !== null
+  );
+}
+
+function cloneProviderFailureSummary(value: ProviderFailureSummary): ProviderFailureSummary {
+  return {
+    at: value.at,
+    kind: value.kind,
+    statusCode: value.statusCode,
+    attempts: value.attempts,
+    reason: value.reason
+  };
+}
+
 function createDefaultRuntimeProfile(params: {
   defaultWorkingDirectory: string;
   defaultVerboseMode: boolean;
@@ -222,7 +260,8 @@ function createDefaultRuntimeProfile(params: {
     activeWebSearchModelOverride: null,
     latestUsage: null,
     toolResults: createEmptyToolResultStats(),
-    compactionCount: 0
+    compactionCount: 0,
+    lastProviderFailure: null
   };
 }
 
@@ -236,7 +275,8 @@ function cloneRuntimeProfile(profile: ConversationRuntimeProfile): ConversationR
     activeWebSearchModelOverride: profile.activeWebSearchModelOverride,
     latestUsage: profile.latestUsage ? cloneUsageSnapshot(profile.latestUsage) : null,
     toolResults: cloneToolResultStats(profile.toolResults),
-    compactionCount: profile.compactionCount
+    compactionCount: profile.compactionCount,
+    lastProviderFailure: profile.lastProviderFailure ? cloneProviderFailureSummary(profile.lastProviderFailure) : null
   };
 }
 
@@ -274,7 +314,10 @@ function normalizeRuntimeProfile(
     activeWebSearchModelOverride,
     latestUsage: isUsageSnapshot(value.latestUsage) ? cloneUsageSnapshot(value.latestUsage) : null,
     toolResults: isToolResultStatsRecord(value.toolResults) ? cloneToolResultStats(value.toolResults) : createEmptyToolResultStats(),
-    compactionCount: isNonNegativeInteger(value.compactionCount) ? value.compactionCount : 0
+    compactionCount: isNonNegativeInteger(value.compactionCount) ? value.compactionCount : 0,
+    lastProviderFailure: isProviderFailureSummary(value.lastProviderFailure)
+      ? cloneProviderFailureSummary(value.lastProviderFailure)
+      : null
   };
 }
 
@@ -1066,6 +1109,43 @@ export function createConversationStore(params: ConversationStoreParams): Conver
 
         await saveCurrentConversations(nextCurrent);
         return nextCount;
+      });
+    },
+
+    async getLastProviderFailure(chatId): Promise<ProviderFailureSummary | null> {
+      return enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
+        const summary = ensured.record.runtime.lastProviderFailure;
+        return summary ? cloneProviderFailureSummary(summary) : null;
+      });
+    },
+
+    async setLastProviderFailure(chatId, failure): Promise<void> {
+      await enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
+        const nextSummary = failure ? cloneProviderFailureSummary(failure) : null;
+        const currentSummary = ensured.record.runtime.lastProviderFailure;
+        if (
+          currentSummary?.at === nextSummary?.at &&
+          currentSummary?.kind === nextSummary?.kind &&
+          currentSummary?.statusCode === nextSummary?.statusCode &&
+          currentSummary?.attempts === nextSummary?.attempts &&
+          currentSummary?.reason === nextSummary?.reason
+        ) {
+          return;
+        }
+
+        const nextCurrent = {
+          ...ensured.index,
+          [chatId]: {
+            ...ensured.record,
+            runtime: {
+              ...ensured.record.runtime,
+              lastProviderFailure: nextSummary
+            }
+          }
+        };
+        await saveCurrentConversations(nextCurrent);
       });
     },
 

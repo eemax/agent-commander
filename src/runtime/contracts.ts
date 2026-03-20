@@ -118,6 +118,14 @@ export type ToolResultStats = {
   byTool: Record<string, number>;
 };
 
+export type ProviderFailureSummary = {
+  at: string;
+  kind: ProviderErrorKind;
+  statusCode: number | null;
+  attempts: number;
+  reason: string;
+};
+
 export type StashedConversationSummary = {
   conversationId: string;
   alias: string;
@@ -145,6 +153,8 @@ export type StateStore = {
   recordToolResult(chatId: string, event: { tool: string; success: boolean }): Promise<void>;
   getCompactionCount(chatId: string): Promise<number>;
   incrementCompactionCount(chatId: string): Promise<number>;
+  getLastProviderFailure(chatId: string): Promise<ProviderFailureSummary | null>;
+  setLastProviderFailure(chatId: string, failure: ProviderFailureSummary | null): Promise<void>;
   listStashedConversations(chatId: string): Promise<StashedConversationSummary[]>;
   completeNewSelection(
     chatId: string,

@@ -669,7 +669,8 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath
+      stashedConversationsPath: config.paths.stashedConversationsPath,
+      defaultVerboseMode: false
     });
 
     const router = createMessageRouter({
@@ -1218,8 +1219,128 @@ describe("createMessageRouter", () => {
     const result = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "run" }));
     expect(result.type).toBe("fallback");
     if (result.type === "fallback") {
+      expect(result.text).toBe("Temporary provider error. Please try again.");
       expect(result.extraReplies).toEqual(["⚠️ Read failed: `missing.txt` - File not found"]);
     }
+  });
+
+  it("logs structured provider failure diagnostics and reports them in /status full", async () => {
+    const config = makeConfig({ runtime: { defaultVerbose: false } });
+    const workspace = createWorkspaceManager(config);
+    await workspace.bootstrap();
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    const provider: Provider = {
+      generateReply: vi.fn(async () => {
+        throw new ProviderError({
+          message: "OpenAI HTTP 429 (rate limit) type=rate_limit_error: Try again.",
+          kind: "rate_limit",
+          statusCode: 429,
+          attempts: 3,
+          retryable: false,
+          detail: {
+            reason: "OpenAI HTTP 429 (rate limit) type=rate_limit_error: Try again.",
+            openaiErrorType: "rate_limit_error",
+            openaiErrorCode: null,
+            openaiErrorParam: null,
+            requestId: "req_123",
+            retryAfterMs: 1_000,
+            timedOutBy: null
+          }
+        });
+      })
+    };
+
+    const conversations = createConversationStore({
+      conversationsDir: config.paths.conversationsDir,
+      stashedConversationsPath: config.paths.stashedConversationsPath,
+      defaultVerboseMode: false
+    });
+
+    const router = createMessageRouter({
+      logger,
+      provider,
+      config,
+      conversations,
+      workspace,
+      harness: makeHarnessMock()
+    });
+
+    const fallback = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "run" }));
+    expect(fallback).toEqual({
+      type: "fallback",
+      text: "Provider rate limit reached. Please retry shortly."
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'routing: provider failure chat=chat-1 conversation=conv_'
+      )
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'kind=rate_limit status=429 attempts=3 retryable=false reason="OpenAI HTTP 429 (rate limit) type=rate_limit_error: Try again." openai_type=rate_limit_error openai_code=none openai_param=none request_id=req_123'
+      )
+    );
+
+    const status = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-3", text: "/status full" }));
+    expect(status.type).toBe("reply");
+    if (status.type !== "reply") {
+      return;
+    }
+
+    expect(status.text).toContain("provider.last_failure_kind: rate_limit");
+    expect(status.text).toContain("provider.last_failure_status: 429");
+    expect(status.text).toContain("provider.last_failure_attempts: 3");
+    expect(status.text).toContain("provider.last_failure_reason: OpenAI HTTP 429 (rate limit) type=rate_limit_error: Try again.");
+  });
+
+  it("appends safe provider failure details in verbose mode fallback messages", async () => {
+    const config = makeConfig({ runtime: { defaultVerbose: true } });
+    const workspace = createWorkspaceManager(config);
+    await workspace.bootstrap();
+
+    const provider: Provider = {
+      generateReply: vi.fn(async () => {
+        throw new ProviderError({
+          message: "OpenAI HTTP 400 (client error)",
+          kind: "client_error",
+          statusCode: 400,
+          attempts: 1,
+          retryable: false,
+          detail: {
+            reason: "OpenAI HTTP 400 (client error): unsupported parameter\nreasoning.effort",
+            openaiErrorType: "invalid_request_error",
+            openaiErrorCode: "unsupported_parameter",
+            openaiErrorParam: "reasoning.effort",
+            requestId: "req_456",
+            retryAfterMs: null,
+            timedOutBy: null
+          }
+        });
+      })
+    };
+
+    const router = createMessageRouter({
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      provider,
+      config,
+      conversations: createConversationStore({
+        conversationsDir: config.paths.conversationsDir,
+        stashedConversationsPath: config.paths.stashedConversationsPath
+      }),
+      workspace,
+      harness: makeHarnessMock()
+    });
+
+    const fallback = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-4", text: "run" }));
+    expect(fallback.type).toBe("fallback");
+    if (fallback.type !== "fallback") {
+      return;
+    }
+
+    expect(fallback.text).toBe(
+      "Provider rejected this request configuration.\nDetails: OpenAI HTTP 400 (client error): unsupported parameter reasoning.effort"
+    );
   });
 
   it("records tool result stats even when verbose mode is off and shows them in /status full", async () => {

@@ -188,4 +188,117 @@ describe("createResponsesRequestWithRetry", () => {
       })
     );
   });
+
+  it("captures OpenAI error detail fields for non-2xx JSON responses", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            message: "Unsupported parameter: reasoning.effort",
+            type: "invalid_request_error",
+            code: "unsupported_parameter",
+            param: "reasoning.effort"
+          }
+        }),
+        {
+          status: 400,
+          headers: {
+            "content-type": "application/json",
+            "x-request-id": "req_abc123"
+          }
+        }
+      )
+    );
+
+    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), {
+      fetchImpl: fetchMock as unknown as typeof fetch
+    });
+
+    await expect(request({ model: "gpt-4.1-mini", input: [] }, "chat-http-400")).rejects.toMatchObject({
+      name: "ProviderError",
+      kind: "client_error",
+      statusCode: 400,
+      attempts: 1,
+      detail: {
+        openaiErrorType: "invalid_request_error",
+        openaiErrorCode: "unsupported_parameter",
+        openaiErrorParam: "reasoning.effort",
+        requestId: "req_abc123"
+      }
+    });
+  });
+
+  it("marks local timeout aborts as local_timeout", async () => {
+    const fetchMock = vi.fn((_: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const signal = init?.signal;
+      return new Promise<Response>((_, reject) => {
+        if (!signal) {
+          reject(new Error("missing signal"));
+          return;
+        }
+
+        if (signal.aborted) {
+          reject(new DOMException("aborted", "AbortError"));
+          return;
+        }
+
+        signal.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      });
+    });
+
+    const request = createResponsesRequestWithRetry(
+      makeConfig({
+        openai: {
+          timeoutMs: 5,
+          maxRetries: 0
+        }
+      }),
+      makeLogger(),
+      {
+        fetchImpl: fetchMock as unknown as typeof fetch
+      }
+    );
+
+    await expect(request({ model: "gpt-4.1-mini", input: [] }, "chat-timeout-local")).rejects.toMatchObject({
+      name: "ProviderError",
+      kind: "timeout",
+      detail: {
+        timedOutBy: "local_timeout"
+      }
+    });
+  });
+
+  it("marks upstream aborts as upstream_abort and avoids retries", async () => {
+    const fetchMock = vi.fn((_: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const signal = init?.signal;
+      if (signal?.aborted) {
+        return Promise.reject(new DOMException("aborted", "AbortError"));
+      }
+
+      return Promise.reject(new Error("expected aborted signal"));
+    });
+
+    const abortController = new AbortController();
+    abortController.abort();
+    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 2 } }), makeLogger(), {
+      fetchImpl: fetchMock as unknown as typeof fetch
+    });
+
+    await expect(
+      request({ model: "gpt-4.1-mini", input: [] }, "chat-timeout-upstream", {
+        abortSignal: abortController.signal
+      })
+    ).rejects.toMatchObject({
+      name: "ProviderError",
+      kind: "timeout",
+      attempts: 1,
+      retryable: false,
+      detail: {
+        timedOutBy: "upstream_abort"
+      }
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
 });

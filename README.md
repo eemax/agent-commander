@@ -43,6 +43,7 @@ npm run dev
 | `/bash <cmd>` | Execute shell command in workspace |
 | `/verbose <on\|off>` | Toggle tool-call trace messages |
 | `/thinking <level>` | Set reasoning effort (`none\|minimal\|low\|medium\|high\|xhigh`) |
+| `/cache <in_memory\|24h>` | Set prompt cache retention mode |
 | `/model <id-or-alias>` | Switch active model |
 | `/models` | List configured models |
 | `/<skill_slug>` | One-shot skill invocation |

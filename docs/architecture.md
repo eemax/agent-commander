@@ -73,7 +73,7 @@ Agent Commander is intentionally small:
 
 - JSON object mapping `chatId -> current conversation record`.
 - Each record contains `conversationId`, optional `alias`, and a conversation runtime profile.
-- Runtime profile fields: `workingDirectory`, `verboseMode`, `thinkingEffort`, `cacheRetention`, `activeModelOverride`, `activeWebSearchModelOverride`, `latestUsage`, `toolResults`, `compactionCount`.
+- Runtime profile fields: `workingDirectory`, `verboseMode`, `thinkingEffort`, `cacheRetention`, `activeModelOverride`, `activeWebSearchModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, `lastProviderFailure`.
 - Default filenames are `.agent-commander/stashed-conversations.json` and `.agent-commander/active-conversations.json`.
 - No automatic migration is performed from the previous filename layout.
 
@@ -96,7 +96,7 @@ Conversation events are decoded/encoded through the typed event codec in `src/st
 - Missing/invalid config fails startup.
 - Unknown top-level/section config keys fail startup (strict schema).
 - Invalid skill frontmatter or slug collisions fail startup.
-- Provider failures return deterministic fallback text and persist failure events.
+- Provider failures return safe reason-aware fallback text, persist failure events, and emit structured provider diagnostics to `app.log`.
 - Telegram middleware errors are logged and return safe internal-error reply.
 - Runtime state is JSONL-only; no SQLite cleanup path is part of startup.
 

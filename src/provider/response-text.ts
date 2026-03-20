@@ -37,6 +37,15 @@ export function extractAssistantText(payload: OpenAIResponsesResponse): string {
     message: "Provider returned an empty response",
     kind: "invalid_response",
     attempts: 1,
-    retryable: false
+    retryable: false,
+    detail: {
+      reason: "Provider returned an empty response",
+      openaiErrorType: null,
+      openaiErrorCode: null,
+      openaiErrorParam: null,
+      requestId: null,
+      retryAfterMs: null,
+      timedOutBy: null
+    }
   });
 }

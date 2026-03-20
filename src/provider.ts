@@ -15,6 +15,14 @@ type ProviderRuntimeDeps = ProviderTransportDeps & {
   observability?: ObservabilitySink;
 };
 
+function toSafeReason(reason: string): string {
+  const normalized = reason.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 300) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 297)}...`;
+}
+
 export function createOpenAIProvider(
   config: Config,
   logger: RuntimeLogger,
@@ -171,6 +179,15 @@ export function createOpenAIProvider(
           statusCode: null,
           attempts: 1,
           retryable: false,
+          detail: {
+            reason: toSafeReason(message),
+            openaiErrorType: null,
+            openaiErrorCode: null,
+            openaiErrorParam: null,
+            requestId: null,
+            retryAfterMs: null,
+            timedOutBy: null
+          },
           cause: error
         });
       }

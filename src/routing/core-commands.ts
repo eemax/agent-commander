@@ -342,7 +342,8 @@ export function createCoreCommandHandler(params: {
             webSearchModelOverride,
             latestUsage,
             toolResultStats,
-            compactionCount
+            compactionCount,
+            lastProviderFailure
           ] = await Promise.all([
             conversations.getWorkingDirectory(message.chatId),
             conversations.getVerboseMode(message.chatId),
@@ -352,7 +353,8 @@ export function createCoreCommandHandler(params: {
             conversations.getActiveWebSearchModelOverride(message.chatId),
             conversations.getLatestUsageSnapshot(message.chatId),
             conversations.getToolResultStats(message.chatId),
-            conversations.getCompactionCount(message.chatId)
+            conversations.getCompactionCount(message.chatId),
+            conversations.getLastProviderFailure(message.chatId)
           ]);
           const activeModel = resolveActiveModel({
             models: config.openai.models,
@@ -419,6 +421,7 @@ export function createCoreCommandHandler(params: {
               compactionTokens: activeModel.compactionTokens,
               compactionThreshold: activeModel.compactionThreshold,
               compactionCount,
+              lastProviderFailure,
               includeDiagnostics
             })
           };

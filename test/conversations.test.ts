@@ -250,6 +250,7 @@ describe("conversation store", () => {
     const conversationB = await store.getActiveConversation(chatId);
     expect(conversationB).toBeTruthy();
 
+    await new Promise((resolve) => setTimeout(resolve, 1));
     await store.completeStashSelection(chatId, "beta", { type: "new" }, "manual_stash");
     const stashesBefore = await store.listStashedConversations(chatId);
     expect(stashesBefore.map((item) => item.alias)).toEqual(["beta", "alpha"]);
@@ -354,6 +355,61 @@ describe("conversation store", () => {
     expect(await secondStore.getWorkingDirectory(chatId)).toBe("/tmp/project-alpha");
     expect(await secondStore.getVerboseMode(chatId)).toBe(false);
     expect(await secondStore.getCacheRetention(chatId)).toBe("24h");
+  });
+
+  it("persists last provider failure summary across stash and restart", async () => {
+    const root = createTempDir("acmd-conv-provider-failure-persist-");
+    const conversationsDir = path.join(root, "conversations");
+    const stashedConversationsPath = path.join(root, "stashed.json");
+    const activeConversationsPath = path.join(root, "active.json");
+    const chatId = "chat-1";
+
+    const firstStore = createConversationStore({
+      conversationsDir,
+      stashedConversationsPath,
+      activeConversationsPath
+    });
+
+    const conversationId = await firstStore.ensureActiveConversation(chatId);
+    await firstStore.setLastProviderFailure(chatId, {
+      at: "2026-03-20T08:00:00.000Z",
+      kind: "rate_limit",
+      statusCode: 429,
+      attempts: 2,
+      reason: "OpenAI HTTP 429 (rate limit) type=rate_limit_error: retry later."
+    });
+    expect(await firstStore.getLastProviderFailure(chatId)).toEqual({
+      at: "2026-03-20T08:00:00.000Z",
+      kind: "rate_limit",
+      statusCode: 429,
+      attempts: 2,
+      reason: "OpenAI HTTP 429 (rate limit) type=rate_limit_error: retry later."
+    });
+
+    await firstStore.completeStashSelection(chatId, "ops", { type: "new" }, "manual_stash");
+    expect(await firstStore.getLastProviderFailure(chatId)).toBeNull();
+    await firstStore.completeNewSelection(chatId, { type: "stash", conversationId }, "manual_new");
+    expect(await firstStore.getLastProviderFailure(chatId)).toEqual({
+      at: "2026-03-20T08:00:00.000Z",
+      kind: "rate_limit",
+      statusCode: 429,
+      attempts: 2,
+      reason: "OpenAI HTTP 429 (rate limit) type=rate_limit_error: retry later."
+    });
+
+    const secondStore = createConversationStore({
+      conversationsDir,
+      stashedConversationsPath,
+      activeConversationsPath
+    });
+
+    expect(await secondStore.getLastProviderFailure(chatId)).toEqual({
+      at: "2026-03-20T08:00:00.000Z",
+      kind: "rate_limit",
+      statusCode: 429,
+      attempts: 2,
+      reason: "OpenAI HTTP 429 (rate limit) type=rate_limit_error: retry later."
+    });
   });
 
   it("starts fresh when legacy runtime-settings/index schema is present", async () => {

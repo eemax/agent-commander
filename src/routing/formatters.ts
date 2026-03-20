@@ -431,6 +431,15 @@ function formatSessionIdForUi(sessionId: string): string {
   return `${head}...${tail}`;
 }
 
+function formatProviderFailureReason(reason: string): string {
+  const normalized = reason.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 220) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 217)}...`;
+}
+
 export function buildStatusReply(params: {
   conversationId: string;
   model: string;
@@ -482,6 +491,13 @@ export function buildStatusReply(params: {
   compactionTokens: number | null;
   compactionThreshold: number;
   compactionCount: number;
+  lastProviderFailure?: {
+    at: string;
+    kind: string;
+    statusCode: number | null;
+    attempts: number;
+    reason: string;
+  } | null;
   cacheRetention: CacheRetention;
   includeDiagnostics?: boolean;
   nowMs?: number;
@@ -514,6 +530,13 @@ export function buildStatusReply(params: {
     "",
     `verbose: ${params.verboseEnabled ? "on" : "off"}`,
     `observability: ${params.fullObservabilityEnabled ? "on" : "off"}`,
+    `provider.last_failure_kind: ${params.lastProviderFailure?.kind ?? "none"}`,
+    `provider.last_failure_status: ${params.lastProviderFailure?.statusCode ?? "none"}`,
+    `provider.last_failure_attempts: ${params.lastProviderFailure?.attempts ?? "none"}`,
+    `provider.last_failure_at: ${params.lastProviderFailure?.at ?? "none"}`,
+    `provider.last_failure_reason: ${
+      params.lastProviderFailure ? formatProviderFailureReason(params.lastProviderFailure.reason) : "none"
+    }`,
     `conversation: ${formatConversationIdForUi(params.conversationId)}`,
     `skills: ${params.skillsCount}`,
     `tool.success_count: ${params.toolRuntime.toolSuccessCount}`,

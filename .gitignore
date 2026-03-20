@@ -13,6 +13,8 @@ agents.json
 
 # Local runtime state
 .agent-commander/
+.claude/
+.worktrees/
 
 # OS artifacts
 .DS_Store

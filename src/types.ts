@@ -140,8 +140,6 @@ export type ProviderUsageSnapshot = {
 export type ProviderErrorKind =
   | "timeout"
   | "network"
-  | "http_408"
-  | "http_409"
   | "rate_limit"
   | "server_error"
   | "client_error"

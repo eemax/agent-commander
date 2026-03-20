@@ -18,6 +18,7 @@ Current stability, known constraints, and recommended next steps.
 - Workspace bootstrap + skill frontmatter validation
 - JSONL conversation/session rotation via `/new`
 - Inbound normalize → route → provider → outbound flow
+- Per-model prompt cache retention defaults + runtime `/cache` switching
 - Local unit/integration test suites for core runtime modules
 - JSONL-only state path (SQLite startup cleanup removed)
 

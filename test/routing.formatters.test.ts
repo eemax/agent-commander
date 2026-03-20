@@ -50,7 +50,8 @@ const baseParams = {
   cacheRetention: "in_memory" as const,
   compactionTokens: null,
   compactionThreshold: 1,
-  compactionCount: 0
+  compactionCount: 0,
+  lastProviderFailure: null
 };
 
 describe("buildStatusReply", () => {
@@ -175,6 +176,11 @@ describe("buildStatusReply", () => {
     expect(text).toContain("conversation: conv...nv_1");
     expect(text).toContain("verbose: off");
     expect(text).toContain("observability: off");
+    expect(text).toContain("provider.last_failure_kind: none");
+    expect(text).toContain("provider.last_failure_status: none");
+    expect(text).toContain("provider.last_failure_attempts: none");
+    expect(text).toContain("provider.last_failure_at: none");
+    expect(text).toContain("provider.last_failure_reason: none");
     expect(text).toContain("state.cache: 1/200");
     expect(text).toContain("workspace.refresh: 1");
     expect(text).toContain("process.truncated_combined_chars: 0");
@@ -208,6 +214,27 @@ describe("buildStatusReply", () => {
     expect(text).toContain("completed processes: 2");
     expect(text).toContain("running processes: 1");
     expect(text).toContain("- proc...AVN5 ls -la ~");
+  });
+
+  it("includes last provider failure summary in diagnostics", () => {
+    const text = buildStatusReply({
+      ...baseParams,
+      includeDiagnostics: true,
+      latestUsage: null,
+      lastProviderFailure: {
+        at: "2026-03-20T07:00:00.000Z",
+        kind: "rate_limit",
+        statusCode: 429,
+        attempts: 3,
+        reason: "OpenAI HTTP 429 (rate limit) type=rate_limit_error: Try again in 1s."
+      }
+    });
+
+    expect(text).toContain("provider.last_failure_kind: rate_limit");
+    expect(text).toContain("provider.last_failure_status: 429");
+    expect(text).toContain("provider.last_failure_attempts: 3");
+    expect(text).toContain("provider.last_failure_at: 2026-03-20T07:00:00.000Z");
+    expect(text).toContain("provider.last_failure_reason: OpenAI HTTP 429 (rate limit) type=rate_limit_error: Try again in 1s.");
   });
 
   it("formats tool result stats with normalized names and sorted counts", () => {

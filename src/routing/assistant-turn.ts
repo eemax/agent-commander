@@ -10,6 +10,7 @@ import { createChildTraceContext, type TraceContext } from "../observability.js"
 import type { RuntimeLogger, StateStore, WorkspaceCatalog, Config } from "../runtime/contracts.js";
 import { ProviderError } from "../provider-error.js";
 import { formatSteerNotice, formatVerboseToolCallNotice } from "./formatters.js";
+import { buildProviderFallbackText } from "./provider-fallback.js";
 import type { SteerChannel } from "../steer-channel.js";
 import type { MessageRouteResult, NormalizedTelegramMessage, Provider, SkillDefinition } from "../types.js";
 
@@ -24,6 +25,33 @@ export type AssistantTurnHandlerInput = {
   onTextDelta?: (delta: string) => void | Promise<void>;
   onToolCallNotice?: (notice: string) => void | Promise<void>;
 };
+
+function sanitizeLogToken(value: string | null | undefined): string {
+  if (!value) {
+    return "none";
+  }
+
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 0 ? normalized : "none";
+}
+
+function quoteLogReason(reason: string | null | undefined): string {
+  if (!reason) {
+    return "none";
+  }
+
+  const normalized = reason.replace(/\s+/g, " ").trim();
+  if (normalized.length === 0) {
+    return "none";
+  }
+
+  const escaped = normalized.replace(/"/g, "\\\"");
+  if (escaped.length <= 300) {
+    return escaped;
+  }
+
+  return `${escaped.slice(0, 297)}...`;
+}
 
 export function createAssistantTurnHandler(params: {
   logger: RuntimeLogger;
@@ -188,12 +216,27 @@ export function createAssistantTurnHandler(params: {
         trace: createChildTraceContext(input.trace, "state")
       });
 
+      await conversations.setLastProviderFailure(input.message.chatId, {
+        at: new Date().toISOString(),
+        kind: error.kind,
+        statusCode: error.statusCode,
+        attempts: error.attempts,
+        reason: error.detail?.reason ?? error.message
+      });
+
+      const detail = error.detail;
+      const reason = quoteLogReason(detail?.reason ?? error.message);
+
       logger.warn(
-        `routing: provider failure chat=${input.message.chatId} conversation=${conversationId} message=${input.message.messageId} kind=${error.kind} status=${error.statusCode ?? "none"} attempts=${error.attempts}`
+        `routing: provider failure chat=${input.message.chatId} conversation=${conversationId} message=${input.message.messageId} kind=${error.kind} status=${error.statusCode ?? "none"} attempts=${error.attempts} retryable=${error.retryable} reason="${reason}" openai_type=${sanitizeLogToken(detail?.openaiErrorType)} openai_code=${sanitizeLogToken(detail?.openaiErrorCode)} openai_param=${sanitizeLogToken(detail?.openaiErrorParam)} request_id=${sanitizeLogToken(detail?.requestId)}`
       );
       return {
         type: "fallback",
-        text: "I hit a temporary provider error. Please try again in a moment.",
+        text: buildProviderFallbackText({
+          kind: error.kind,
+          detail: error.detail,
+          includeDetail: verboseEnabled
+        }),
         ...(verboseReplies.length > 0 ? { extraReplies: [...verboseReplies] } : {})
       };
     }
