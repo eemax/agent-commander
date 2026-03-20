@@ -6,20 +6,16 @@ import { resolveActiveModel, resolveModelReference } from "../model-catalog.js";
 import { resolveActiveWebSearchModel, resolveWebSearchModelReference } from "../web-search-catalog.js";
 import type { StateStore, WorkspaceCatalog, Config, StashedConversationSummary } from "../runtime/contracts.js";
 import {
-  CACHE_RETENTION_VALUES,
-  THINKING_EFFORT_VALUES,
   type MessageRouteResult,
-  type CacheRetention,
   type NormalizedTelegramCallbackQuery,
   type NormalizedTelegramMessage,
   type TelegramInlineButton,
   type TelegramInlineKeyboard
 } from "../types.js";
+import { isThinkingEffort, isCacheRetention } from "../utils.js";
 import { formatConversationIdForUi, formatConversationIdTail } from "./conversation-id.js";
 import { buildStatusReply, formatBashReply, formatCompactNumber } from "./formatters.js";
 
-const THINKING_EFFORT_SET: ReadonlySet<string> = new Set(THINKING_EFFORT_VALUES);
-const CACHE_RETENTION_SET: ReadonlySet<string> = new Set(CACHE_RETENTION_VALUES);
 const MENU_PAGE_SIZE = 6;
 const CALLBACK_PREFIX = "convmenu";
 
@@ -47,14 +43,6 @@ export type CoreCommandHandler = {
     trace?: TraceContext
   ) => Promise<MessageRouteResult | null>;
 };
-
-function isThinkingEffort(value: string): value is (typeof THINKING_EFFORT_VALUES)[number] {
-  return THINKING_EFFORT_SET.has(value);
-}
-
-function isCacheRetention(value: string): value is CacheRetention {
-  return CACHE_RETENTION_SET.has(value);
-}
 
 function pluralize(value: number, singular: string): string {
   return value === 1 ? singular : `${singular}s`;

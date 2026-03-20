@@ -1,5 +1,7 @@
 import { ProviderError, type ProviderFailureDetail } from "../provider-error.js";
 import type { ProviderErrorKind } from "../types.js";
+import { normalizeNonEmptyString } from "../utils.js";
+import { sanitizeReason } from "./sanitize.js";
 
 export type RetryDecision = {
   retryable: boolean;
@@ -10,8 +12,6 @@ export type RetryDecision = {
   detail: ProviderFailureDetail | null;
 };
 
-const REASON_MAX_CHARS = 300;
-
 type ParsedOpenAIError = {
   message: string | null;
   type: string | null;
@@ -19,39 +19,12 @@ type ParsedOpenAIError = {
   param: string | null;
 };
 
-function normalizeNonEmptyString(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function coerceString(value: unknown): string | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return String(value);
   }
 
   return normalizeNonEmptyString(value);
-}
-
-function sanitizeReason(raw: string): string {
-  const normalized = raw
-    .replace(/\s+/g, " ")
-    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
-    .replace(/\bsk-[A-Za-z0-9_-]+\b/g, "sk-[REDACTED]")
-    .trim();
-
-  if (normalized.length === 0) {
-    return "Provider request failed";
-  }
-
-  if (normalized.length <= REASON_MAX_CHARS) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, REASON_MAX_CHARS - 3)}...`;
 }
 
 function parseRetryAfterMs(header: string | null, nowMs: number): number | null {

@@ -9,14 +9,13 @@ import {
   type TraceContext
 } from "../observability.js";
 import {
-  CACHE_RETENTION_VALUES,
-  THINKING_EFFORT_VALUES,
   type PromptMessage,
   type ProviderErrorKind,
   type ProviderUsageSnapshot,
   type ThinkingEffort,
   type CacheRetention
 } from "../types.js";
+import { isPlainObject, normalizeNonEmptyString, isThinkingEffort, isCacheRetention } from "../utils.js";
 import {
   type ConversationArchiveEvent,
   type ConversationCreatedEvent,
@@ -112,8 +111,6 @@ async function atomicWriteJson(targetPath: string, payload: unknown): Promise<vo
   await fs.rename(tmpPath, targetPath);
 }
 
-const THINKING_EFFORT_SET: ReadonlySet<string> = new Set(THINKING_EFFORT_VALUES);
-const CACHE_RETENTION_SET: ReadonlySet<string> = new Set(CACHE_RETENTION_VALUES);
 const PROVIDER_ERROR_KIND_SET: ReadonlySet<string> = new Set([
   "timeout",
   "network",
@@ -124,29 +121,8 @@ const PROVIDER_ERROR_KIND_SET: ReadonlySet<string> = new Set([
   "unknown"
 ]);
 
-function isThinkingEffort(value: unknown): value is ThinkingEffort {
-  return typeof value === "string" && THINKING_EFFORT_SET.has(value);
-}
-
-function isCacheRetention(value: unknown): value is CacheRetention {
-  return typeof value === "string" && CACHE_RETENTION_SET.has(value);
-}
-
 function isProviderErrorKind(value: unknown): value is ProviderErrorKind {
   return typeof value === "string" && PROVIDER_ERROR_KIND_SET.has(value);
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function normalizeNonEmptyString(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }
 
 function isUsageNumber(value: unknown): value is number | null {
@@ -632,10 +608,22 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       if (trimmed.length === 0) {
         continue;
       }
-      const event = parseConversationEvent(trimmed, target);
-      events.push(event);
-      if (event.type === "message") {
-        promptMessages.push(toPromptMessage(event));
+      try {
+        const event = parseConversationEvent(trimmed, target);
+        events.push(event);
+        if (event.type === "message") {
+          promptMessages.push(toPromptMessage(event));
+        }
+      } catch {
+        // Skip malformed JSONL lines (e.g. from a crash mid-write)
+        void params.observability?.record({
+          event: "state.conversation.malformed_line",
+          trace: createTraceRootContext("state"),
+          stage: "warning",
+          chatId,
+          conversationId,
+          path: target
+        });
       }
     }
 

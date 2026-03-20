@@ -10,6 +10,7 @@ import {
   formatZodError,
   type ParsedConfig
 } from "./config.js";
+import { isPlainObject } from "./utils.js";
 
 export type AgentDefinition = {
   id: string;
@@ -110,23 +111,25 @@ function validateAgentManifest(agents: AgentDefinition[], repoRoot: string): voi
   }
 }
 
-export function deepMerge(base: unknown, overlay: unknown): unknown {
+const DEEP_MERGE_MAX_DEPTH = 20;
+
+export function deepMerge(base: unknown, overlay: unknown, depth: number = 0): unknown {
   if (overlay === undefined) return base;
   if (overlay === null) return null;
+
+  if (depth >= DEEP_MERGE_MAX_DEPTH) {
+    throw new Error(`deepMerge exceeded max depth (${DEEP_MERGE_MAX_DEPTH})`);
+  }
 
   if (isPlainObject(base) && isPlainObject(overlay)) {
     const result: Record<string, unknown> = { ...(base as Record<string, unknown>) };
     for (const [key, value] of Object.entries(overlay as Record<string, unknown>)) {
-      result[key] = deepMerge(result[key], value);
+      result[key] = deepMerge(result[key], value, depth + 1);
     }
     return result;
   }
 
   return overlay;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 const DEFAULT_PATH_SEGMENTS = {

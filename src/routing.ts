@@ -13,8 +13,7 @@ import type {
 import { createAssistantTurnHandler } from "./routing/assistant-turn.js";
 import { createCoreCommandHandler } from "./routing/core-commands.js";
 import { runMessageGatekeeping } from "./routing/gatekeeping.js";
-import { createSteerChannel, type SteerChannel } from "./steer-channel.js";
-import { createMessageQueue, type MessageQueue } from "./message-queue.js";
+import { TurnManager } from "./routing/turn-manager.js";
 
 export type MessageRouter = {
   handleIncomingMessage(
@@ -37,43 +36,7 @@ export function createMessageRouter(params: {
 }): MessageRouter {
   const { logger, provider, config, conversations, workspace, harness, observability, onCommandCatalogChanged } =
     params;
-  const activeTurns = new Map<string, { token: string; controller: AbortController; messageId: string; steerChannel: SteerChannel }>();
-  const latestTurnTokenByChat = new Map<string, string>();
-  const pendingMessages = new Map<string, MessageQueue>();
-
-  const beginTurn = (chatId: string, messageId: string): { token: string; controller: AbortController; steerChannel: SteerChannel; interruptedPrevious: boolean } => {
-    const previous = activeTurns.get(chatId);
-    let interruptedPrevious = false;
-    if (previous) {
-      interruptedPrevious = true;
-      previous.controller.abort();
-    }
-
-    const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const controller = new AbortController();
-    const steerChannel = createSteerChannel();
-    latestTurnTokenByChat.set(chatId, token);
-    activeTurns.set(chatId, {
-      token,
-      controller,
-      messageId,
-      steerChannel
-    });
-
-    return {
-      token,
-      controller,
-      steerChannel,
-      interruptedPrevious
-    };
-  };
-
-  const releaseTurn = (chatId: string, token: string): void => {
-    const current = activeTurns.get(chatId);
-    if (current?.token === token) {
-      activeTurns.delete(chatId);
-    }
-  };
+  const turns = new TurnManager();
 
   const runSingleTurn = async (
     message: NormalizedTelegramMessage,
@@ -82,7 +45,7 @@ export function createMessageRouter(params: {
     trace: TraceContext,
     stream?: MessageStreamingSink
   ): Promise<MessageRouteResult> => {
-    const turn = beginTurn(message.chatId, message.messageId);
+    const turn = turns.beginTurn(message.chatId, message.messageId);
     if (turn.interruptedPrevious) {
       await observability?.record({
         event: "routing.turn.interrupted",
@@ -108,10 +71,10 @@ export function createMessageRouter(params: {
         onToolCallNotice: stream?.onToolCallNotice
       });
     } finally {
-      releaseTurn(message.chatId, turn.token);
+      turns.releaseTurn(message.chatId, turn.token);
     }
 
-    if (latestTurnTokenByChat.get(message.chatId) !== turn.token) {
+    if (!turns.isLatestTurn(message.chatId, turn.token)) {
       return { type: "ignore" };
     }
 
@@ -130,15 +93,15 @@ export function createMessageRouter(params: {
   };
 
   const processQueue = async (chatId: string): Promise<void> => {
-    const queue = pendingMessages.get(chatId);
+    const queue = turns.getQueue(chatId);
     if (!queue || queue.length === 0) {
-      pendingMessages.delete(chatId);
+      turns.deleteQueue(chatId);
       return;
     }
 
     if (config.runtime.messageQueueMode === "batch") {
       const entries = queue.drain();
-      pendingMessages.delete(chatId);
+      turns.deleteQueue(chatId);
       const combinedText = entries.map((e) => e.message.text).join("\n\n");
       const last = entries[entries.length - 1]!;
 
@@ -146,14 +109,13 @@ export function createMessageRouter(params: {
     } else {
       const entry = queue.drainOne();
       if (queue.length === 0) {
-        pendingMessages.delete(chatId);
+        turns.deleteQueue(chatId);
       }
       if (!entry) {
         return;
       }
 
       await runSingleTurn(entry.message, entry.message.text, null, entry.trace, entry.stream);
-      // Recurse: after this turn completes, process next queued message
       await processQueue(chatId);
     }
   };
@@ -166,7 +128,6 @@ export function createMessageRouter(params: {
     stream?: MessageStreamingSink
   ): Promise<MessageRouteResult> => {
     const result = await runSingleTurn(message, userContent, oneShotSkill, trace, stream);
-    // After this turn completes, drain any messages that were queued during it
     void processQueue(message.chatId).catch((error) => {
       const msg = error instanceof Error ? error.message : String(error);
       logger.error(`routing: failed to process queued messages for chat=${message.chatId}: ${msg}`);
@@ -225,10 +186,9 @@ export function createMessageRouter(params: {
 
       const parsedCommand = parseTelegramCommand(message.text);
       if (!parsedCommand) {
-        const activeTurn = activeTurns.get(message.chatId);
+        const activeTurn = turns.getActiveTurn(message.chatId);
         if (activeTurn) {
-          const queue = pendingMessages.get(message.chatId) ?? createMessageQueue();
-          pendingMessages.set(message.chatId, queue);
+          const queue = turns.getOrCreateQueue(message.chatId);
           const count = queue.push({ message, stream, trace: routingTrace });
 
           await observability?.record({
@@ -247,7 +207,7 @@ export function createMessageRouter(params: {
       }
 
       if (parsedCommand.command === "steer") {
-        const activeTurn = activeTurns.get(message.chatId);
+        const activeTurn = turns.getActiveTurn(message.chatId);
         if (!activeTurn) {
           return { type: "reply", text: "No active turn to steer." };
         }
@@ -275,9 +235,7 @@ export function createMessageRouter(params: {
       }
 
       if (parsedCommand.command === "stop") {
-        const activeTurn = activeTurns.get(message.chatId);
-        if (activeTurn) {
-          activeTurn.controller.abort();
+        if (turns.abortActiveTurn(message.chatId)) {
           await observability?.record({
             event: "routing.turn.interrupted",
             trace: routingTrace,
@@ -287,7 +245,7 @@ export function createMessageRouter(params: {
             interruptedByMessageId: message.messageId
           });
         }
-        pendingMessages.delete(message.chatId);
+        turns.deleteQueue(message.chatId);
       }
 
       const coreHandled = await coreCommands.handleCommand(
@@ -367,9 +325,7 @@ export function createMessageRouter(params: {
         return gatekeepingResult;
       }
 
-      const activeBeforeCommand = activeTurns.get(query.chatId);
-      if (activeBeforeCommand) {
-        activeBeforeCommand.controller.abort();
+      if (turns.abortActiveTurn(query.chatId)) {
         await observability?.record({
           event: "routing.turn.interrupted",
           trace: routingTrace,

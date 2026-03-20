@@ -48,6 +48,26 @@ describe("deepMerge", () => {
     const overlay = { b: 2 };
     expect(deepMerge(base, overlay)).toEqual({ a: 1, b: 2 });
   });
+
+  it("throws when depth exceeds limit", () => {
+    let base: Record<string, unknown> = { leaf: 1 };
+    let overlay: Record<string, unknown> = { leaf: 2 };
+    for (let i = 0; i < 25; i++) {
+      base = { child: base };
+      overlay = { child: overlay };
+    }
+    expect(() => deepMerge(base, overlay)).toThrow("deepMerge exceeded max depth");
+  });
+
+  it("allows merges within depth limit", () => {
+    let base: Record<string, unknown> = { leaf: 1 };
+    let overlay: Record<string, unknown> = { leaf: 2 };
+    for (let i = 0; i < 10; i++) {
+      base = { child: base };
+      overlay = { child: overlay };
+    }
+    expect(() => deepMerge(base, overlay)).not.toThrow();
+  });
 });
 
 describe("loadAgentsManifest", () => {

@@ -12,6 +12,8 @@ Agent Commander is intentionally small:
 
 ## Runtime Components
 
+### Boot
+
 - `src/index.ts`
   Entrypoint delegating to runtime bootstrap.
 - `src/runtime/bootstrap.ts`
@@ -20,27 +22,66 @@ Agent Commander is intentionally small:
   Core runtime interfaces (`Config`, `StateStore`, `WorkspaceCatalog`, `RuntimeLogger`, provider transport contracts).
 - `src/config.ts`
   Loads strict nested `config.json` via Zod, writes template on missing config, and normalizes path fields.
-- `src/workspace.ts`
-  Bootstraps `paths.workspace_root` (`AGENTS.md`, `SOUL.md`, and default skill), validates skill frontmatter, builds command catalog, and uses manifest hash + mtime checks to skip no-change refresh rebuilds.
+
+### Shared
+
+- `src/types.ts`
+  Core TypeScript types: prompt roles, thinking effort levels, cache retention, and Telegram message/callback structures.
+- `src/utils.ts`
+  Shared utility functions (`isPlainObject`, `asRecord`, `normalizeNonEmptyString`, type guards for `ThinkingEffort`/`CacheRetention`).
+- `src/catalog-utils.ts`
+  Generic `createCatalogResolver<T>()` factory for ID/alias-based catalog lookup, used by model and web-search catalogs.
+- `src/agents.ts`
+  Multi-agent manifest loading, per-agent config merging (`deepMerge`), and bot-token uniqueness validation.
+- `src/model-catalog.ts`
+  OpenAI model catalog entries and resolver (thin wrapper over `catalog-utils`).
+- `src/web-search-catalog.ts`
+  Web search preset catalog entries and resolver (thin wrapper over `catalog-utils`).
+
+### State
+
 - `src/state/conversations.ts`
   JSONL persistence + current conversation index + stashed active conversations + conversation-scoped runtime profiles + per-conversation append queues + bounded deterministic session cache eviction.
 - `src/state/events.ts`
   Typed conversation-event codec for JSONL parse/serialize.
 - `src/context.ts`
   Compiles first-turn bootstrap instructions and writes per-conversation context snapshots.
+- `src/workspace.ts`
+  Bootstraps `paths.workspace_root` (`AGENTS.md`, `SOUL.md`, and default skill), validates skill frontmatter, builds command catalog, and uses manifest hash + mtime checks to skip no-change refresh rebuilds.
+
+### Provider
+
 - `src/provider.ts`
   OpenAI provider wiring and tool-loop integration.
+- `src/provider/sanitize.ts`
+  Shared `sanitizeReason()` for whitespace normalization, Bearer/API-key redaction, and length truncation of provider failure reasons.
 - `src/provider/*`
   Provider internals split into history normalization, response text extraction, retry policy, SSE parser, canonical OpenAI type models, and HTTP transport.
+
+### Agent
+
 - `src/agent/tool-loop.ts`
   Provider-agnostic loop that executes function tool calls and sends native `function_call_output` payloads (`output` is a normalized JSON envelope with `ok`/`summary` and `data|error|meta`), with explicit workflow state transitions, heartbeat progress events, timeout budgets, poll-loop guards, failure breakers, and fail-path cleanup.
+- `src/agent/model-tool-output.ts`
+  Per-tool result normalization into a standard envelope. Organized by section: bash, process (dispatch map), file, patch, web.
+
+### Harness
+
 - `src/harness/*`
   Local trusted tool harness (`bash`, `process`, `read_file`, `write_file`, `replace_in_file`, `apply_patch`, `web_fetch`, optional `web_search`) with owner-scoped process sessions and shared path utilities. See [tools.md](tools.md) for the full tool reference.
   Exported tool schemas are normalized for OpenAI Responses function tools (`parameters` is always a JSON Schema object root with `type: "object"` and no top-level `anyOf`/`oneOf`/`allOf`/`enum`/`not`).
+
+### Routing
+
 - `src/routing.ts`
-  Router entrypoint wiring, including per-chat turn interruption (new message aborts stale in-flight turn).
+  Router entrypoint wiring, delegating turn lifecycle to `TurnManager`.
+- `src/routing/turn-manager.ts`
+  Per-chat turn lifecycle: begin/release/abort turns, latest-turn tracking, and per-chat message queues.
 - `src/routing/*`
   Routing internals split into gatekeeping, core-command handling, assistant-turn orchestration, and reply formatters.
+
+### Telegram
+
 - `src/telegram/commands.ts`
   Typed command registry + parsing (`/start`, `/new`, `/stash`, `/status` with optional `full` flag, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`, dynamic skill commands).
 - `src/telegram/bot.ts`
@@ -84,7 +125,7 @@ Agent Commander is intentionally small:
 - `provider_failure`
 - `conversation_archived`
 
-Conversation events are decoded/encoded through the typed event codec in `src/state/events.ts`.
+Conversation events are decoded/encoded through the typed event codec in `src/state/events.ts`. Malformed JSONL lines (e.g. from a crash mid-write) are skipped with a warning rather than failing the entire load.
 
 ### Context snapshots (`context_snapshots_dir/<chatId>/<conversationId>.md`)
 

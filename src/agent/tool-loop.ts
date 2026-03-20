@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { normalizeToolFailureOutput, normalizeToolSuccessOutput } from "./model-tool-output.js";
 import type { ToolHarness } from "../harness/index.js";
+import { asRecord, normalizeNonEmptyString } from "../utils.js";
 import { stableStringify } from "../harness/arg-normalizer.js";
 import { createToolErrorPayload, ToolExecutionError, toToolErrorPayload } from "../harness/errors.js";
 import { createChildTraceContext, type TraceContext } from "../observability.js";
@@ -40,17 +41,6 @@ export class ToolWorkflowAbortError extends Error {
     this.name = "ToolWorkflowAbortError";
     this.payload = payload;
   }
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return {};
-  }
-  return value as Record<string, unknown>;
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function extractFunctionCalls(
@@ -116,7 +106,7 @@ function extractProcessPollFingerprint(tool: string, args: unknown, result: unkn
     return null;
   }
 
-  const action = readString(asRecord(args).action)?.toLowerCase();
+  const action = normalizeNonEmptyString(asRecord(args).action)?.toLowerCase();
   if (action !== "poll" && action !== "log") {
     return null;
   }
@@ -137,13 +127,11 @@ function extractProcessPollFingerprint(tool: string, args: unknown, result: unkn
 }
 
 function extractProcessSessionId(args: unknown): string | null {
-  const sessionId = asRecord(args).sessionId;
-  return typeof sessionId === "string" && sessionId.length > 0 ? sessionId : null;
+  return normalizeNonEmptyString(asRecord(args).sessionId);
 }
 
 function buildFunctionCallOutput(result: unknown): string {
-  const serialized = JSON.stringify(result);
-  return serialized ?? "null";
+  return JSON.stringify(result);
 }
 
 async function withTimeout<T>(
@@ -409,7 +397,7 @@ export async function runOpenAIToolLoop(params: {
           }
 
           if (call.name === "process") {
-            const action = readString(asRecord(call.args).action)?.toLowerCase();
+            const action = normalizeNonEmptyString(asRecord(call.args).action)?.toLowerCase();
             const sessionId = extractProcessSessionId(call.args);
             const fingerprint = extractProcessPollFingerprint(call.name, call.args, result);
             if (action && sessionId && (action === "poll" || action === "log")) {

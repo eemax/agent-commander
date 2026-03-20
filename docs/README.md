@@ -21,5 +21,4 @@
 
 | Document | What it covers |
 |----------|---------------|
-| [changelog.md](changelog.md) | Release history and architectural decision log (ADLs) |
-| [status.md](status.md) | Current stability, known constraints, recommended next tasks |
+| [changelog.md](changelog.md) | Project status, release history, and architectural decision log |

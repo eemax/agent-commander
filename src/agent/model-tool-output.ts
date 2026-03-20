@@ -1,4 +1,7 @@
 import type { ToolErrorCode, ToolErrorPayload } from "../types.js";
+import { asRecord } from "../utils.js";
+
+// ── Types ──────────────────────────────────────────────────────────────
 
 type ModelToolSuccessEnvelope = {
   ok: true;
@@ -30,12 +33,7 @@ export type NormalizedToolEnvelopeResult = {
   };
 };
 
-function asRecord(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return {};
-  }
-  return value as Record<string, unknown>;
-}
+// ── Field extraction helpers ───────────────────────────────────────────
 
 function readString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
@@ -96,6 +94,8 @@ function addTruncationMeta(record: Record<string, unknown>, meta: Record<string,
     meta.combined_chars_omitted = combinedTruncated;
   }
 }
+
+// ── Bash tool normalization ─────────────────────────────────────────────
 
 function normalizeBashResult(args: unknown, result: unknown): NormalizedToolEnvelopeResult {
   const record = asRecord(result);
@@ -214,6 +214,8 @@ function normalizeBashResult(args: unknown, result: unknown): NormalizedToolEnve
     }
   };
 }
+
+// ── Process tool normalization ──────────────────────────────────────────
 
 function normalizeProcessListResult(result: unknown): ModelToolEnvelope {
   const record = asRecord(result);
@@ -344,31 +346,29 @@ function normalizeProcessRemoveResult(result: unknown): ModelToolEnvelope {
   };
 }
 
+const PROCESS_ACTION_NORMALIZERS: Record<string, (result: unknown) => ModelToolEnvelope> = {
+  list: normalizeProcessListResult,
+  poll: normalizeProcessPollResult,
+  log: normalizeProcessLogResult,
+  write: normalizeProcessWriteResult,
+  kill: normalizeProcessKillResult,
+  clear: normalizeProcessClearResult,
+  remove: normalizeProcessRemoveResult
+};
+
 function normalizeProcessResult(args: unknown, result: unknown): NormalizedToolEnvelopeResult {
   const action = readNonEmptyString(asRecord(args).action);
 
-  const envelope =
-    action === "list"
-      ? normalizeProcessListResult(result)
-      : action === "poll"
-        ? normalizeProcessPollResult(result)
-        : action === "log"
-          ? normalizeProcessLogResult(result)
-          : action === "write"
-            ? normalizeProcessWriteResult(result)
-            : action === "kill"
-              ? normalizeProcessKillResult(result)
-              : action === "clear"
-                ? normalizeProcessClearResult(result)
-                : action === "remove"
-                  ? normalizeProcessRemoveResult(result)
-                  : {
-                    ok: true as const,
-                    summary: "Process action completed.",
-                    data: {
-                      result: asRecord(result)
-                    }
-                  };
+  const normalizer = action ? PROCESS_ACTION_NORMALIZERS[action] : undefined;
+  const envelope = normalizer
+    ? normalizer(result)
+    : {
+        ok: true as const,
+        summary: "Process action completed.",
+        data: {
+          result: asRecord(result)
+        }
+      };
 
   return {
     envelope,
@@ -379,6 +379,8 @@ function normalizeProcessResult(args: unknown, result: unknown): NormalizedToolE
     }
   };
 }
+
+// ── File tool normalization ─────────────────────────────────────────────
 
 function normalizeReadFileResult(result: unknown): NormalizedToolEnvelopeResult {
   const record = asRecord(result);
@@ -475,6 +477,8 @@ function normalizeReplaceInFileResult(result: unknown): NormalizedToolEnvelopeRe
   };
 }
 
+// ── Patch tool normalization ────────────────────────────────────────────
+
 function normalizeApplyPatchResult(result: unknown): NormalizedToolEnvelopeResult {
   const record = asRecord(result);
   const data: Record<string, unknown> = {};
@@ -503,6 +507,8 @@ function normalizeApplyPatchResult(result: unknown): NormalizedToolEnvelopeResul
     }
   };
 }
+
+// ── Web tool normalization ──────────────────────────────────────────────
 
 function normalizeWebSearchResult(result: unknown): NormalizedToolEnvelopeResult {
   const record = asRecord(result);
@@ -564,6 +570,8 @@ function normalizeWebFetchResult(result: unknown): NormalizedToolEnvelopeResult 
     }
   };
 }
+
+// ── Public API ─────────────────────────────────────────────────────────
 
 export function normalizeToolSuccessOutput(params: {
   tool: string;

@@ -1,11 +1,74 @@
-# Changelog
+# Changelog & Status
 
-Release history and architectural decision log for Agent Commander.
+Release history, project status, and architectural decision log for Agent Commander.
+
+## Current State
+
+- **Fork state:** hard-forked from platform architecture into minimal runtime
+- **Channel:** Telegram only
+- **Provider:** OpenAI only
+- **Persistence:** JSONL conversations + active-conversation index
+- **Entry point:** `src/index.ts`
+- **Latest checkpoint:** second-pass engineering review (shared utilities, generic catalog resolver, TurnManager extraction, JSONL corruption resilience, deepMerge depth guard, dead code removal)
+- **Observability:** available via `observability.enabled`
+
+### What is stable
+
+- Startup validation path
+- Workspace bootstrap + skill frontmatter validation
+- JSONL conversation/session rotation via `/new`
+- Inbound normalize → route → provider → outbound flow
+- Per-model prompt cache retention defaults + runtime `/cache` switching
+- Local unit/integration test suites for core runtime modules
+- JSONL-only state path (SQLite startup cleanup removed)
+- Shared utility and catalog resolver patterns
+- Per-chat turn management (TurnManager class)
+- JSONL corruption resilience (malformed line skip + observability warning)
+
+### Known constraints
+
+- No webhook mode (polling only)
+- No circuit-breaker or provider failover
+- No daemonization/restart supervisor
+- No feature flag system
+- Conversation cache assumes single-process, single-writer semantics
+
+### Runbook
+
+```bash
+npm install                          # 1. install deps
+npm run dev                          # 2. first run creates config.json template
+# create .env with DEFAULT_TELEGRAM_BOT_TOKEN and DEFAULT_OPENAI_API_KEY
+# edit agents.json: set telegram_allowlist
+npm run dev                          # 3. start runtime
+# verify with a Telegram message to the bot
+```
+
+### Verification
+
+```bash
+npm run lint
+npm run typecheck
+npm run build
+npm test
+```
+
+All four pass at latest checkpoint.
+
+---
 
 ## Releases
 
 ### Unreleased
 
+- Extracted shared `sanitizeReason()` to `src/provider/sanitize.ts`, eliminating duplicate security-critical redaction logic across `responses-transport.ts` and `retry-policy.ts`.
+- Extracted shared utilities (`isPlainObject`, `asRecord`, `normalizeNonEmptyString`, type guards) to `src/utils.ts`, fixing a subtle `readString` inconsistency between `tool-loop.ts` and `model-tool-output.ts`.
+- Created generic `createCatalogResolver<T>()` in `src/catalog-utils.ts`, replacing duplicate resolution logic in `model-catalog.ts` and `web-search-catalog.ts`.
+- Extracted `TurnManager` class from `src/routing.ts` into `src/routing/turn-manager.ts` for independent testability and clearer separation of routing decisions from turn lifecycle.
+- Added depth guard to `deepMerge` in `src/agents.ts` to prevent stack overflow from pathological config nesting.
+- Added JSONL corruption resilience: malformed lines in conversation event files are now skipped with observability warnings instead of failing the entire load.
+- Replaced 7-deep ternary chain in `model-tool-output.ts` process normalizer with a dispatch map.
+- Removed dead code: unused `TAG_OPEN_REGEX`/`TAG_CLOSE_REGEX` in `message-split.ts`, redundant `?? "null"` in `buildFunctionCallOutput`.
 - Added per-model context management (compaction) support via `compaction_tokens` and `compaction_threshold` config fields. When configured, requests to the OpenAI Responses API include `context_management` with the computed `compact_threshold`, enabling automatic server-side context compaction for long conversations.
 - Added structured provider failure diagnostics: transport now classifies OpenAI failures into typed detail (`reason`, OpenAI `type/code/param`, `request_id`, `retry_after_ms`, timeout source), final routing failure logs include this detail in `app.log`, fallback text is reason-aware by failure kind, and `/status full` now shows the latest provider failure summary.
 - Added `/steer <message>` command for mid-turn instruction injection. Pushes guidance into the active tool loop without aborting the turn; the model receives the steer text as a user message before its next tool-loop iteration. Verbose mode surfaces steer events in Telegram chat.
@@ -43,6 +106,29 @@ Release history and architectural decision log for Agent Commander.
 - Removed plugin/extension runtime architecture.
 - Removed UI/mobile/desktop and workspace fan-out surfaces.
 - Replaced CI with a minimal install/lint/typecheck/build/test pipeline.
+
+---
+
+## Checkpoints
+
+### Second-pass review
+
+- **Shared utilities:** `src/utils.ts` centralizes `isPlainObject`, `asRecord`, `normalizeNonEmptyString`, and type guards; eliminates duplicates across 6 files
+- **Catalog resolver:** `src/catalog-utils.ts` provides generic `createCatalogResolver<T>()` used by model and web-search catalogs
+- **Provider sanitization:** `src/provider/sanitize.ts` unifies security-critical reason redaction from two separate implementations
+- **Turn management:** `src/routing/turn-manager.ts` extracts turn lifecycle from routing closures into an independently testable class
+- **Resilience:** JSONL loader skips malformed lines instead of failing; `deepMerge` has a depth guard
+- **Dead code removed:** unused regex constants in `message-split.ts`, redundant null coalescing in `buildFunctionCallOutput`
+
+### v0.2.0 runtime composition
+
+- **Runtime composition:** `src/runtime/bootstrap.ts` is the composition root; `src/runtime/contracts.ts` defines core interfaces
+- **Config:** strict nested `config.json` schema validated by Zod; unknown keys fail fast
+- **Conversation store:** per-conversation append queues, atomic JSON writes, bounded LRU cache with deterministic eviction
+- **Provider:** canonical OpenAI type module across transport/tool-loop; SSE parser split out
+- **Harness:** bounded output buffers with truncation metrics surfaced in `/status`
+
+---
 
 ## Architectural Decision Log
 
@@ -102,7 +188,7 @@ Release history and architectural decision log for Agent Commander.
 - **Why:** Align runtime behavior with the fork's minimal local-state design and avoid mixed persistence paths.
 - **Consequence:** State evolution should happen within JSONL schemas/codecs unless product direction explicitly changes.
 
-## Revisit triggers
+### Revisit triggers
 
 Re-open these decisions only if one of the following becomes a hard requirement:
 

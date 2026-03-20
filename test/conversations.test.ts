@@ -627,4 +627,59 @@ describe("conversation store", () => {
     );
     expect((messageEntry as { payload: { content?: string } }).payload.content).toBe("hello observability");
   });
+
+  it("skips malformed JSONL lines instead of failing to load", async () => {
+    const root = createTempDir("acmd-conv-malformed-");
+    const store = createConversationStore({
+      conversationsDir: path.join(root, "conversations"),
+      stashedConversationsPath: path.join(root, "active.json")
+    });
+
+    const conversationId = await store.ensureActiveConversation("chat-1");
+
+    await store.appendUserMessageAndGetPromptContext({
+      chatId: "chat-1",
+      conversationId,
+      telegramMessageId: "m1",
+      senderId: "u1",
+      senderName: "Ada",
+      content: "first message",
+      historyLimit: null
+    });
+
+    // Inject a malformed line directly into the JSONL file
+    const chatFolder = encodeURIComponent("chat-1");
+    const jsonlPath = path.join(root, "conversations", chatFolder, `${conversationId}.jsonl`);
+    fs.appendFileSync(jsonlPath, "{corrupted json line\n");
+
+    await store.appendAssistantMessage({
+      chatId: "chat-1",
+      conversationId,
+      content: "second message"
+    });
+
+    // Force cache eviction by creating a new store instance
+    const freshStore = createConversationStore({
+      conversationsDir: path.join(root, "conversations"),
+      stashedConversationsPath: path.join(root, "active.json")
+    });
+    const activeConvId = await freshStore.ensureActiveConversation("chat-1");
+    expect(activeConvId).toBe(conversationId);
+
+    const ctx = await freshStore.appendUserMessageAndGetPromptContext({
+      chatId: "chat-1",
+      conversationId,
+      telegramMessageId: "m2",
+      senderId: "u1",
+      senderName: "Ada",
+      content: "third message",
+      historyLimit: null
+    });
+
+    // The malformed line should be skipped; we should see first, second, third messages
+    const contents = ctx.historyAfterAppend.map((m) => m.content);
+    expect(contents).toContain("first message");
+    expect(contents).toContain("second message");
+    expect(contents).toContain("third message");
+  });
 });

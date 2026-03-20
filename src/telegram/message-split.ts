@@ -50,8 +50,6 @@ type OpenTag = {
   full: string; // e.g. '<a href="...">' or '<b>'
 };
 
-const TAG_OPEN_REGEX = /<([a-z][a-z0-9-]*)((?:\s[^>]*)?)>/gi;
-const TAG_CLOSE_REGEX = /<\/([a-z][a-z0-9-]*)>/gi;
 const TRACKED_TAGS = new Set([
   "b", "strong", "i", "em", "u", "ins", "s", "strike", "del",
   "a", "code", "pre", "blockquote", "tg-spoiler", "span", "tg-emoji", "tg-time"

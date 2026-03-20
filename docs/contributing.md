@@ -34,6 +34,7 @@ npm test           # vitest run
 - Prefer explicit runtime flow over generic abstraction layers
 - Do not add framework-heavy abstractions
 - Do not re-introduce plugin systems, multi-channel registries, daemon managers, or container runtime assumptions
+- Cross-file utilities go in `src/utils.ts`; catalog resolution uses `src/catalog-utils.ts`; provider-specific shared logic goes in `src/provider/` (e.g. `sanitize.ts`). Do not duplicate small helpers across files.
 
 ## Scope guardrails
 

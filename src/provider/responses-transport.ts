@@ -4,6 +4,7 @@ import { createChildTraceContext, createTraceRootContext, type ObservabilitySink
 import { ProviderError } from "../provider-error.js";
 import type { OpenAIResponsesResponse } from "./openai-types.js";
 import { classifyFetchError, classifyHttpStatus, computeRetryDelayMs, type RetryDecision } from "./retry-policy.js";
+import { sanitizeReason } from "./sanitize.js";
 import { parseOpenAIStream, type StreamParseResult } from "./sse-parser.js";
 
 export type ProviderTransportDeps = {
@@ -22,25 +23,6 @@ export type ResponsesRequestOptions = {
 };
 
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-const STREAM_FAILURE_REASON_MAX_CHARS = 300;
-
-function sanitizeReason(reason: string): string {
-  const normalized = reason
-    .replace(/\s+/g, " ")
-    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
-    .replace(/\bsk-[A-Za-z0-9_-]+\b/g, "sk-[REDACTED]")
-    .trim();
-
-  if (normalized.length === 0) {
-    return "Provider request failed";
-  }
-
-  if (normalized.length <= STREAM_FAILURE_REASON_MAX_CHARS) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, STREAM_FAILURE_REASON_MAX_CHARS - 3)}...`;
-}
 
 function redactHeaders(headers: Record<string, string>): Record<string, string> {
   const redacted: Record<string, string> = {};

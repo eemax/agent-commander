@@ -7,14 +7,13 @@ dist/
 coverage/
 *.tsbuildinfo
 
-# Environment and local config
+# Local
 .env
-agents.json
-
-# Local runtime state
 .agent-commander/
 .claude/
 .worktrees/
+agents.json
+docs/plans/
 
 # OS artifacts
 .DS_Store

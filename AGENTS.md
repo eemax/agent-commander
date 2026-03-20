@@ -19,7 +19,11 @@ src/runtime/bootstrap.ts        Composition root (wires everything)
 src/runtime/contracts.ts        Core interfaces (Config, StateStore, WorkspaceCatalog, ProviderTransport)
 src/config.ts                   Zod-validated config loading
 src/routing.ts                  Message router entry point
+src/routing/turn-manager.ts     Per-chat turn lifecycle + message queues
 src/provider.ts                 OpenAI provider + tool-loop integration
+src/provider/sanitize.ts        Shared provider failure reason sanitization
+src/utils.ts                    Shared utilities (isPlainObject, asRecord, type guards)
+src/catalog-utils.ts            Generic catalog resolver factory
 src/agent/tool-loop.ts          Provider-agnostic tool execution loop
 src/harness/                    Local trusted tools (bash, files, web)
 src/state/conversations.ts      JSONL persistence + LRU cache
@@ -67,8 +71,7 @@ Telegram update → normalize → gatekeep (sender allowlist) → route (command
 - `docs/tools.md` — tool harness reference (all tool schemas and behaviors)
 - `docs/user-guide.md` — setup, commands, and operational guide
 - `docs/contributing.md` — coding standards and scope guardrails
-- `docs/changelog.md` — release history and architectural decisions
-- `docs/status.md` — current stability, known constraints, next tasks
+- `docs/changelog.md` — project status, release history, and architectural decisions
 
 ## Key patterns
 
