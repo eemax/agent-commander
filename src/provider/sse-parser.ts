@@ -17,7 +17,7 @@ function parseSseField(line: string): { field: string; value: string } | null {
   return { field, value };
 }
 
-function parseCompletedPayload(eventPayload: unknown): OpenAIResponsesResponse | null {
+export function parseCompletedPayload(eventPayload: unknown): OpenAIResponsesResponse | null {
   if (!eventPayload || typeof eventPayload !== "object") {
     return null;
   }

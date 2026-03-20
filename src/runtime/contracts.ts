@@ -5,6 +5,7 @@ import type {
   ProviderRequest,
   ThinkingEffort,
   CacheRetention,
+  TransportMode,
   SkillDefinition,
   WorkspaceSnapshot
 } from "../types.js";
@@ -143,6 +144,8 @@ export type StateStore = {
   setThinkingEffort(chatId: string, effort: ThinkingEffort, options?: { trace?: TraceContext }): Promise<void>;
   getCacheRetention(chatId: string): Promise<CacheRetention>;
   setCacheRetention(chatId: string, mode: CacheRetention, options?: { trace?: TraceContext }): Promise<void>;
+  getTransportMode(chatId: string): Promise<TransportMode>;
+  setTransportMode(chatId: string, mode: TransportMode, options?: { trace?: TraceContext }): Promise<void>;
   getActiveModelOverride(chatId: string): Promise<string | null>;
   setActiveModelOverride(chatId: string, modelId: string | null, options?: { trace?: TraceContext }): Promise<void>;
   getActiveWebSearchModelOverride(chatId: string): Promise<string | null>;

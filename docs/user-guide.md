@@ -77,7 +77,7 @@ Startup fails if frontmatter is missing/invalid, slug generation is invalid, or 
 - Current conversation per chat is tracked in `paths.active_conversations_path` (default `.agent-commander/active-conversations.json`).
 - Stashed conversations per chat are tracked in `paths.stashed_conversations_path` (default `.agent-commander/stashed-conversations.json`).
 - Conversation events are JSONL files in `paths.conversations_dir/<chatId>/<conversationId>.jsonl`.
-- Conversation runtime profiles persist `verboseMode`, `thinkingEffort`, `cacheRetention`, `activeModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, and `lastProviderFailure`.
+- Conversation runtime profiles persist `verboseMode`, `thinkingEffort`, `cacheRetention`, `transportMode`, `activeModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, and `lastProviderFailure`.
 - `/new` opens an inline menu; current conversation is archived only when a menu option is selected.
 - `/stash <name>` stashes current conversation under an alias, then switches to selected stash or a new conversation.
 - `/stash list` shows stashed conversations with alias, conversation tail, and relative stash age.
@@ -115,6 +115,7 @@ Core commands:
 - `/model <id-or-alias>`
 - `/models`
 - `/search <id-or-alias>`
+- `/transport <http|wss>`
 - `/steer <message>`
 
 `/steer <message>` injects guidance into an active tool loop without aborting the turn. The steer text is added as a user message before the model's next tool-loop iteration. When verbose mode is on, steer events appear in Telegram chat as `🎯 Steer: <message>`. If no turn is active, `/steer` returns an error.
@@ -126,6 +127,7 @@ Menus are single-use; stale callback clicks are rejected and require reopening t
 `/model <id-or-alias>` switches the active model and applies that model's configured defaults to runtime thinking effort and cache retention.
 
 `/cache <in_memory|24h>` switches prompt cache retention mode for the current conversation.
+`/transport <http|wss>` switches the API transport for the current conversation. Default is `http`. See [architecture.md](architecture.md#transport-modes) for details on each mode.
 `/cwd <absolute-path>` sets the working directory for the current conversation. New conversations start with the configured default cwd.
 
 `/status` returns the model/runtime emoji summary block (model, latest turn token usage including reasoning tokens, budget context-window pressure summary, prompt-cache hit metrics, runtime thinking/verbose mode, running process count, and active cwd).
@@ -245,6 +247,13 @@ When `observability.enabled` is `true`, runtime appends detailed JSONL trace ent
 - `provider.openai.request.failed_final`
 - `tool.execution.completed`
 - `tool.workflow.progress`
+- `provider.ws.connected`
+- `provider.ws.disconnected`
+- `provider.ws.connection.idle_closed`
+- `provider.ws.connection.reconnecting`
+- `provider.ws.event.received`
+- `provider.ws.request.started`
+- `provider.ws.request.completed`
 
 Notes:
 

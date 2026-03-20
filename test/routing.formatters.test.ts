@@ -48,6 +48,7 @@ const baseParams = {
     byTool: {}
   },
   cacheRetention: "in_memory" as const,
+  transportMode: "http" as const,
   compactionTokens: null,
   compactionThreshold: 1,
   compactionCount: 0,
@@ -86,7 +87,7 @@ describe("buildStatusReply", () => {
     expect(text).toContain("🧮 Tokens: 8.7k in / 138 out · 42 reasoning");
     expect(text).toContain("📚 Context: 8.7k / 392k (2%)");
     expect(text).toContain("🗄️ Cache: 95% hit");
-    expect(text).toContain("⚙️ Think: high · cache: in_memory · processes: 0 running");
+    expect(text).toContain("⚙️ Think: high · cache: in_memory · transport: http · processes: 0 running");
     expect(text).toContain("📁 `/tmp/workspace`");
     expect(text).not.toContain("verbose: on");
     expect(text).not.toContain("observability: off");

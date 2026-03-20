@@ -50,10 +50,12 @@ This is the canonical `config.json` shape.
     - `budget`: peak per-call `input / (context_window - max_output_tokens)` when `max_output_tokens` is known and smaller than `context_window` (otherwise `n/a`)
   - `/status full` also reports current-conversation tool-result aggregates (`tool.results_total`, `tool.results_success`, `tool.results_fail`, `tool.results_by_name`) persisted in conversation runtime profiles.
   - when `compaction_tokens` is set for the active model, each Responses API request includes `context_management: [{ type: "compaction", compact_threshold }]`; the server automatically compacts context when rendered tokens cross the threshold
-- `timeout_ms`: positive integer, default `45000`
-- `max_retries`: non-negative integer, default `2`
-- `retry_base_ms`: positive integer, default `250`
-- `retry_max_ms`: positive integer, default `2000`, must be `>= retry_base_ms`
+- `timeout_ms`: positive integer, default `45000` — per-request timeout; applies to both HTTP and WebSocket transports
+- `max_retries`: non-negative integer, default `2` — HTTP: retry attempts per request; WebSocket: reconnect attempts on connection failure
+- `retry_base_ms`: positive integer, default `250` — base delay for exponential backoff (both transports)
+- `retry_max_ms`: positive integer, default `2000`, must be `>= retry_base_ms` — max backoff delay (both transports)
+
+Transport mode (`http` or `wss`) is a per-conversation runtime setting, not a config field. Switch with `/transport http|wss`. See [architecture.md](architecture.md#transport-modes) for details.
 
 ### `runtime`
 

@@ -13,9 +13,10 @@ import {
   type ProviderErrorKind,
   type ProviderUsageSnapshot,
   type ThinkingEffort,
-  type CacheRetention
+  type CacheRetention,
+  type TransportMode
 } from "../types.js";
-import { isPlainObject, normalizeNonEmptyString, isThinkingEffort, isCacheRetention } from "../utils.js";
+import { isPlainObject, normalizeNonEmptyString, isThinkingEffort, isCacheRetention, isTransportMode } from "../utils.js";
 import {
   type ConversationArchiveEvent,
   type ConversationCreatedEvent,
@@ -31,6 +32,7 @@ type ConversationRuntimeProfile = {
   verboseMode: boolean;
   thinkingEffort: ThinkingEffort;
   cacheRetention: CacheRetention;
+  transportMode: TransportMode;
   activeModelOverride: string | null;
   activeWebSearchModelOverride: string | null;
   latestUsage: ProviderUsageSnapshot | null;
@@ -232,6 +234,7 @@ function createDefaultRuntimeProfile(params: {
     verboseMode: params.defaultVerboseMode,
     thinkingEffort: params.defaultThinkingEffort,
     cacheRetention: params.defaultCacheRetention,
+    transportMode: "http",
     activeModelOverride: null,
     activeWebSearchModelOverride: null,
     latestUsage: null,
@@ -247,6 +250,7 @@ function cloneRuntimeProfile(profile: ConversationRuntimeProfile): ConversationR
     verboseMode: profile.verboseMode,
     thinkingEffort: profile.thinkingEffort,
     cacheRetention: profile.cacheRetention,
+    transportMode: profile.transportMode,
     activeModelOverride: profile.activeModelOverride,
     activeWebSearchModelOverride: profile.activeWebSearchModelOverride,
     latestUsage: profile.latestUsage ? cloneUsageSnapshot(profile.latestUsage) : null,
@@ -286,6 +290,7 @@ function normalizeRuntimeProfile(
     verboseMode: typeof value.verboseMode === "boolean" ? value.verboseMode : defaults.defaultVerboseMode,
     thinkingEffort: isThinkingEffort(value.thinkingEffort) ? value.thinkingEffort : defaults.defaultThinkingEffort,
     cacheRetention: isCacheRetention(value.cacheRetention) ? value.cacheRetention : defaults.defaultCacheRetention,
+    transportMode: isTransportMode(value.transportMode) ? value.transportMode : "http",
     activeModelOverride,
     activeWebSearchModelOverride,
     latestUsage: isUsageSnapshot(value.latestUsage) ? cloneUsageSnapshot(value.latestUsage) : null,
@@ -916,6 +921,44 @@ export function createConversationStore(params: ConversationStoreParams): Conver
           chatId,
           conversationId: ensured.record.conversationId,
           setting: "cacheRetention",
+          value: mode
+        });
+      });
+    },
+
+    async getTransportMode(chatId): Promise<TransportMode> {
+      return enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
+        return ensured.record.runtime.transportMode;
+      });
+    },
+
+    async setTransportMode(chatId, mode: TransportMode, options): Promise<void> {
+      await enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start", options?.trace);
+        if (ensured.record.runtime.transportMode === mode) {
+          return;
+        }
+
+        const nextCurrent = {
+          ...ensured.index,
+          [chatId]: {
+            ...ensured.record,
+            runtime: {
+              ...ensured.record.runtime,
+              transportMode: mode
+            }
+          }
+        };
+
+        await saveCurrentConversations(nextCurrent);
+        await params.observability?.record({
+          event: "runtime.setting.updated",
+          trace: options?.trace ? createChildTraceContext(options.trace, "state") : createTraceRootContext("state"),
+          stage: "completed",
+          chatId,
+          conversationId: ensured.record.conversationId,
+          setting: "transportMode",
           value: mode
         });
       });

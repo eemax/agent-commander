@@ -1,4 +1,4 @@
-import type { ProviderUsageSnapshot, ThinkingEffort, CacheRetention, ToolCallReport, ToolProgressEvent } from "../types.js";
+import type { ProviderUsageSnapshot, ThinkingEffort, CacheRetention, TransportMode, ToolCallReport, ToolProgressEvent } from "../types.js";
 import { formatConversationIdForUi } from "./conversation-id.js";
 
 const BASH_MAX_OUTPUT_CHARS = 3_000;
@@ -499,6 +499,7 @@ export function buildStatusReply(params: {
     reason: string;
   } | null;
   cacheRetention: CacheRetention;
+  transportMode: TransportMode;
   includeDiagnostics?: boolean;
   nowMs?: number;
 }): string {
@@ -509,7 +510,7 @@ export function buildStatusReply(params: {
     formatContextSummary(params.modelContextWindow, params.modelMaxOutputTokens, params.latestUsage, params.compactionTokens, params.compactionThreshold, params.compactionCount),
     formatTokenSummary(params.latestUsage),
     formatCacheSummary(params.latestUsage, params.nowMs),
-    `⚙️ Think: ${params.thinkingEffort} · cache: ${params.cacheRetention} · processes: ${params.sessions.length} running`,
+    `⚙️ Think: ${params.thinkingEffort} · cache: ${params.cacheRetention} · transport: ${params.transportMode} · processes: ${params.sessions.length} running`,
     `📁 \`${params.cwd}\``
   ];
 

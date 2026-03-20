@@ -52,11 +52,17 @@ Agent Commander is intentionally small:
 ### Provider
 
 - `src/provider.ts`
-  OpenAI provider wiring and tool-loop integration.
+  OpenAI provider wiring and tool-loop integration. Selects HTTP or WebSocket transport based on the conversation's `transportMode` setting.
+- `src/provider/responses-transport.ts`
+  HTTP+SSE transport. Each tool-loop turn is an independent `POST /v1/responses` with `stream: true`. Retry logic with exponential backoff.
+- `src/provider/ws-transport.ts`
+  WebSocket transport. Maintains one persistent `wss://api.openai.com/v1/responses` socket per active WS conversation (`chatId → WsConnection` map). Sends `response.create` messages; receives the same streaming event types as SSE. See **Transport Modes** below.
+- `src/provider/sse-parser.ts`
+  SSE event parser for the HTTP transport. Exports `parseCompletedPayload()` which is reused by the WS transport.
 - `src/provider/sanitize.ts`
   Shared `sanitizeReason()` for whitespace normalization, Bearer/API-key redaction, and length truncation of provider failure reasons.
 - `src/provider/*`
-  Provider internals split into history normalization, response text extraction, retry policy, SSE parser, canonical OpenAI type models, and HTTP transport.
+  Remaining provider internals: history normalization, response text extraction, retry policy, and canonical OpenAI type models.
 
 ### Agent
 
@@ -83,7 +89,7 @@ Agent Commander is intentionally small:
 ### Telegram
 
 - `src/telegram/commands.ts`
-  Typed command registry + parsing (`/start`, `/new`, `/stash`, `/status` with optional `full` flag, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`, dynamic skill commands).
+  Typed command registry + parsing (`/start`, `/new`, `/stash`, `/status` with optional `full` flag, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`, `/transport`, dynamic skill commands).
 - `src/telegram/bot.ts`
   Telegram wiring, command registration sync (`setMyCommands`), text message + callback query dispatch (including inline keyboards and extra verbose replies), and safe error replies.
 
@@ -114,7 +120,7 @@ Agent Commander is intentionally small:
 
 - JSON object mapping `chatId -> current conversation record`.
 - Each record contains `conversationId`, optional `alias`, and a conversation runtime profile.
-- Runtime profile fields: `workingDirectory`, `verboseMode`, `thinkingEffort`, `cacheRetention`, `activeModelOverride`, `activeWebSearchModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, `lastProviderFailure`.
+- Runtime profile fields: `workingDirectory`, `verboseMode`, `thinkingEffort`, `cacheRetention`, `transportMode`, `activeModelOverride`, `activeWebSearchModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, `lastProviderFailure`.
 - Default filenames are `.agent-commander/stashed-conversations.json` and `.agent-commander/active-conversations.json`.
 - No automatic migration is performed from the previous filename layout.
 
@@ -131,6 +137,53 @@ Conversation events are decoded/encoded through the typed event codec in `src/st
 
 - Markdown file stores the compiled first-turn context (`<session>`, `<operating_contract>`, `<environment>`, `<reference_documents>`) using wrapper tags with Markdown section bodies.
 - Metadata JSON is embedded at EOF in a marker-delimited fenced block (`<!-- acmd:snapshot-metadata:start -->` ... `<!-- acmd:snapshot-metadata:end -->`) and includes AGENTS/SOUL hashes, tool/skill metadata, compiled snapshot path, and instruction hash.
+
+## Transport Modes
+
+The provider supports two transport modes for communicating with the OpenAI Responses API. Both use the same request body, tool loop, and streaming callbacks — the difference is purely at the network layer.
+
+### HTTP+SSE (default)
+
+- Each tool-loop turn is an independent `POST https://api.openai.com/v1/responses` with `stream: true`.
+- Server streams back SSE events (`response.output_text.delta`, `response.completed`, `error`).
+- Parsed by `sse-parser.ts` (buffered line-oriented SSE framing → JSON dispatch).
+- Has its own retry loop with exponential backoff (`max_retries`, `retry_base_ms`, `retry_max_ms`).
+- Stateless between turns — no persistent connection.
+
+### WebSocket
+
+- A single persistent `wss://api.openai.com/v1/responses` connection per conversation.
+- Authenticated via `Authorization: Bearer` header at connection time (Node 22+ WebSocket).
+- Each tool-loop turn sends a JSON message: `{ "type": "response.create", model, input, tools, ... }`.
+- The `stream` and `background` fields are **not** included (they are HTTP-transport-specific).
+- Server streams back the same event types as SSE, but as raw JSON WebSocket messages (no SSE framing).
+- `response.completed` resolves the request; `error` rejects it.
+- The WS transport has no per-request retry loop. Instead, it manages connection lifecycle:
+  - **Reconnect on failure**: exponential backoff using the same `retry_base_ms`/`retry_max_ms`/`max_retries` config, applied at the connection level.
+  - **Proactive rotation**: connections are closed and re-established after 55 minutes (OpenAI enforces a 60-minute limit).
+  - **Idle cleanup**: connections with no requests for 5 minutes are closed.
+  - **Mid-request failure**: if the socket drops during an in-flight request, the promise rejects with `ProviderError(kind: "network")` — the tool loop surfaces it as a provider failure.
+- One socket per `chatId`. Concurrent WS conversations use separate sockets.
+- **Message serialization**: `onmessage` processing is serialized via a promise chain so async `onTextDelta` callbacks (which include Telegram draft throttling) execute sequentially. This matches the SSE path's natural `for await` serialization and prevents concurrent delta handlers from bypassing the time-based draft throttle, which would flood the Telegram API with edit requests.
+
+### Switching
+
+- Per-conversation: `/transport http` or `/transport wss` (stored in `ConversationRuntimeProfile.transportMode`).
+- Default is `http`. Resets to `http` on `/new` or `/stash` (new conversation = fresh runtime profile).
+- Visible in `/status` output on the settings line.
+- The WS transport manager is lazily created on first WS request — zero overhead for HTTP-only usage.
+
+### When to use WebSocket
+
+OpenAI reports up to ~40% lower end-to-end latency for agentic workloads with many tool calls, because the server caches response state in connection-local memory across turns on the same socket. The benefit scales with the number of tool-call round trips in a single conversation.
+
+Trade-offs:
+- **`store=true` (default)**: responses are persisted server-side. Reconnects can continue `previous_response_id` chains because the server has a persisted copy.
+- **`store=false` / ZDR**: responses exist only in connection-local cache. If the socket drops, `previous_response_id` references may fail with `previous_response_not_found`.
+
+### Transport abstraction
+
+Both transports return `{ payload: OpenAIResponsesResponse; attempt: number }`. The `request` callback in `runOpenAIToolLoop` is transport-agnostic — it receives a response payload regardless of how it was fetched. Selection happens in `src/provider.ts` based on `input.transportMode`.
 
 ## Error Handling
 

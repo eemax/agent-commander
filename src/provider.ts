@@ -8,6 +8,7 @@ import type { Provider, ProviderRequest } from "./types.js";
 import { normalizeHistory } from "./provider/history.js";
 import { extractAssistantText } from "./provider/response-text.js";
 import { createResponsesRequestWithRetry, type ProviderTransportDeps } from "./provider/responses-transport.js";
+import { createWsTransportManager, type WsTransportManager } from "./provider/ws-transport.js";
 import { accumulateUsageSnapshot, countCompactionItems, createEmptyUsageSnapshot } from "./provider/usage.js";
 
 type ProviderRuntimeDeps = ProviderTransportDeps & {
@@ -53,6 +54,17 @@ export function createOpenAIProvider(
     observability: deps.observability
   });
 
+  let wsManager: WsTransportManager | null = null;
+  const getWsManager = (): WsTransportManager => {
+    wsManager ??= createWsTransportManager(config, logger, {
+      sleepImpl: deps.sleepImpl,
+      randomImpl: deps.randomImpl,
+      nowMsImpl: deps.nowMsImpl,
+      observability: deps.observability
+    });
+    return wsManager;
+  };
+
   const buildPromptCacheKey = (request: ProviderRequest): string => {
     return `acmd:${request.chatId}:${request.conversationId}`;
   };
@@ -84,12 +96,15 @@ export function createOpenAIProvider(
             }
 
             try {
-              const result = await requestWithRetry(body, input.chatId, {
+              const requestOptions = {
                 onTextDelta: input.onTextDelta,
                 trace: providerTrace,
                 messageId: input.messageId,
                 abortSignal: input.abortSignal
-              });
+              };
+              const result = input.transportMode === "wss"
+                ? await getWsManager().sendResponseCreate(body, input.chatId, requestOptions)
+                : await requestWithRetry(body, input.chatId, requestOptions);
               lastAttempt = result.attempt;
               return result.payload;
             } catch (error) {

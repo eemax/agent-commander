@@ -7,6 +7,8 @@ export const THINKING_EFFORT_VALUES = ["none", "minimal", "low", "medium", "high
 export type ThinkingEffort = (typeof THINKING_EFFORT_VALUES)[number];
 export const CACHE_RETENTION_VALUES = ["in_memory", "24h"] as const;
 export type CacheRetention = (typeof CACHE_RETENTION_VALUES)[number];
+export const TRANSPORT_MODE_VALUES = ["http", "wss"] as const;
+export type TransportMode = (typeof TRANSPORT_MODE_VALUES)[number];
 
 export type NormalizedTelegramMessage = {
   chatId: string;
@@ -51,6 +53,7 @@ export type ProviderRequest = {
   instructions: string;
   thinkingEffort: ThinkingEffort;
   cacheRetention?: CacheRetention;
+  transportMode?: TransportMode;
   compactionTokens: number | null;
   compactionThreshold: number;
   trace?: TraceContext;

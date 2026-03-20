@@ -12,7 +12,7 @@ import {
   type TelegramInlineButton,
   type TelegramInlineKeyboard
 } from "../types.js";
-import { isThinkingEffort, isCacheRetention } from "../utils.js";
+import { isThinkingEffort, isCacheRetention, isTransportMode } from "../utils.js";
 import { formatConversationIdForUi, formatConversationIdTail } from "./conversation-id.js";
 import { buildStatusReply, formatBashReply, formatCompactNumber } from "./formatters.js";
 
@@ -326,6 +326,7 @@ export function createCoreCommandHandler(params: {
             verboseEnabled,
             thinkingEffort,
             cacheRetention,
+            transportMode,
             activeModelOverride,
             webSearchModelOverride,
             latestUsage,
@@ -337,6 +338,7 @@ export function createCoreCommandHandler(params: {
             conversations.getVerboseMode(message.chatId),
             conversations.getThinkingEffort(message.chatId),
             conversations.getCacheRetention(message.chatId),
+            conversations.getTransportMode(message.chatId),
             conversations.getActiveModelOverride(message.chatId),
             conversations.getActiveWebSearchModelOverride(message.chatId),
             conversations.getLatestUsageSnapshot(message.chatId),
@@ -406,6 +408,7 @@ export function createCoreCommandHandler(params: {
               },
               toolResultStats,
               cacheRetention,
+              transportMode,
               compactionTokens: activeModel.compactionTokens,
               compactionThreshold: activeModel.compactionThreshold,
               compactionCount,
@@ -661,6 +664,33 @@ export function createCoreCommandHandler(params: {
           return {
             type: "reply",
             text: `cache retention: ${selection}`
+          };
+        }
+        case "transport": {
+          const selection = args.trim().toLowerCase();
+          const current = await conversations.getTransportMode(message.chatId);
+
+          if (selection.length === 0) {
+            return {
+              type: "reply",
+              text: [
+                "Usage: /transport <http|wss>",
+                `transport: ${current}`
+              ].join("\n")
+            };
+          }
+
+          if (!isTransportMode(selection)) {
+            return {
+              type: "reply",
+              text: `Unknown transport: ${selection}\nValid: http, wss`
+            };
+          }
+
+          await conversations.setTransportMode(message.chatId, selection, { trace });
+          return {
+            type: "reply",
+            text: `transport: ${selection}`
           };
         }
         case "search": {
