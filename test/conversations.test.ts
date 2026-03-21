@@ -250,7 +250,7 @@ describe("conversation store", () => {
     const conversationB = await store.getActiveConversation(chatId);
     expect(conversationB).toBeTruthy();
 
-    await new Promise((resolve) => setTimeout(resolve, 1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
     await store.completeStashSelection(chatId, "beta", { type: "new" }, "manual_stash");
     const stashesBefore = await store.listStashedConversations(chatId);
     expect(stashesBefore.map((item) => item.alias)).toEqual(["beta", "alpha"]);
