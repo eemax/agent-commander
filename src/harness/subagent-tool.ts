@@ -3,7 +3,7 @@ import {
   subagentInputSchema,
   type SubagentInput
 } from "./subagent-schemas.js";
-import type { SpawnTaskParams, SupervisorMessage, DirectiveType } from "./subagent-types.js";
+import type { SpawnTaskParams, SupervisorMessage, DirectiveType, TaskState } from "./subagent-types.js";
 import type { SubagentManager } from "./subagent-manager.js";
 
 function requireSubagentManager(manager: SubagentManager | undefined): SubagentManager {
@@ -23,7 +23,7 @@ function requireOwnerId(ownerId: string | null): string {
 export const subagentsTool: ToolDef<typeof subagentInputSchema> = {
   name: "subagents",
   description:
-    "Manage subagent tasks. Actions: spawn(task); recv(tasks, wait_ms?, max_events?); send(task_id, message); inspect(task_id); list(filter?); cancel(task_id, reason); await(task_id, until, timeout_ms).",
+    "Manage subagent tasks. Actions: spawn(task); recv(tasks, max_events?); send(task_id, message); inspect(task_id); list(filter?); cancel(task_id, reason); await(task_id, until, timeout_ms).",
   schema: subagentInputSchema,
   async run(ctx, input: SubagentInput): Promise<JsonValue> {
     const manager = requireSubagentManager(ctx.subagentManager);
@@ -82,7 +82,7 @@ export const subagentsTool: ToolDef<typeof subagentInputSchema> = {
       }
 
       case "recv": {
-        const result = manager.recv(input.tasks, input.wait_ms, input.max_events);
+        const result = manager.recv(input.tasks, input.max_events);
         return JSON.parse(JSON.stringify(result));
       }
 
@@ -100,7 +100,13 @@ export const subagentsTool: ToolDef<typeof subagentInputSchema> = {
       }
 
       case "list": {
-        const tasks = manager.list(input.filter);
+        const filter = input.filter
+          ? {
+              states: input.filter.states as TaskState[] | undefined,
+              labels: input.filter.labels
+            }
+          : undefined;
+        const tasks = manager.list(filter);
         return JSON.parse(JSON.stringify({ tasks }));
       }
 

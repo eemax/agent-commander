@@ -49,7 +49,7 @@ describe("SubagentManager", () => {
     it("creates a task and returns a spawn response", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
       expect(response.taskId).toMatch(/^satask_/);
-      expect(response.state).toBe("starting");
+      expect(response.state).toBe("running");
       expect(response.cursor).toMatch(/^saevt_/);
       expect(response.startedAt).toBeDefined();
       expect(response.leaseExpiresAt).toBeDefined();
@@ -135,7 +135,7 @@ describe("SubagentManager", () => {
         });
       }
 
-      const recv = manager.recv({ [taskId]: "" }, 0, 3);
+      const recv = manager.recv({ [taskId]: "" }, 3);
       expect(recv.events.length).toBe(3);
     });
 

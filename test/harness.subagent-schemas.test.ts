@@ -100,7 +100,6 @@ describe("subagentInputSchema", () => {
       const input = {
         action: "recv",
         tasks: { "satask_ABC": "saevt_001" },
-        wait_ms: 500,
         max_events: 25
       };
       const result = subagentInputSchema.safeParse(input);

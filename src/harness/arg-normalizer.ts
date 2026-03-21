@@ -197,19 +197,41 @@ function normalizeSubagentsArgs(args: unknown): Record<string, unknown> {
   switch (action) {
     case "spawn":
       return dropUndefined({ action: "spawn", task: source.task });
-    case "recv":
+    case "recv": {
+      // Normalize tasks: accept array of task IDs as a convenience → convert to record with empty cursors
+      let tasks = source.tasks;
+      if (Array.isArray(tasks)) {
+        const record: Record<string, string> = {};
+        for (const item of tasks) {
+          if (typeof item === "string" && item.length > 0) {
+            record[item] = "";
+          }
+        }
+        tasks = record;
+      }
       return dropUndefined({
         action: "recv",
-        tasks: source.tasks,
-        wait_ms: readPositiveInt(firstDefined(source, ["wait_ms", "waitMs", "wait"])),
+        tasks,
         max_events: readPositiveInt(firstDefined(source, ["max_events", "maxEvents", "limit"]))
       });
-    case "send":
+    }
+    case "send": {
+      // Normalize message: ensure role is "supervisor" (common mistake: omitting or using "user")
+      const message = asRecord(source.message ?? {});
+      if (!message.role || message.role === "user") {
+        message.role = "supervisor";
+      }
+      // Normalize directive_type casing
+      if (message.directiveType && !message.directive_type) {
+        message.directive_type = message.directiveType;
+        delete message.directiveType;
+      }
       return dropUndefined({
         action: "send",
         task_id: readNonEmptyString(firstDefined(source, ["task_id", "taskId", "task"])),
-        message: source.message
+        message
       });
+    }
     case "inspect":
       return dropUndefined({
         action: "inspect",

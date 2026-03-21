@@ -10,6 +10,7 @@ import { extractAssistantText } from "./provider/response-text.js";
 import { createResponsesRequestWithRetry, type ProviderTransportDeps } from "./provider/responses-transport.js";
 import { createWsTransportManager, type WsTransportManager } from "./provider/ws-transport.js";
 import { accumulateUsageSnapshot, countCompactionItems, createEmptyUsageSnapshot } from "./provider/usage.js";
+import { createSubagentWorker } from "./harness/subagent-worker.js";
 
 type ProviderRuntimeDeps = ProviderTransportDeps & {
   harness?: ToolHarness;
@@ -45,6 +46,19 @@ export function createOpenAIProvider(
     }, {
       observability: deps.observability
     });
+
+  // Wire real subagent worker if the manager is available
+  if (harness.context.subagentManager) {
+    const worker = createSubagentWorker({
+      config,
+      harness,
+      manager: harness.context.subagentManager,
+      logger,
+      observability: deps.observability,
+      transportDeps: deps
+    });
+    harness.context.subagentManager.setWorker(worker);
+  }
 
   const requestWithRetry = createResponsesRequestWithRetry(config, logger, {
     fetchImpl: deps.fetchImpl,

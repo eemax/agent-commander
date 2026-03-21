@@ -61,7 +61,6 @@ const spawnSchema = z.object({
 const recvSchema = z.object({
   action: z.literal("recv"),
   tasks: z.record(z.string().min(1), z.string()),
-  wait_ms: z.number().int().min(0).optional(),
   max_events: z.number().int().positive().optional()
 });
 

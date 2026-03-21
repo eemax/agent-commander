@@ -1,5 +1,5 @@
 import { createSubagentTaskId, createSubagentEventId } from "../id.js";
-import { createTraceRootContext, createChildTraceContext, type ObservabilitySink, type TraceContext } from "../observability.js";
+import { createTraceRootContext, type ObservabilitySink, type TraceContext } from "../observability.js";
 import {
   type TaskState,
   type TurnOwnership,
@@ -17,7 +17,6 @@ import {
   type SubagentManagerConfig,
   type SubagentWorker,
   type AwaitCondition,
-  type BudgetUsage,
   type TaskConstraints,
   type TaskExecution,
   type CompletionContract,
@@ -26,8 +25,7 @@ import {
   type TaskResult,
   type TaskError,
   NO_OP_WORKER,
-  isTerminal,
-  TERMINAL_STATES
+  isTerminal
 } from "./subagent-types.js";
 
 function nowIso(): string {
@@ -42,7 +40,7 @@ export class SubagentManager {
   private readonly tasks = new Map<string, SubagentTask>();
   private readonly events = new Map<string, SubagentEvent[]>();
   private readonly config: SubagentManagerConfig;
-  private readonly worker: SubagentWorker;
+  private worker: SubagentWorker;
   private readonly observability: ObservabilitySink | undefined;
 
   // Per-task trace contexts for observability correlation
@@ -55,6 +53,17 @@ export class SubagentManager {
     this.config = config;
     this.worker = worker ?? NO_OP_WORKER;
     this.observability = observability;
+  }
+
+  setWorker(worker: SubagentWorker): void {
+    this.worker = worker;
+  }
+
+  setTaskTools(taskId: string, tools: string[]): void {
+    const task = this.tasks.get(taskId);
+    if (task) {
+      task.availableTools = tools;
+    }
   }
 
   // ── Observability ──────────────────────────────────────────────────────────
@@ -188,7 +197,8 @@ export class SubagentManager {
         requiresResponse: true
       });
 
-      // Start stall timeout for final failure
+      // Start stall timeout for final failure (minimum 1s gap to avoid immediate fire)
+      const stallTerminalMs = Math.max(stallMs - idleMs, 1_000);
       task.stallTimer = setTimeout(() => {
         if (isTerminal(task.state)) return;
         this.appendEvent(task.taskId, "error", "failed", "none", {
@@ -199,7 +209,7 @@ export class SubagentManager {
             retryable: true
           }
         });
-      }, stallMs - idleMs);
+      }, stallTerminalMs);
     }, idleMs);
   }
 
@@ -371,7 +381,16 @@ export class SubagentManager {
       awaiting,
       result,
       error,
-      labels: { ...task.labels }
+      labels: { ...task.labels },
+      capabilities: {
+        model: task.execution.model,
+        tools: [...task.availableTools],
+        constraints: {
+          maxTurns: task.constraints.maxTurns,
+          timeBudgetSec: task.constraints.timeBudgetSec,
+          maxTotalTokens: task.constraints.maxTotalTokens
+        }
+      }
     };
   }
 
@@ -433,6 +452,7 @@ export class SubagentManager {
       lastHeartbeatAt: null,
       leaseExpiresAt: null,
       compactedSummary: null,
+      availableTools: [],
       heartbeatTimer: null,
       idleTimer: null,
       stallTimer: null,
@@ -472,12 +492,22 @@ export class SubagentManager {
       labels: params.labels
     });
 
-    // Notify worker (fire-and-forget in v1)
-    void this.worker.start(task).catch(() => {});
+    // Notify worker (fire-and-forget — errors become protocol events)
+    void this.worker.start(task).catch((err) => {
+      if (!isTerminal(task.state)) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.appendEvent(taskId, "error", "failed", "none", {
+          message: `Worker start failed: ${msg}`,
+          final: true,
+          error: { code: "WORKER_CRASH" as const, retryable: true }
+        });
+      }
+      this.emitObs("subagent.worker.start_failed", taskId, { error: String(err) });
+    });
 
     return {
       taskId,
-      state: "starting",
+      state: task.state as "starting" | "running",
       cursor: startedEvent.eventId,
       leaseExpiresAt: task.leaseExpiresAt!,
       startedAt: task.startedAt!
@@ -486,10 +516,8 @@ export class SubagentManager {
 
   recv(
     tasks: Record<string, string>,
-    waitMs?: number,
     maxEvents?: number
   ): RecvResponse {
-    const effectiveWaitMs = waitMs ?? this.config.recvDefaultWaitMs;
     const effectiveMaxEvents = Math.min(
       maxEvents ?? this.config.recvMaxEvents,
       this.config.recvMaxEvents
@@ -543,16 +571,8 @@ export class SubagentManager {
       return { events: limited, cursors };
     };
 
-    // Immediate collection (no async wait in v1 — await_ handles blocking)
-    const result = collectEvents();
-
-    // If no events and waitMs > 0, we still return immediately in the sync path.
-    // The tool layer can implement short-polling via await_ action instead.
-    if (result.events.length === 0 && effectiveWaitMs > 0) {
-      // Return empty — caller should use await action for blocking behavior.
-    }
-
-    return result;
+    // Immediate collection — use await_ action for blocking behavior
+    return collectEvents();
   }
 
   send(taskId: string, message: SupervisorMessage): SendResponse {
@@ -580,8 +600,10 @@ export class SubagentManager {
       contentLength: message.content.length
     });
 
-    // Notify worker
-    void this.worker.send(taskId, message).catch(() => {});
+    // Notify worker (errors are logged but non-fatal — task continues)
+    void this.worker.send(taskId, message).catch((err) => {
+      this.emitObs("subagent.worker.send_failed", taskId, { error: String(err) });
+    });
 
     return {
       taskId,
@@ -597,7 +619,7 @@ export class SubagentManager {
   }
 
   list(filter?: {
-    states?: string[];
+    states?: TaskState[];
     labels?: Record<string, string>;
   }): ListTaskSummary[] {
     const results: ListTaskSummary[] = [];
@@ -638,8 +660,10 @@ export class SubagentManager {
       final: true
     });
 
-    // Notify worker
-    void this.worker.stop(taskId, reason).catch(() => {});
+    // Notify worker (task already transitioned to cancelled — just log failures)
+    void this.worker.stop(taskId, reason).catch((err) => {
+      this.emitObs("subagent.worker.stop_failed", taskId, { error: String(err) });
+    });
 
     return {
       taskId,

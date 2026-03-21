@@ -250,6 +250,7 @@ export type SubagentTask = {
   lastHeartbeatAt: string | null;
   leaseExpiresAt: string | null;
   compactedSummary: string | null;
+  availableTools: string[];
 
   // Runtime handles — not serialized
   heartbeatTimer: ReturnType<typeof setInterval> | null;
@@ -282,6 +283,15 @@ export type TaskSnapshot = {
   result: TaskResult | null;
   error: TaskError | null;
   labels: Record<string, string>;
+  capabilities: {
+    model: string;
+    tools: string[];
+    constraints: {
+      maxTurns: number;
+      timeBudgetSec: number;
+      maxTotalTokens: number;
+    };
+  };
 };
 
 // --- Supervisor message (send action input) ----------------------------------
@@ -296,7 +306,7 @@ export type SupervisorMessage = {
 
 export type SpawnResponse = {
   taskId: string;
-  state: "starting";
+  state: "starting" | "running";
   cursor: string;
   leaseExpiresAt: string;
   startedAt: string;

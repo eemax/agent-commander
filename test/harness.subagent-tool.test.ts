@@ -65,7 +65,7 @@ describe("subagents tool (integration)", () => {
     expect(result.taskId).toBeDefined();
     expect(typeof result.taskId).toBe("string");
     expect((result.taskId as string).startsWith("satask_")).toBe(true);
-    expect(result.state).toBe("starting");
+    expect(result.state).toBe("running");
     expect(result.cursor).toBeDefined();
   });
 
