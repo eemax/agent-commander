@@ -123,6 +123,23 @@ Transport mode (`http` or `wss`) is a per-conversation runtime setting, not a co
 
 No automatic migration is performed from the previous filename layout. If you need to preserve existing data, move/rename files manually.
 
+### `subagents`
+
+- `enabled`: boolean, default `true` — register the subagents tool
+- `max_concurrent_tasks`: positive integer, default `10` — cap on simultaneous non-terminal tasks
+- `default_time_budget_sec`: positive integer, default `900` — per-task time limit
+- `default_max_turns`: positive integer, default `30` — per-task turn limit
+- `default_max_total_tokens`: positive integer, default `500000` — per-task cumulative token limit
+- `default_heartbeat_interval_sec`: positive integer, default `30` — runtime heartbeat period
+- `default_idle_timeout_sec`: positive integer, default `120` — idle duration before stall detection
+- `default_stall_timeout_sec`: positive integer, default `300` — stall duration before failure
+- `default_require_plan_by_turn`: non-negative integer, default `3` — plan checkpoint deadline (0 disables)
+- `recv_max_events`: positive integer, default `100` — max events per recv call
+- `recv_default_wait_ms`: non-negative integer, default `200` — default long-poll wait
+- `await_max_timeout_ms`: positive integer, default `30000` — cap on await timeout
+
+The entire section is optional with defaults; existing config files work without modification. When `enabled` is `false`, the `subagents` tool is not registered.
+
 ### `observability`
 
 - `enabled`: boolean, default `false`

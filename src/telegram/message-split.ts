@@ -138,7 +138,7 @@ function splitHtml(text: string): string[] {
   }
 
   if (currentChunk.length > 0) {
-    chunks.push(currentChunk);
+    chunks.push(currentChunk + closingTagsFor(tagStack));
   }
 
   return chunks;

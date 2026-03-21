@@ -36,12 +36,13 @@ describe("tool registry", () => {
       "process",
       "read_file",
       "replace_in_file",
+      "subagents",
       "web_fetch",
       "write_file"
     ]);
 
     const providerTools = harness.exportProviderTools();
-    expect(providerTools).toHaveLength(7);
+    expect(providerTools).toHaveLength(8);
     for (const tool of providerTools) {
       expect(tool.type).toBe("function");
       expect(typeof tool.parameters).toBe("object");

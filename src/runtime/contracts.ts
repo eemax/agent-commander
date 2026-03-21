@@ -105,6 +105,21 @@ export type Config = {
       redactKeys: string[];
     };
   };
+  subagents: {
+    enabled: boolean;
+    defaultModel: string;
+    maxConcurrentTasks: number;
+    defaultTimeBudgetSec: number;
+    defaultMaxTurns: number;
+    defaultMaxTotalTokens: number;
+    defaultHeartbeatIntervalSec: number;
+    defaultIdleTimeoutSec: number;
+    defaultStallTimeoutSec: number;
+    defaultRequirePlanByTurn: number;
+    recvMaxEvents: number;
+    recvDefaultWaitMs: number;
+    awaitMaxTimeoutMs: number;
+  };
 };
 
 export type RuntimeLogger = {

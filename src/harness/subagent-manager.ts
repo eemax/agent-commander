@@ -1,0 +1,875 @@
+import { createSubagentTaskId, createSubagentEventId } from "../id.js";
+import { createTraceRootContext, createChildTraceContext, type ObservabilitySink, type TraceContext } from "../observability.js";
+import {
+  type TaskState,
+  type TurnOwnership,
+  type EventKind,
+  type SubagentEvent,
+  type SubagentTask,
+  type TaskSnapshot,
+  type SpawnTaskParams,
+  type SpawnResponse,
+  type RecvResponse,
+  type SendResponse,
+  type CancelResponse,
+  type ListTaskSummary,
+  type SupervisorMessage,
+  type SubagentManagerConfig,
+  type SubagentWorker,
+  type AwaitCondition,
+  type BudgetUsage,
+  type TaskConstraints,
+  type TaskExecution,
+  type CompletionContract,
+  type ApprovalPolicy,
+  type ProgressInfo,
+  type TaskResult,
+  type TaskError,
+  NO_OP_WORKER,
+  isTerminal,
+  TERMINAL_STATES
+} from "./subagent-types.js";
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export class SubagentManager {
+  private readonly tasks = new Map<string, SubagentTask>();
+  private readonly events = new Map<string, SubagentEvent[]>();
+  private readonly config: SubagentManagerConfig;
+  private readonly worker: SubagentWorker;
+  private readonly observability: ObservabilitySink | undefined;
+
+  // Per-task trace contexts for observability correlation
+  private readonly taskTraces = new Map<string, TraceContext>();
+
+  // Track latest progress per task for snapshot purposes
+  private readonly latestProgress = new Map<string, ProgressInfo>();
+
+  constructor(config: SubagentManagerConfig, worker?: SubagentWorker, observability?: ObservabilitySink) {
+    this.config = config;
+    this.worker = worker ?? NO_OP_WORKER;
+    this.observability = observability;
+  }
+
+  // ── Observability ──────────────────────────────────────────────────────────
+
+  private emitObs(
+    eventName: string,
+    taskId: string,
+    fields: Record<string, unknown> = {}
+  ): void {
+    if (!this.observability?.enabled) return;
+    const trace = this.taskTraces.get(taskId) ?? createTraceRootContext("subagent");
+    void this.observability.record({
+      event: eventName,
+      trace,
+      taskId,
+      ...fields
+    }).catch(() => {});
+  }
+
+  // ── Private helpers ────────────────────────────────────────────────────────
+
+  private requireTask(taskId: string): SubagentTask {
+    const task = this.tasks.get(taskId);
+    if (!task) {
+      throw new Error(`Unknown task: ${taskId}`);
+    }
+    return task;
+  }
+
+  private requireNonTerminal(task: SubagentTask): void {
+    if (isTerminal(task.state)) {
+      throw new Error(`Task ${task.taskId} is in terminal state: ${task.state}`);
+    }
+  }
+
+  private appendEvent(
+    taskId: string,
+    kind: EventKind,
+    state: TaskState,
+    turnOwnership: TurnOwnership,
+    fields: Partial<Omit<SubagentEvent, "eventId" | "taskId" | "seq" | "ts" | "state" | "kind" | "turnOwnership">> = {}
+  ): SubagentEvent {
+    const task = this.requireTask(taskId);
+    const seq = task.nextSeq++;
+    const event: SubagentEvent = {
+      eventId: createSubagentEventId(),
+      taskId,
+      seq,
+      ts: nowIso(),
+      state,
+      kind,
+      turnOwnership,
+      requiresResponse: fields.requiresResponse ?? false,
+      message: fields.message ?? "",
+      final: fields.final ?? false,
+      ...fields
+    };
+
+    const stream = this.events.get(taskId)!;
+    stream.push(event);
+
+    task.state = state;
+    task.turnOwnership = turnOwnership;
+    task.updatedAt = event.ts;
+
+    if (isTerminal(state)) {
+      task.finishedAt = event.ts;
+      this.clearTimers(task);
+      this.emitObs("subagent.task.terminal", taskId, {
+        state,
+        kind,
+        message: event.message,
+        turnsUsed: task.budgetUsage.turnsUsed,
+        tokensUsed: task.budgetUsage.tokensUsed,
+        elapsedSec: (Date.now() - task.startedAtMs) / 1000,
+        errorCode: event.error?.code ?? null
+      });
+    } else if (state === "needs_steer" || state === "needs_input" || state === "stalled") {
+      this.emitObs("subagent.task.state_change", taskId, {
+        state,
+        kind,
+        turnOwnership,
+        message: event.message
+      });
+    }
+
+    return event;
+  }
+
+  private clearTimers(task: SubagentTask): void {
+    if (task.heartbeatTimer !== null) {
+      clearInterval(task.heartbeatTimer);
+      task.heartbeatTimer = null;
+    }
+    if (task.idleTimer !== null) {
+      clearTimeout(task.idleTimer);
+      task.idleTimer = null;
+    }
+    if (task.stallTimer !== null) {
+      clearTimeout(task.stallTimer);
+      task.stallTimer = null;
+    }
+  }
+
+  private startHeartbeatTimer(task: SubagentTask): void {
+    const intervalMs = task.execution.heartbeatIntervalSec * 1000;
+    task.heartbeatTimer = setInterval(() => {
+      if (isTerminal(task.state)) {
+        this.clearTimers(task);
+        return;
+      }
+      const now = nowIso();
+      task.lastHeartbeatAt = now;
+      task.leaseExpiresAt = new Date(Date.now() + intervalMs).toISOString();
+      this.appendEvent(task.taskId, "heartbeat", task.state, task.turnOwnership, {
+        message: "Heartbeat",
+        leaseExpiresAt: task.leaseExpiresAt
+      });
+    }, intervalMs);
+  }
+
+  private startIdleTimer(task: SubagentTask): void {
+    const idleMs = task.execution.idleTimeoutSec * 1000;
+    const stallMs = task.execution.stallTimeoutSec * 1000;
+
+    task.idleTimer = setTimeout(() => {
+      if (isTerminal(task.state)) return;
+      // Transition to stalled
+      this.appendEvent(task.taskId, "status_change", "stalled", "supervisor", {
+        message: `Task idle for ${task.execution.idleTimeoutSec}s — marked stalled.`,
+        requiresResponse: true
+      });
+
+      // Start stall timeout for final failure
+      task.stallTimer = setTimeout(() => {
+        if (isTerminal(task.state)) return;
+        this.appendEvent(task.taskId, "error", "failed", "none", {
+          message: "Stall timeout exceeded.",
+          final: true,
+          error: {
+            code: "STALL_TIMEOUT",
+            retryable: true
+          }
+        });
+      }, stallMs - idleMs);
+    }, idleMs);
+  }
+
+  private resetIdleTimer(task: SubagentTask): void {
+    if (task.idleTimer !== null) {
+      clearTimeout(task.idleTimer);
+      task.idleTimer = null;
+    }
+    if (task.stallTimer !== null) {
+      clearTimeout(task.stallTimer);
+      task.stallTimer = null;
+    }
+    if (!isTerminal(task.state)) {
+      this.startIdleTimer(task);
+    }
+  }
+
+  private checkBudgets(task: SubagentTask): void {
+    if (isTerminal(task.state)) return;
+
+    const checks: Array<{
+      resource: "turns" | "tokens" | "time";
+      used: number;
+      limit: number;
+      code: "TURN_LIMIT_EXCEEDED" | "TOKEN_BUDGET_EXCEEDED" | "TIME_BUDGET_EXCEEDED";
+    }> = [
+      {
+        resource: "turns",
+        used: task.budgetUsage.turnsUsed,
+        limit: task.constraints.maxTurns,
+        code: "TURN_LIMIT_EXCEEDED"
+      },
+      {
+        resource: "tokens",
+        used: task.budgetUsage.tokensUsed,
+        limit: task.constraints.maxTotalTokens,
+        code: "TOKEN_BUDGET_EXCEEDED"
+      },
+      {
+        resource: "time",
+        used: (Date.now() - task.startedAtMs) / 1000,
+        limit: task.constraints.timeBudgetSec,
+        code: "TIME_BUDGET_EXCEEDED"
+      }
+    ];
+
+    for (const check of checks) {
+      const percent = Math.round((check.used / check.limit) * 100);
+
+      // Hard limit
+      if (check.used >= check.limit) {
+        this.appendEvent(task.taskId, "error", "timed_out", "none", {
+          message: `${check.resource} budget exceeded (${check.used}/${check.limit}).`,
+          final: true,
+          error: {
+            code: check.code,
+            retryable: true
+          }
+        });
+        return;
+      }
+
+      // Warning at 80%
+      const warningKey = `${check.resource}_80`;
+      if (percent >= 80 && !task.budgetUsage.budgetWarnings.has(warningKey)) {
+        task.budgetUsage.budgetWarnings.add(warningKey);
+        this.appendEvent(task.taskId, "budget_warning", task.state, task.turnOwnership, {
+          message: `${check.resource} budget ${percent}% consumed (${check.used}/${check.limit}).`,
+          budget: {
+            resource: check.resource,
+            used: check.used,
+            limit: check.limit,
+            percent
+          }
+        });
+        this.emitObs("subagent.budget.warning", task.taskId, {
+          resource: check.resource,
+          used: check.used,
+          limit: check.limit,
+          percent
+        });
+      }
+    }
+  }
+
+  private checkPlanEnforcement(task: SubagentTask): void {
+    if (isTerminal(task.state)) return;
+    if (task.constraints.requirePlanByTurn <= 0) return;
+    if (task.budgetUsage.planSubmitted) return;
+    if (task.budgetUsage.turnsUsed < task.constraints.requirePlanByTurn) return;
+
+    this.appendEvent(task.taskId, "status_change", "needs_steer", "supervisor", {
+      message: `Subagent has not produced a plan after ${task.constraints.requirePlanByTurn} turns. Provide guidance or cancel.`,
+      requiresResponse: true
+    });
+  }
+
+  private buildConstraints(input?: Partial<TaskConstraints>): TaskConstraints {
+    const approvalPolicy: ApprovalPolicy = {
+      canEditCode: input?.approvalPolicy?.canEditCode ?? true,
+      canRunTests: input?.approvalPolicy?.canRunTests ?? true,
+      canOpenPr: input?.approvalPolicy?.canOpenPr ?? false,
+      requiresSupervisorFor: input?.approvalPolicy?.requiresSupervisorFor ?? []
+    };
+    return {
+      timeBudgetSec: input?.timeBudgetSec ?? this.config.defaultTimeBudgetSec,
+      maxTurns: input?.maxTurns ?? this.config.defaultMaxTurns,
+      maxTotalTokens: input?.maxTotalTokens ?? this.config.defaultMaxTotalTokens,
+      requirePlanByTurn: input?.requirePlanByTurn ?? this.config.defaultRequirePlanByTurn,
+      sandbox: input?.sandbox ?? "repo-write",
+      network: input?.network ?? "off",
+      noChildSpawn: true,
+      approvalPolicy
+    };
+  }
+
+  private buildExecution(input?: Partial<TaskExecution>): TaskExecution {
+    return {
+      agentType: input?.agentType ?? "coding",
+      model: input?.model ?? this.config.defaultModel,
+      heartbeatIntervalSec: input?.heartbeatIntervalSec ?? this.config.defaultHeartbeatIntervalSec,
+      idleTimeoutSec: input?.idleTimeoutSec ?? this.config.defaultIdleTimeoutSec,
+      stallTimeoutSec: input?.stallTimeoutSec ?? this.config.defaultStallTimeoutSec
+    };
+  }
+
+  private buildCompletionContract(input?: Partial<CompletionContract>): CompletionContract {
+    return {
+      requireFinalSummary: input?.requireFinalSummary ?? true,
+      requireStructuredResult: input?.requireStructuredResult ?? true
+    };
+  }
+
+  private toSnapshot(task: SubagentTask): TaskSnapshot {
+    const stream = this.events.get(task.taskId) ?? [];
+    const lastEvent = stream.length > 0 ? stream[stream.length - 1] : null;
+    const progress = this.latestProgress.get(task.taskId) ?? { percent: null, milestone: null };
+
+    let awaiting: TaskSnapshot["awaiting"] = null;
+    if (task.state === "needs_steer") {
+      awaiting = { type: "supervisor", question: lastEvent?.message ?? null, deadlineAt: null };
+    } else if (task.state === "needs_input") {
+      awaiting = { type: "user", question: lastEvent?.message ?? null, deadlineAt: lastEvent?.deadlineAt ?? null };
+    }
+
+    let result: TaskResult | null = null;
+    let error: TaskError | null = null;
+    if (task.state === "completed" && lastEvent?.result) {
+      result = lastEvent.result;
+    }
+    if ((task.state === "failed" || task.state === "timed_out") && lastEvent?.error) {
+      error = lastEvent.error;
+    }
+
+    return {
+      taskId: task.taskId,
+      title: task.title,
+      state: task.state,
+      turnOwnership: task.turnOwnership,
+      startedAt: task.startedAt,
+      updatedAt: task.updatedAt,
+      lastEventId: lastEvent?.eventId ?? null,
+      lastHeartbeatAt: task.lastHeartbeatAt,
+      leaseExpiresAt: task.leaseExpiresAt,
+      turnsUsed: task.budgetUsage.turnsUsed,
+      tokensUsed: task.budgetUsage.tokensUsed,
+      progress,
+      compactedSummary: task.compactedSummary,
+      awaiting,
+      result,
+      error,
+      labels: { ...task.labels }
+    };
+  }
+
+  private toListSummary(task: SubagentTask): ListTaskSummary {
+    const progress = this.latestProgress.get(task.taskId) ?? { percent: null, milestone: null };
+    return {
+      taskId: task.taskId,
+      title: task.title,
+      state: task.state,
+      turnOwnership: task.turnOwnership,
+      progress,
+      updatedAt: task.updatedAt
+    };
+  }
+
+  // ── Public action methods ──────────────────────────────────────────────────
+
+  spawn(ownerId: string, params: SpawnTaskParams): SpawnResponse {
+    // Check concurrency limit
+    let runningCount = 0;
+    for (const t of this.tasks.values()) {
+      if (!isTerminal(t.state)) runningCount++;
+    }
+    if (runningCount >= this.config.maxConcurrentTasks) {
+      throw new Error(`Concurrent task limit reached (${this.config.maxConcurrentTasks})`);
+    }
+
+    const taskId = createSubagentTaskId();
+    const now = nowIso();
+    const constraints = this.buildConstraints(params.constraints);
+    const execution = this.buildExecution(params.execution);
+    const completionContract = this.buildCompletionContract(params.completionContract);
+
+    const task: SubagentTask = {
+      taskId,
+      ownerId,
+      title: params.title,
+      goal: params.goal,
+      instructions: params.instructions,
+      context: params.context ?? {},
+      artifacts: params.artifacts ?? [],
+      constraints,
+      execution,
+      completionContract,
+      labels: params.labels ?? {},
+      state: "queued",
+      turnOwnership: "subagent",
+      budgetUsage: {
+        turnsUsed: 0,
+        tokensUsed: 0,
+        planSubmitted: false,
+        budgetWarnings: new Set()
+      },
+      nextSeq: 0,
+      createdAt: now,
+      startedAt: null,
+      updatedAt: now,
+      finishedAt: null,
+      lastHeartbeatAt: null,
+      leaseExpiresAt: null,
+      compactedSummary: null,
+      heartbeatTimer: null,
+      idleTimer: null,
+      stallTimer: null,
+      startedAtMs: Date.now()
+    };
+
+    this.tasks.set(taskId, task);
+    this.events.set(taskId, []);
+
+    // Create observability trace for this task
+    this.taskTraces.set(taskId, createTraceRootContext("subagent"));
+
+    // Transition: queued -> starting -> running
+    task.state = "starting";
+    task.startedAt = now;
+    const leaseMs = execution.heartbeatIntervalSec * 1000;
+    task.leaseExpiresAt = new Date(Date.now() + leaseMs).toISOString();
+
+    const startedEvent = this.appendEvent(taskId, "started", "running", "subagent", {
+      message: `Task "${params.title}" started.`,
+      leaseExpiresAt: task.leaseExpiresAt
+    });
+
+    // Start runtime timers
+    this.startHeartbeatTimer(task);
+    this.startIdleTimer(task);
+
+    this.emitObs("subagent.task.spawned", taskId, {
+      ownerId,
+      title: params.title,
+      goal: params.goal,
+      constraints: {
+        timeBudgetSec: constraints.timeBudgetSec,
+        maxTurns: constraints.maxTurns,
+        maxTotalTokens: constraints.maxTotalTokens
+      },
+      labels: params.labels
+    });
+
+    // Notify worker (fire-and-forget in v1)
+    void this.worker.start(task).catch(() => {});
+
+    return {
+      taskId,
+      state: "starting",
+      cursor: startedEvent.eventId,
+      leaseExpiresAt: task.leaseExpiresAt!,
+      startedAt: task.startedAt!
+    };
+  }
+
+  recv(
+    tasks: Record<string, string>,
+    waitMs?: number,
+    maxEvents?: number
+  ): RecvResponse {
+    const effectiveWaitMs = waitMs ?? this.config.recvDefaultWaitMs;
+    const effectiveMaxEvents = Math.min(
+      maxEvents ?? this.config.recvMaxEvents,
+      this.config.recvMaxEvents
+    );
+
+    const collectEvents = (): { events: SubagentEvent[]; cursors: Record<string, string> } => {
+      const allEvents: SubagentEvent[] = [];
+      const cursors: Record<string, string> = {};
+
+      for (const [taskId, lastCursor] of Object.entries(tasks)) {
+        const stream = this.events.get(taskId);
+        if (!stream) {
+          cursors[taskId] = lastCursor;
+          continue;
+        }
+
+        // Find events after the cursor
+        let startIdx = 0;
+        if (lastCursor) {
+          const cursorIdx = stream.findIndex((e) => e.eventId === lastCursor);
+          if (cursorIdx >= 0) {
+            startIdx = cursorIdx + 1;
+          }
+        }
+
+        const newEvents = stream.slice(startIdx);
+        allEvents.push(...newEvents);
+
+        const lastEvent = newEvents.length > 0 ? newEvents[newEvents.length - 1] : null;
+        cursors[taskId] = lastEvent ? lastEvent.eventId : lastCursor;
+      }
+
+      // Sort by timestamp, then limit
+      allEvents.sort((a, b) => a.ts.localeCompare(b.ts));
+      const limited = allEvents.slice(0, effectiveMaxEvents);
+
+      // Update cursors based on which events were actually returned
+      const returnedIds = new Set(limited.map((e) => e.eventId));
+      for (const [taskId] of Object.entries(tasks)) {
+        const stream = this.events.get(taskId);
+        if (!stream) continue;
+        // Find the last returned event for this task
+        for (let i = stream.length - 1; i >= 0; i--) {
+          if (returnedIds.has(stream[i].eventId)) {
+            cursors[taskId] = stream[i].eventId;
+            break;
+          }
+        }
+      }
+
+      return { events: limited, cursors };
+    };
+
+    // Immediate collection (no async wait in v1 — await_ handles blocking)
+    const result = collectEvents();
+
+    // If no events and waitMs > 0, we still return immediately in the sync path.
+    // The tool layer can implement short-polling via await_ action instead.
+    if (result.events.length === 0 && effectiveWaitMs > 0) {
+      // Return empty — caller should use await action for blocking behavior.
+    }
+
+    return result;
+  }
+
+  send(taskId: string, message: SupervisorMessage): SendResponse {
+    const task = this.requireTask(taskId);
+
+    if (isTerminal(task.state)) {
+      throw new Error(`Cannot send to task ${taskId} in terminal state: ${task.state}`);
+    }
+
+    if (task.turnOwnership === "subagent") {
+      throw new Error(`Cannot send to task ${taskId}: turn ownership is "subagent" (worker is busy). Use cancel to interrupt.`);
+    }
+
+    const directiveType = message.directiveType ?? "guidance";
+
+    const event = this.appendEvent(taskId, "status_change", "running", "subagent", {
+      message: `Supervisor ${directiveType}: ${message.content.slice(0, 200)}`,
+    });
+
+    // Reset idle timer on supervisor interaction
+    this.resetIdleTimer(task);
+
+    this.emitObs("subagent.supervisor.sent", taskId, {
+      directiveType,
+      contentLength: message.content.length
+    });
+
+    // Notify worker
+    void this.worker.send(taskId, message).catch(() => {});
+
+    return {
+      taskId,
+      accepted: true,
+      state: task.state,
+      cursor: event.eventId
+    };
+  }
+
+  inspect(taskId: string): TaskSnapshot {
+    const task = this.requireTask(taskId);
+    return this.toSnapshot(task);
+  }
+
+  list(filter?: {
+    states?: string[];
+    labels?: Record<string, string>;
+  }): ListTaskSummary[] {
+    const results: ListTaskSummary[] = [];
+
+    for (const task of this.tasks.values()) {
+      // Filter by states
+      if (filter?.states && filter.states.length > 0) {
+        if (!filter.states.includes(task.state)) continue;
+      }
+
+      // Filter by labels
+      if (filter?.labels) {
+        let match = true;
+        for (const [key, value] of Object.entries(filter.labels)) {
+          if (task.labels[key] !== value) {
+            match = false;
+            break;
+          }
+        }
+        if (!match) continue;
+      }
+
+      results.push(this.toListSummary(task));
+    }
+
+    return results;
+  }
+
+  cancel(taskId: string, reason: string): CancelResponse {
+    const task = this.requireTask(taskId);
+
+    if (isTerminal(task.state)) {
+      throw new Error(`Task ${taskId} is already in terminal state: ${task.state}`);
+    }
+
+    const event = this.appendEvent(taskId, "status_change", "cancelled", "none", {
+      message: `Cancelled: ${reason}`,
+      final: true
+    });
+
+    // Notify worker
+    void this.worker.stop(taskId, reason).catch(() => {});
+
+    return {
+      taskId,
+      state: "cancelled",
+      finalEventId: event.eventId
+    };
+  }
+
+  async await_(
+    taskId: string,
+    until: AwaitCondition[],
+    timeoutMs: number
+  ): Promise<RecvResponse> {
+    const effectiveTimeout = Math.min(timeoutMs, this.config.awaitMaxTimeoutMs);
+    const task = this.requireTask(taskId);
+    const stream = this.events.get(taskId) ?? [];
+
+    // If the task is already terminal and we're waiting for terminal, return immediately
+    // with the terminal event(s).
+    if (isTerminal(task.state) && until.includes("terminal")) {
+      const terminalEvents = stream.filter((e) => e.final);
+      return {
+        events: terminalEvents,
+        cursors: {
+          [taskId]: terminalEvents.length > 0
+            ? terminalEvents[terminalEvents.length - 1].eventId
+            : (stream.length > 0 ? stream[stream.length - 1].eventId : "")
+        }
+      };
+    }
+
+    const startSeq = stream.length > 0 ? stream[stream.length - 1].seq : -1;
+    const deadline = Date.now() + effectiveTimeout;
+    const pollIntervalMs = 50;
+
+    while (Date.now() < deadline) {
+      const currentStream = this.events.get(taskId) ?? [];
+      const newEvents = currentStream.filter((e) => e.seq > startSeq);
+
+      for (const event of newEvents) {
+        const matched =
+          (until.includes("terminal") && event.final) ||
+          (until.includes("requires_response") && event.requiresResponse) ||
+          (until.includes("any_event")) ||
+          (until.includes("progress") && (event.kind === "progress" || event.kind === "checkpoint"));
+
+        if (matched) {
+          return {
+            events: newEvents,
+            cursors: { [taskId]: newEvents[newEvents.length - 1].eventId }
+          };
+        }
+      }
+
+      await sleep(pollIntervalMs);
+    }
+
+    // Timeout — return whatever we have
+    const finalStream = this.events.get(taskId) ?? [];
+    const timedOutEvents = finalStream.filter((e) => e.seq > startSeq);
+    return {
+      events: timedOutEvents,
+      cursors: {
+        [taskId]: timedOutEvents.length > 0
+          ? timedOutEvents[timedOutEvents.length - 1].eventId
+          : (finalStream.length > 0 ? finalStream[finalStream.length - 1].eventId : "")
+      }
+    };
+  }
+
+  // ── Worker integration (called by workers to push events) ──────────────────
+
+  pushWorkerEvent(
+    taskId: string,
+    kind: EventKind,
+    fields: {
+      message: string;
+      turnOwnership?: TurnOwnership;
+      requiresResponse?: boolean;
+      progress?: ProgressInfo;
+      options?: SubagentEvent["options"];
+      blockedAction?: SubagentEvent["blockedAction"];
+      attachments?: SubagentEvent["attachments"];
+      result?: TaskResult;
+      partialResult?: TaskResult;
+      error?: TaskError;
+      checkpoint?: SubagentEvent["checkpoint"];
+      deadlineAt?: string;
+    }
+  ): SubagentEvent {
+    const task = this.requireTask(taskId);
+    this.requireNonTerminal(task);
+
+    // Determine target state and turn ownership
+    let targetState: TaskState = task.state;
+    let targetOwnership: TurnOwnership = fields.turnOwnership ?? task.turnOwnership;
+    let isFinal = false;
+
+    switch (kind) {
+      case "result":
+        targetState = "completed";
+        targetOwnership = "none";
+        isFinal = true;
+        break;
+      case "error":
+        targetState = "failed";
+        targetOwnership = "none";
+        isFinal = true;
+        break;
+      case "decision_request":
+      case "question":
+        targetState = "needs_steer";
+        targetOwnership = "supervisor";
+        break;
+      case "input_request":
+        targetState = "needs_input";
+        targetOwnership = "user";
+        break;
+      case "progress":
+      case "observation":
+      case "artifact":
+      case "warning":
+        targetState = "running";
+        targetOwnership = "subagent";
+        break;
+      case "checkpoint":
+        targetState = "running";
+        targetOwnership = "subagent";
+        // Mark plan as submitted if checkpoint has a plan
+        if (fields.checkpoint?.plan) {
+          task.budgetUsage.planSubmitted = true;
+        }
+        break;
+    }
+
+    // Update progress tracking
+    if (fields.progress) {
+      this.latestProgress.set(taskId, fields.progress);
+    }
+
+    const event = this.appendEvent(taskId, kind, targetState, targetOwnership, {
+      message: fields.message,
+      requiresResponse: fields.requiresResponse ?? (targetOwnership === "supervisor" || targetOwnership === "user"),
+      final: isFinal,
+      progress: fields.progress,
+      options: fields.options,
+      blockedAction: fields.blockedAction,
+      attachments: fields.attachments,
+      result: fields.result,
+      partialResult: fields.partialResult,
+      error: fields.error,
+      checkpoint: fields.checkpoint,
+      deadlineAt: fields.deadlineAt
+    });
+
+    // Reset idle timer on activity
+    this.resetIdleTimer(task);
+
+    return event;
+  }
+
+  recordTurnUsed(taskId: string): void {
+    const task = this.requireTask(taskId);
+    if (isTerminal(task.state)) return;
+    task.budgetUsage.turnsUsed++;
+    this.checkBudgets(task);
+    this.checkPlanEnforcement(task);
+  }
+
+  recordTokensUsed(taskId: string, count: number): void {
+    const task = this.requireTask(taskId);
+    if (isTerminal(task.state)) return;
+    task.budgetUsage.tokensUsed += count;
+    this.checkBudgets(task);
+  }
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
+
+  shutdown(): void {
+    for (const task of this.tasks.values()) {
+      if (!isTerminal(task.state)) {
+        this.clearTimers(task);
+        task.state = "cancelled";
+        task.finishedAt = nowIso();
+        task.updatedAt = task.finishedAt;
+        // Append terminal event without going through appendEvent to avoid
+        // re-entrance issues during shutdown.
+        const stream = this.events.get(task.taskId);
+        if (stream) {
+          stream.push({
+            eventId: createSubagentEventId(),
+            taskId: task.taskId,
+            seq: task.nextSeq++,
+            ts: task.finishedAt,
+            state: "cancelled",
+            kind: "status_change",
+            turnOwnership: "none",
+            requiresResponse: false,
+            message: "Shutdown: all tasks cancelled.",
+            final: true
+          });
+        }
+        void this.worker.stop(task.taskId, "shutdown").catch(() => {});
+      }
+    }
+  }
+
+  getHealth(): {
+    totalTasks: number;
+    runningTasks: number;
+    completedTasks: number;
+    failedTasks: number;
+    cancelledTasks: number;
+  } {
+    let running = 0;
+    let completed = 0;
+    let failed = 0;
+    let cancelled = 0;
+    for (const task of this.tasks.values()) {
+      if (task.state === "completed") completed++;
+      else if (task.state === "failed" || task.state === "timed_out") failed++;
+      else if (task.state === "cancelled") cancelled++;
+      else running++;
+    }
+    return {
+      totalTasks: this.tasks.size,
+      runningTasks: running,
+      completedTasks: completed,
+      failedTasks: failed,
+      cancelledTasks: cancelled
+    };
+  }
+}

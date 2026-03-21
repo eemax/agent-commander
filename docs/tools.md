@@ -215,6 +215,112 @@ Fetch content from a URL and extract as markdown.
 - Max buffer: 8 MB
 - Fails if `defuddle` is not installed or returns empty output
 
+### `subagents`
+
+Manage subagent tasks — disposable, protocol-driven work sessions. Uses a discriminated union on `action`.
+
+#### `action: "spawn"`
+
+Create and start a new subagent task.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task.title` | string | yes | Short human-readable label |
+| `task.goal` | string | yes | What success looks like |
+| `task.instructions` | string | yes | Behavioral guidance for the subagent |
+| `task.context` | object | no | Arbitrary key-value context |
+| `task.artifacts` | array | no | Files/resources available to subagent |
+| `task.constraints` | object | no | Budget and policy overrides (see below) |
+| `task.execution` | object | no | Agent type, model, liveness config |
+| `task.completion_contract` | object | no | Require summary/structured result |
+| `task.labels` | object | no | Arbitrary string labels for filtering |
+
+**Constraints (all optional, defaults from config):**
+- `time_budget_sec`, `max_turns`, `max_total_tokens` — budget limits
+- `require_plan_by_turn` — plan enforcement deadline (0 to disable)
+- `sandbox`, `network` — execution environment
+- `approval_policy` — action permissions (`can_edit_code`, `can_run_tests`, `can_open_pr`, `requires_supervisor_for`)
+
+**Returns:** `taskId`, `state`, `cursor`, `leaseExpiresAt`, `startedAt`
+
+#### `action: "recv"`
+
+Poll events from one or more tasks. Non-blocking.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tasks` | object | yes | Map of `taskId → lastCursor` |
+| `wait_ms` | integer | no | Long-poll wait (default from config) |
+| `max_events` | integer | no | Max events returned (capped by config) |
+
+**Returns:** `events` array, `cursors` map (updated per-task cursors for next call)
+
+#### `action: "send"`
+
+Send a steering message to a task that needs input.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | string | yes | Target task |
+| `message.role` | `"supervisor"` | yes | Always "supervisor" |
+| `message.content` | string | yes | Message content |
+| `message.directive_type` | string | no | `guidance` (default), `correction`, `override`, `approval`, `answer` |
+
+Only valid when `turn_ownership` is `supervisor` or `user`. Returns error if task is terminal or worker is busy.
+
+#### `action: "inspect"`
+
+Get current snapshot of a task.
+
+| Parameter | Type | Required |
+|-----------|------|----------|
+| `task_id` | string | yes |
+
+**Returns:** Full `TaskSnapshot` including state, progress, budget usage, awaiting info, result/error.
+
+#### `action: "list"`
+
+List tasks matching optional filters.
+
+| Parameter | Type | Required |
+|-----------|------|----------|
+| `filter.states` | string[] | no |
+| `filter.labels` | object | no |
+
+#### `action: "cancel"`
+
+Terminate a task from any non-terminal state.
+
+| Parameter | Type | Required |
+|-----------|------|----------|
+| `task_id` | string | yes |
+| `reason` | string | yes |
+
+#### `action: "await"`
+
+Block until a condition is met or timeout.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `task_id` | string | yes | Task to wait on |
+| `until` | string[] | yes | Conditions: `requires_response`, `terminal`, `any_event`, `progress` |
+| `timeout_ms` | integer | yes | Max wait (capped by config `await_max_timeout_ms`) |
+
+**Task lifecycle:**
+- Tasks transition through: `queued → starting → running` on spawn
+- Runtime emits heartbeats, detects stalls, enforces budgets (turns, tokens, time)
+- Budget warnings emitted at 80% usage; hard cutoff at 100% → `timed_out`
+- Plan enforcement: if no checkpoint with plan by `require_plan_by_turn`, task → `needs_steer`
+- Terminal states: `completed`, `failed`, `cancelled`, `timed_out`
+- Every spawned task is guaranteed to reach a terminal state
+
+**Observability events:**
+- `subagent.task.spawned` — task created
+- `subagent.task.state_change` — non-terminal state transitions (`needs_steer`, `needs_input`, `stalled`)
+- `subagent.task.terminal` — task reached terminal state
+- `subagent.budget.warning` — budget 80% threshold crossed
+- `subagent.supervisor.sent` — supervisor message delivered
+
 ## Tool registry internals
 
 Tools are registered at startup via `ToolRegistry`. Schema conversion for OpenAI:

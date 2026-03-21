@@ -190,6 +190,73 @@ function normalizeWebFetchArgs(args: unknown): Record<string, unknown> {
   });
 }
 
+function normalizeSubagentsArgs(args: unknown): Record<string, unknown> {
+  const source = asRecord(args);
+  const action = readNonEmptyString(firstDefined(source, ["action", "op", "cmd"]))?.toLowerCase();
+
+  switch (action) {
+    case "spawn":
+      return dropUndefined({ action: "spawn", task: source.task });
+    case "recv":
+      return dropUndefined({
+        action: "recv",
+        tasks: source.tasks,
+        wait_ms: readPositiveInt(firstDefined(source, ["wait_ms", "waitMs", "wait"])),
+        max_events: readPositiveInt(firstDefined(source, ["max_events", "maxEvents", "limit"]))
+      });
+    case "send":
+      return dropUndefined({
+        action: "send",
+        task_id: readNonEmptyString(firstDefined(source, ["task_id", "taskId", "task"])),
+        message: source.message
+      });
+    case "inspect":
+      return dropUndefined({
+        action: "inspect",
+        task_id: readNonEmptyString(firstDefined(source, ["task_id", "taskId", "task"]))
+      });
+    case "list":
+      return dropUndefined({ action: "list", filter: source.filter });
+    case "cancel":
+      return dropUndefined({
+        action: "cancel",
+        task_id: readNonEmptyString(firstDefined(source, ["task_id", "taskId", "task"])),
+        reason: readNonEmptyString(firstDefined(source, ["reason", "message"]))
+      });
+    case "await":
+      return dropUndefined({
+        action: "await",
+        task_id: readNonEmptyString(firstDefined(source, ["task_id", "taskId", "task"])),
+        until: source.until,
+        timeout_ms: readPositiveInt(firstDefined(source, ["timeout_ms", "timeoutMs", "timeout"]))
+      });
+    default:
+      return dropUndefined({ action, ...source });
+  }
+}
+
+function getSubagentsExpectedShape(args: Record<string, unknown>): ToolExpectedShape {
+  const action = readNonEmptyString(args.action)?.toLowerCase();
+  switch (action) {
+    case "spawn":
+      return { action: "spawn", required: ["action", "task"], optional: [] };
+    case "recv":
+      return { action: "recv", required: ["action", "tasks"], optional: ["wait_ms", "max_events"] };
+    case "send":
+      return { action: "send", required: ["action", "task_id", "message"], optional: [] };
+    case "inspect":
+      return { action: "inspect", required: ["action", "task_id"], optional: [] };
+    case "list":
+      return { action: "list", required: ["action"], optional: ["filter"] };
+    case "cancel":
+      return { action: "cancel", required: ["action", "task_id", "reason"], optional: [] };
+    case "await":
+      return { action: "await", required: ["action", "task_id", "until", "timeout_ms"], optional: [] };
+    default:
+      return { required: ["action"], optional: ["task", "tasks", "task_id", "message", "filter", "reason", "until", "timeout_ms", "wait_ms", "max_events"] };
+  }
+}
+
 function getProcessExpectedShape(args: Record<string, unknown>): ToolExpectedShape {
   const action = readNonEmptyString(args.action)?.toLowerCase();
   switch (action) {
@@ -236,6 +303,8 @@ export function getExpectedShapeForTool(tool: string, args: Record<string, unkno
         required: ["url"],
         optional: []
       };
+    case "subagents":
+      return getSubagentsExpectedShape(args);
     default:
       return undefined;
   }
@@ -259,6 +328,8 @@ export function normalizeToolArgs(tool: string, args: unknown): Record<string, u
       return normalizeWebSearchArgs(args);
     case "web_fetch":
       return normalizeWebFetchArgs(args);
+    case "subagents":
+      return normalizeSubagentsArgs(args);
     default:
       return asRecord(args);
   }

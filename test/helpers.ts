@@ -116,6 +116,21 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
         maxStringChars: 4_000,
         redactKeys: ["authorization", "api_key", "token", "secret", "password", "cookie", "set-cookie"]
       }
+    },
+    subagents: {
+      enabled: true,
+      defaultModel: "gpt-4.1-mini",
+      maxConcurrentTasks: 10,
+      defaultTimeBudgetSec: 900,
+      defaultMaxTurns: 30,
+      defaultMaxTotalTokens: 500_000,
+      defaultHeartbeatIntervalSec: 30,
+      defaultIdleTimeoutSec: 120,
+      defaultStallTimeoutSec: 300,
+      defaultRequirePlanByTurn: 3,
+      recvMaxEvents: 100,
+      recvDefaultWaitMs: 200,
+      awaitMaxTimeoutMs: 30_000
     }
   };
 
@@ -159,6 +174,10 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
         ...base.observability.redaction,
         ...overrides.observability?.redaction
       }
+    },
+    subagents: {
+      ...base.subagents,
+      ...overrides.subagents
     }
   };
 }

@@ -17,3 +17,11 @@ export function createTraceId(): string {
 export function createSpanId(): string {
   return `span_${nextUlid()}`;
 }
+
+export function createSubagentTaskId(): string {
+  return `satask_${nextUlid()}`;
+}
+
+export function createSubagentEventId(): string {
+  return `saevt_${nextUlid()}`;
+}

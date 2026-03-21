@@ -74,8 +74,10 @@ Agent Commander is intentionally small:
 ### Harness
 
 - `src/harness/*`
-  Local trusted tool harness (`bash`, `process`, `read_file`, `write_file`, `replace_in_file`, `apply_patch`, `web_fetch`, optional `web_search`) with owner-scoped process sessions and shared path utilities. See [tools.md](tools.md) for the full tool reference.
+  Local trusted tool harness (`bash`, `process`, `read_file`, `write_file`, `replace_in_file`, `apply_patch`, `web_fetch`, optional `web_search`, optional `subagents`) with owner-scoped process sessions and shared path utilities. See [tools.md](tools.md) for the full tool reference.
   Exported tool schemas are normalized for OpenAI Responses function tools (`parameters` is always a JSON Schema object root with `type: "object"` and no top-level `anyOf`/`oneOf`/`allOf`/`enum`/`not`).
+- `src/harness/subagent-*.ts`
+  Managed subagent task system: typed event protocol with explicit state transitions, turn ownership, budget enforcement (turns/tokens/time), heartbeat-based liveness tracking, plan enforcement, and approval policies. `SubagentManager` is the stateful core (like `ProcessManager`); `subagent-tool.ts` exposes 7 actions (`spawn`, `recv`, `send`, `inspect`, `list`, `cancel`, `await`) via a discriminated-union tool. v1 uses a `NoOpWorker` — the protocol surface is complete without real LLM worker execution.
 
 ### Routing
 

@@ -102,6 +102,21 @@ const DEFAULT_CONFIG_TEMPLATE = {
       max_string_chars: DEFAULT_OBSERVABILITY_REDACTION.maxStringChars,
       redact_keys: [...DEFAULT_OBSERVABILITY_REDACTION.redactKeys]
     }
+  },
+  subagents: {
+    enabled: true,
+    default_model: "gpt-4.1-mini",
+    max_concurrent_tasks: 10,
+    default_time_budget_sec: 900,
+    default_max_turns: 30,
+    default_max_total_tokens: 500_000,
+    default_heartbeat_interval_sec: 30,
+    default_idle_timeout_sec: 120,
+    default_stall_timeout_sec: 300,
+    default_require_plan_by_turn: 3,
+    recv_max_events: 100,
+    recv_default_wait_ms: 200,
+    await_max_timeout_ms: 30_000
   }
 } as const;
 
@@ -227,7 +242,25 @@ export const configSchema = z
           .strict()
           .default({})
       })
+      .strict(),
+    subagents: z
+      .object({
+        enabled: z.boolean().default(DEFAULT_CONFIG_TEMPLATE.subagents.enabled),
+        default_model: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.subagents.default_model),
+        max_concurrent_tasks: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.max_concurrent_tasks),
+        default_time_budget_sec: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.default_time_budget_sec),
+        default_max_turns: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.default_max_turns),
+        default_max_total_tokens: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.default_max_total_tokens),
+        default_heartbeat_interval_sec: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.default_heartbeat_interval_sec),
+        default_idle_timeout_sec: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.default_idle_timeout_sec),
+        default_stall_timeout_sec: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.default_stall_timeout_sec),
+        default_require_plan_by_turn: nonNegativeInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.default_require_plan_by_turn),
+        recv_max_events: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.recv_max_events),
+        recv_default_wait_ms: nonNegativeInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.recv_default_wait_ms),
+        await_max_timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.await_max_timeout_ms)
+      })
       .strict()
+      .default({})
   })
   .strict();
 
@@ -492,6 +525,27 @@ export function buildConfigFromParsed(
   const openAIModels = normalizeOpenAIModels(config.openai.models, config.openai.model);
   const webSearchModels = normalizeWebSearchModels(config.tools.web_search.presets, config.tools.web_search.default_preset);
 
+  // Resolve subagent default model against the model catalog (supports aliases).
+  // Falls back to openai.model when the configured default_model matches the
+  // template default and isn't in the catalog (i.e. user didn't explicitly set it).
+  const subagentDefaultModelInput = config.subagents.default_model;
+  const resolvedSubagentModel = openAIModels.find((m) => {
+    const norm = subagentDefaultModelInput.trim().toLowerCase();
+    return m.id.toLowerCase() === norm || m.aliases.some((a) => a.toLowerCase() === norm);
+  });
+  const subagentDefaultModel = resolvedSubagentModel
+    ? resolvedSubagentModel.id
+    : (() => {
+        // If user explicitly set a model that doesn't exist, that's an error.
+        // If it's the template default that doesn't match, fall back to openai.model.
+        if (subagentDefaultModelInput !== DEFAULT_CONFIG_TEMPLATE.subagents.default_model) {
+          throw new Error(
+            `config.subagents.default_model '${subagentDefaultModelInput}' does not match any model in config.openai.models (checked IDs and aliases)`
+          );
+        }
+        return config.openai.model;
+      })();
+
   const workspaceRoot = resolveConfigPath(repoRoot, config.paths.workspace_root);
   const defaultCwdInput = config.tools.default_cwd ?? config.paths.workspace_root;
 
@@ -565,6 +619,21 @@ export function buildConfigFromParsed(
         maxStringChars: config.observability.redaction.max_string_chars,
         redactKeys: [...config.observability.redaction.redact_keys]
       }
+    },
+    subagents: {
+      enabled: config.subagents.enabled,
+      defaultModel: subagentDefaultModel,
+      maxConcurrentTasks: config.subagents.max_concurrent_tasks,
+      defaultTimeBudgetSec: config.subagents.default_time_budget_sec,
+      defaultMaxTurns: config.subagents.default_max_turns,
+      defaultMaxTotalTokens: config.subagents.default_max_total_tokens,
+      defaultHeartbeatIntervalSec: config.subagents.default_heartbeat_interval_sec,
+      defaultIdleTimeoutSec: config.subagents.default_idle_timeout_sec,
+      defaultStallTimeoutSec: config.subagents.default_stall_timeout_sec,
+      defaultRequirePlanByTurn: config.subagents.default_require_plan_by_turn,
+      recvMaxEvents: config.subagents.recv_max_events,
+      recvDefaultWaitMs: config.subagents.recv_default_wait_ms,
+      awaitMaxTimeoutMs: config.subagents.await_max_timeout_ms
     }
   };
 }

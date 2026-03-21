@@ -3,6 +3,7 @@ import type { ObservabilitySink, TraceContext } from "../observability.js";
 import type { ToolErrorCode } from "../types.js";
 import type { ToolCallLogger } from "./logger.js";
 import type { ProcessManager } from "./process-manager.js";
+import type { SubagentManager } from "./subagent-manager.js";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -25,6 +26,21 @@ export type HarnessConfig = {
     defaultPreset: string;
     presets: import("../web-search-catalog.js").WebSearchModelCatalogEntry[];
   };
+  subagents?: {
+    enabled: boolean;
+    defaultModel: string;
+    maxConcurrentTasks: number;
+    defaultTimeBudgetSec: number;
+    defaultMaxTurns: number;
+    defaultMaxTotalTokens: number;
+    defaultHeartbeatIntervalSec: number;
+    defaultIdleTimeoutSec: number;
+    defaultStallTimeoutSec: number;
+    defaultRequirePlanByTurn: number;
+    recvMaxEvents: number;
+    recvDefaultWaitMs: number;
+    awaitMaxTimeoutMs: number;
+  };
 };
 
 export type ToolContext = {
@@ -36,6 +52,7 @@ export type ToolContext = {
   trace?: TraceContext;
   observability?: ObservabilitySink;
   abortSignal?: AbortSignal;
+  subagentManager?: SubagentManager;
 };
 
 export type ToolDef<TSchema extends ZodTypeAny = ZodTypeAny> = {

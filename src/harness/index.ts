@@ -8,6 +8,8 @@ import { bashTool, processTool } from "./shell-tools.js";
 import { readFileTool, replaceInFileTool, writeFileTool } from "./file-tools.js";
 import { createWebSearchTool, type WebSearchClientFactory } from "./web-search-tool.js";
 import { createWebFetchTool, type DefuddleRunner } from "./web-fetch-tool.js";
+import { SubagentManager } from "./subagent-manager.js";
+import { subagentsTool } from "./subagent-tool.js";
 import type { HarnessConfig, JsonValue, ProviderFunctionTool, ToolContext, ToolRuntimeMetrics } from "./types.js";
 
 export type ToolHarness = {
@@ -55,6 +57,28 @@ export function createToolHarness(
     workflowLoopBreakerTrips: 0
   };
 
+  const subagentConfig = config.subagents;
+  const subagentManager = subagentConfig?.enabled !== false
+    ? new SubagentManager(
+        {
+          defaultModel: subagentConfig?.defaultModel ?? "gpt-4.1-mini",
+          maxConcurrentTasks: subagentConfig?.maxConcurrentTasks ?? 10,
+          defaultTimeBudgetSec: subagentConfig?.defaultTimeBudgetSec ?? 900,
+          defaultMaxTurns: subagentConfig?.defaultMaxTurns ?? 30,
+          defaultMaxTotalTokens: subagentConfig?.defaultMaxTotalTokens ?? 500_000,
+          defaultHeartbeatIntervalSec: subagentConfig?.defaultHeartbeatIntervalSec ?? 30,
+          defaultIdleTimeoutSec: subagentConfig?.defaultIdleTimeoutSec ?? 120,
+          defaultStallTimeoutSec: subagentConfig?.defaultStallTimeoutSec ?? 300,
+          defaultRequirePlanByTurn: subagentConfig?.defaultRequirePlanByTurn ?? 3,
+          recvMaxEvents: subagentConfig?.recvMaxEvents ?? 100,
+          recvDefaultWaitMs: subagentConfig?.recvDefaultWaitMs ?? 200,
+          awaitMaxTimeoutMs: subagentConfig?.awaitMaxTimeoutMs ?? 30_000
+        },
+        undefined,
+        deps.observability
+      )
+    : undefined;
+
   const context: ToolContext = {
     config: {
       ...config,
@@ -66,7 +90,8 @@ export function createToolHarness(
     metrics,
     ownerId: null,
     trace: undefined,
-    observability: deps.observability
+    observability: deps.observability,
+    subagentManager
   };
 
   const registry = new ToolRegistry();
@@ -95,6 +120,9 @@ export function createToolHarness(
         }
       )
     );
+  }
+  if (subagentManager) {
+    registry.register(subagentsTool);
   }
 
   const executeScoped = (

@@ -5,7 +5,7 @@
     "assistant_format": "markdown_to_html"
   },
   "openai": {
-    "model": "gpt-5-mini-2025-08-07",
+    "model": "gpt-5.3-codex",
     "models": [
       {
         "id": "gpt-5.3-codex",
@@ -17,7 +17,7 @@
         "aliases": [ "codex" ]
       },
       {
-        "id": "gpt-5-mini-2025-08-07",
+        "id": "gpt-5.4-mini",
         "context_window": 400000,
         "max_output_tokens": 128000,
         "default_thinking": "medium",
@@ -92,5 +92,20 @@
         "set-cookie"
       ]
     }
+  },
+  "subagents": {
+    "enabled": true,
+    "default_model": "gpt-5.4-mini",
+    "max_concurrent_tasks": 10,
+    "default_time_budget_sec": 900,
+    "default_max_turns": 30,
+    "default_max_total_tokens": 500000,
+    "default_heartbeat_interval_sec": 30,
+    "default_idle_timeout_sec": 120,
+    "default_stall_timeout_sec": 300,
+    "default_require_plan_by_turn": 3,
+    "recv_max_events": 100,
+    "recv_default_wait_ms": 200,
+    "await_max_timeout_ms": 30000
   }
 }
