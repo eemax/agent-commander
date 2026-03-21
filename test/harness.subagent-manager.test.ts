@@ -628,6 +628,58 @@ describe("SubagentManager", () => {
       expect(result.events.some((e) => e.state === "cancelled")).toBe(true);
       localManager.shutdown();
     });
+
+    it("finds pre-existing qualifying events when cursor is provided", async () => {
+      vi.useRealTimers();
+      const localManager = new SubagentManager(makeConfig());
+      const response = localManager.spawn("owner-1", makeSpawnParams());
+      const spawnCursor = response.cursor;
+
+      // Push a question event (requiresResponse) BEFORE calling await_
+      localManager.pushWorkerEvent(response.taskId, "question", {
+        message: "What should I do?"
+      });
+
+      // Push a heartbeat AFTER the question
+      localManager.pushWorkerEvent(response.taskId, "heartbeat", {
+        message: "still alive"
+      });
+
+      // With cursor from spawn: sees both events including the question
+      const result = await localManager.await_(
+        response.taskId,
+        ["requires_response"],
+        1000,
+        spawnCursor
+      );
+
+      expect(result.events.some((e) => e.requiresResponse)).toBe(true);
+      expect(result.events.some((e) => e.kind === "question")).toBe(true);
+      localManager.shutdown();
+    });
+
+    it("without cursor, only sees events arriving after the call", async () => {
+      vi.useRealTimers();
+      const localManager = new SubagentManager(makeConfig());
+      const response = localManager.spawn("owner-1", makeSpawnParams());
+
+      // Push a question event before calling await_ (without cursor)
+      localManager.pushWorkerEvent(response.taskId, "question", {
+        message: "What should I do?"
+      });
+
+      // Without cursor, await_ starts from the last event (the question itself).
+      // No new requires_response events arrive, so it should timeout.
+      const result = await localManager.await_(
+        response.taskId,
+        ["requires_response"],
+        200
+      );
+
+      // Timed out — no NEW requires_response events after the last one
+      expect(result.events.length).toBe(0);
+      localManager.shutdown();
+    });
   });
 
   // ── Shutdown ──────────────────────────────────────────────────────────────

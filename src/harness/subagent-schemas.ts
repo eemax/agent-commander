@@ -101,7 +101,8 @@ const awaitSchema = z.object({
   action: z.literal("await"),
   task_id: z.string().min(1),
   until: z.array(z.enum(["requires_response", "terminal", "any_event", "progress"])).min(1),
-  timeout_ms: z.number().int().positive()
+  timeout_ms: z.number().int().positive(),
+  cursor: z.string().optional()
 });
 
 // --- Combined discriminated union --------------------------------------------

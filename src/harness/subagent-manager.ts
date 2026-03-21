@@ -675,7 +675,8 @@ export class SubagentManager {
   async await_(
     taskId: string,
     until: AwaitCondition[],
-    timeoutMs: number
+    timeoutMs: number,
+    cursor?: string
   ): Promise<RecvResponse> {
     const effectiveTimeout = Math.min(timeoutMs, this.config.awaitMaxTimeoutMs);
     const task = this.requireTask(taskId);
@@ -695,7 +696,13 @@ export class SubagentManager {
       };
     }
 
-    const startSeq = stream.length > 0 ? stream[stream.length - 1].seq : -1;
+    let startSeq: number;
+    if (cursor) {
+      const cursorIdx = stream.findIndex((e) => e.eventId === cursor);
+      startSeq = cursorIdx >= 0 ? stream[cursorIdx].seq : -1;
+    } else {
+      startSeq = stream.length > 0 ? stream[stream.length - 1].seq : -1;
+    }
     const deadline = Date.now() + effectiveTimeout;
     const pollIntervalMs = 50;
 
