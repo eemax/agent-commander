@@ -12,7 +12,7 @@ coverage/
 .agent-commander/
 .claude/
 .worktrees/
-agents.json
+config/agents.json
 docs/plans/
 
 # OS artifacts

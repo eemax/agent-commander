@@ -1191,6 +1191,14 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       archivedConversationId: string | null;
       conversationId: string;
       alias: string | null;
+      runtime: {
+        workingDirectory: string;
+        thinkingEffort: ThinkingEffort;
+        cacheRetention: CacheRetention;
+        transportMode: TransportMode;
+        activeModelOverride: string | null;
+        activeWebSearchModelOverride: string | null;
+      };
     }> {
       return enqueueMutation(async () => {
         const currentIndex = await loadCurrentConversations();
@@ -1249,7 +1257,15 @@ export function createConversationStore(params: ConversationStoreParams): Conver
         return {
           archivedConversationId,
           conversationId: nextCurrent.conversationId,
-          alias: nextCurrent.alias
+          alias: nextCurrent.alias,
+          runtime: {
+            workingDirectory: nextCurrent.runtime.workingDirectory,
+            thinkingEffort: nextCurrent.runtime.thinkingEffort,
+            cacheRetention: nextCurrent.runtime.cacheRetention,
+            transportMode: nextCurrent.runtime.transportMode,
+            activeModelOverride: nextCurrent.runtime.activeModelOverride,
+            activeWebSearchModelOverride: nextCurrent.runtime.activeWebSearchModelOverride
+          }
         };
       });
     },
@@ -1259,6 +1275,14 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       stashedAlias: string;
       conversationId: string;
       alias: string | null;
+      runtime: {
+        workingDirectory: string;
+        thinkingEffort: ThinkingEffort;
+        cacheRetention: CacheRetention;
+        transportMode: TransportMode;
+        activeModelOverride: string | null;
+        activeWebSearchModelOverride: string | null;
+      };
     }> {
       return enqueueMutation(async () => {
         const normalizedAlias = alias.trim();
@@ -1317,7 +1341,15 @@ export function createConversationStore(params: ConversationStoreParams): Conver
           stashedConversationId: stashedRecord.conversationId,
           stashedAlias: stashedRecord.alias,
           conversationId: nextCurrent.conversationId,
-          alias: nextCurrent.alias
+          alias: nextCurrent.alias,
+          runtime: {
+            workingDirectory: nextCurrent.runtime.workingDirectory,
+            thinkingEffort: nextCurrent.runtime.thinkingEffort,
+            cacheRetention: nextCurrent.runtime.cacheRetention,
+            transportMode: nextCurrent.runtime.transportMode,
+            activeModelOverride: nextCurrent.runtime.activeModelOverride,
+            activeWebSearchModelOverride: nextCurrent.runtime.activeWebSearchModelOverride
+          }
         };
       });
     },

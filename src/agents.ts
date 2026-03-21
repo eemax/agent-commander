@@ -50,9 +50,10 @@ function writeDefaultManifest(manifestPath: string): void {
 }
 
 export function loadAgentsManifest(repoRoot: string): AgentsManifest {
-  const manifestPath = path.resolve(repoRoot, "agents.json");
+  const manifestPath = path.resolve(repoRoot, "config", "agents.json");
 
   if (!fs.existsSync(manifestPath)) {
+    fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
     writeDefaultManifest(manifestPath);
     return { agents: [DEFAULT_AGENT] };
   }
@@ -177,7 +178,7 @@ export function loadAgentConfig(
   agent: AgentDefinition,
   envSecrets: EnvSecrets
 ): Config {
-  const rootConfigPath = path.resolve(repoRoot, "config.json");
+  const rootConfigPath = path.resolve(repoRoot, "config", "config.json");
   let rootRaw: unknown = {};
   if (fs.existsSync(rootConfigPath)) {
     rootRaw = readJsonFile(rootConfigPath);

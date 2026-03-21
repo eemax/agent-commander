@@ -12,7 +12,7 @@ Agent Commander is a minimal runtime — read [AGENTS.md](../AGENTS.md) for the 
 src/           Source code (TypeScript strict mode)
 test/          Vitest test suite
 docs/          Documentation
-config.json    Runtime config (tracked; contains no secrets)
+config/        Runtime config (config.json, agents.json, SYSTEM.md; no secrets)
 ```
 
 ## Development commands
@@ -66,6 +66,6 @@ npm test
 
 - Does the change stay within one-channel/one-provider constraints?
 - Does it add or reduce operational complexity?
-- Are new `config.json` fields documented in `docs/config-reference.md`?
+- Are new `config/config.json` fields documented in `docs/config-reference.md`?
 - Are failure paths tested?
 - Does startup output remain clear and linear?

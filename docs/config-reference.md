@@ -1,14 +1,15 @@
 # Config Reference
 
-This is the canonical `config.json` shape.
+This is the canonical `config/config.json` shape.
 
 ## Notes
 
-- `config.json` must exist at repo root.
+- `config/config.json` must exist in the `config/` directory at repo root.
 - If missing, runtime writes a template and exits.
 - Root shape is strict: unknown keys fail startup.
 - Relative paths resolve from repo root.
 - `~` expands to the user home directory.
+- `.env` remains at repo root (not in `config/`).
 
 ## Required Fields
 
@@ -16,7 +17,7 @@ This is the canonical `config.json` shape.
   - `DEFAULT_TELEGRAM_BOT_TOKEN` in environment/`.env`
 - One OpenAI API key source:
   - `DEFAULT_OPENAI_API_KEY` in environment/`.env`
-- `agents.json` with at least one agent entry (default is auto-created) and per-agent `telegram_allowlist`
+- `config/agents.json` with at least one agent entry (default is auto-created) and per-agent `telegram_allowlist`
 
 ## Schema
 
@@ -79,7 +80,7 @@ Transport mode (`http` or `wss`) is a per-conversation runtime setting, not a co
   - `"batch"`: all queued messages are combined (joined with `\n\n`) and sent as a single follow-up turn
   - `"multi_turn"`: queued messages are fired one at a time, each as its own sequential turn
 
-### `agents.json`
+### `config/agents.json`
 
 - `agents`: array of agent definitions
   - `id`: lowercase identifier

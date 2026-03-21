@@ -30,7 +30,7 @@ Set:
 - `DEFAULT_OPENAI_API_KEY`
 - `DEFAULT_PERPLEXITY_API_KEY` (optional, enables `web_search`)
 
-3. Edit `agents.json` and fill required fields:
+3. Edit `config/agents.json` and fill required fields:
 
 - `telegram_allowlist` for each agent
 
@@ -63,6 +63,8 @@ On startup, runtime ensures workspace at `paths.workspace_root` (default `~/.age
 - `SOUL.md`
 - `skills/` directory
 
+Additionally, `config/SYSTEM.md` (in the repo `config/` directory) is loaded if present and injected as the first context section.
+
 If no skills exist yet, startup seeds `skills/test-skill/SKILL.md` as a sample.
 
 Every `SKILL.md` must start with YAML frontmatter containing:
@@ -78,7 +80,8 @@ Startup fails if frontmatter is missing/invalid, slug generation is invalid, or 
 - Stashed conversations per chat are tracked in `paths.stashed_conversations_path` (default `.agent-commander/stashed-conversations.json`).
 - Conversation events are JSONL files in `paths.conversations_dir/<chatId>/<conversationId>.jsonl`.
 - Conversation runtime profiles persist `verboseMode`, `thinkingEffort`, `cacheRetention`, `transportMode`, `activeModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, and `lastProviderFailure`.
-- `/new` opens an inline menu; current conversation is archived only when a menu option is selected.
+- `/new` immediately creates a fresh conversation (archiving the current one) and displays conversation defaults.
+- `/new from` opens an inline menu to restore a stashed conversation or start fresh.
 - `/stash <name>` stashes current conversation under an alias, then switches to selected stash or a new conversation.
 - `/stash list` shows stashed conversations with alias, conversation tail, and relative stash age.
 - No automatic migration is performed from the previous filename layout; move/rename old files manually if you want to keep prior state.
@@ -89,10 +92,11 @@ Startup fails if frontmatter is missing/invalid, slug generation is invalid, or 
 
 At the first model turn of each conversation, runtime injects:
 
-- `<session>`
-- `<operating_contract>` (generated from `SOUL.md` `##`+ headings)
-- `<environment>` containing `<tools>` and `<skills>`
-- `<reference_documents>` with `<document name="AGENTS.md" kind="agent_spec">`
+- `<system>` — raw content from `config/SYSTEM.md` (omitted if file is empty or missing)
+- `<operating_contracts>` containing:
+  - `<contract name="SOUL.md" kind="behavior_spec">` — raw `SOUL.md` content (no heading-to-XML conversion)
+  - `<contract name="AGENTS.md" kind="agent_spec">` — raw `AGENTS.md` content
+- `<available_skills>` — each skill wrapped in `<skill name="..." path="...">`
 
 Compiled snapshots are written to `paths.context_snapshots_dir` per conversation as a single `<conversationId>.md` file containing the compiled hybrid context with embedded JSON metadata (delimited by `<!-- acmd:snapshot-metadata:start -->` / `<!-- acmd:snapshot-metadata:end -->` markers).
 
@@ -101,7 +105,8 @@ Compiled snapshots are written to `paths.context_snapshots_dir` per conversation
 Core commands:
 
 - `/start`
-- `/new`
+- `/new` (immediate fresh conversation)
+- `/new from` (restore stashed conversation menu)
 - `/stash <name>`
 - `/stash list`
 - `/status`
@@ -120,7 +125,8 @@ Core commands:
 
 `/steer <message>` injects guidance into an active tool loop without aborting the turn. The steer text is added as a user message before the model's next tool-loop iteration. When verbose mode is on, steer events appear in Telegram chat as `🎯 Steer: <message>`. If no turn is active, `/steer` returns an error.
 
-`/new` and `/stash <name>` open Telegram inline-button menus listing stashed conversations plus `New`.
+`/new` immediately archives the current conversation and starts fresh, displaying conversation defaults (model, search model, thinking, cwd, cache, transport).
+`/new from` and `/stash <name>` open Telegram inline-button menus listing stashed conversations plus `New`.
 `/stash list` returns a text list of stashes without opening a menu.
 Menus are single-use; stale callback clicks are rejected and require reopening the menu command.
 
@@ -181,7 +187,7 @@ Dynamic commands:
 All incoming messages are authorized by sender ID only.
 Senders not listed in the active agent's `telegram_allowlist` receive deterministic unauthorized replies.
 
-## Key `config.json` Fields
+## Key `config/config.json` Fields
 
 For the full canonical list (all keys, types, defaults, and validation rules), see `docs/config-reference.md`.
 
@@ -189,7 +195,7 @@ Required:
 
 - `DEFAULT_TELEGRAM_BOT_TOKEN`
 - `DEFAULT_OPENAI_API_KEY`
-- `agents.json` → `telegram_allowlist`
+- `config/agents.json` → `telegram_allowlist`
 
 Common optional fields:
 
@@ -266,7 +272,7 @@ Notes:
 
 ### Startup fails: missing/invalid config
 
-Check `config.json` exists, `.env` is present (or environment variables are exported), and credentials are non-placeholder values.
+Check `config/config.json` exists, `.env` is present at repo root (or environment variables are exported), and credentials are non-placeholder values.
 
 ### Unauthorized responses
 

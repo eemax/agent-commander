@@ -4,7 +4,7 @@ import type { ToolHarness } from "../harness/index.js";
 import type { TraceContext } from "../observability.js";
 import { resolveActiveModel, resolveModelReference } from "../model-catalog.js";
 import { resolveActiveWebSearchModel, resolveWebSearchModelReference } from "../web-search-catalog.js";
-import type { StateStore, WorkspaceCatalog, Config, StashedConversationSummary } from "../runtime/contracts.js";
+import type { StateStore, WorkspaceCatalog, Config, StashedConversationSummary, ConversationSwitchRuntime } from "../runtime/contracts.js";
 import {
   type MessageRouteResult,
   type NormalizedTelegramCallbackQuery,
@@ -232,6 +232,28 @@ function buildSelectionTarget(action: string): { type: "new" } | { type: "stash"
   return null;
 }
 
+function formatConversationDefaults(runtime: ConversationSwitchRuntime, config: Config): string {
+  const model = resolveActiveModel({
+    models: config.openai.models,
+    defaultModelId: config.openai.model,
+    overrideModelId: runtime.activeModelOverride
+  });
+  const searchModel = resolveActiveWebSearchModel({
+    models: config.tools.webSearch.presets,
+    defaultPresetId: config.tools.webSearch.defaultPreset,
+    overridePresetId: runtime.activeWebSearchModelOverride
+  });
+
+  return [
+    `model: ${model.id}`,
+    `search: ${searchModel.id}`,
+    `thinking: ${runtime.thinkingEffort}`,
+    `cwd: ${runtime.workingDirectory}`,
+    `cache: ${runtime.cacheRetention}`,
+    `transport: ${runtime.transportMode}`
+  ].join("\n");
+}
+
 export function createCoreCommandHandler(params: {
   config: Config;
   conversations: StateStore;
@@ -271,16 +293,45 @@ export function createCoreCommandHandler(params: {
             text: "Agent Commander is online. Use /status to inspect the active session."
           };
         case "new": {
-          const stashes = await conversations.listStashedConversations(message.chatId);
-          const menu = registerMenu({
-            kind: "new",
-            chatId: message.chatId,
-            senderId: message.senderId,
-            stashAlias: null,
-            stashes,
-            page: 0
-          });
-          return createMenuReply(menu);
+          const newArgs = args.trim().toLowerCase();
+
+          if (newArgs === "from") {
+            const stashes = await conversations.listStashedConversations(message.chatId);
+            const menu = registerMenu({
+              kind: "new",
+              chatId: message.chatId,
+              senderId: message.senderId,
+              stashAlias: null,
+              stashes,
+              page: 0
+            });
+            return createMenuReply(menu);
+          }
+
+          if (newArgs.length > 0) {
+            return {
+              type: "reply",
+              text: "Usage: /new (fresh) or /new from (restore stashed)"
+            };
+          }
+
+          const result = await conversations.completeNewSelection(
+            message.chatId,
+            { type: "new" },
+            "manual_new_command",
+            { trace }
+          );
+          const archived = result.archivedConversationId ? formatConversationIdForUi(result.archivedConversationId) : "none";
+          const defaults = formatConversationDefaults(result.runtime, config);
+          return {
+            type: "reply",
+            text: [
+              "started new conversation",
+              `conversation: ${formatConversationIdForUi(result.conversationId)}`,
+              `archived: ${archived}`,
+              defaults
+            ].join("\n")
+          };
         }
         case "stash": {
           const stashAlias = args.trim();
@@ -797,13 +848,15 @@ export function createCoreCommandHandler(params: {
         if (menu.kind === "new") {
           const result = await conversations.completeNewSelection(query.chatId, target, "manual_new_command", { trace });
           const archived = result.archivedConversationId ? formatConversationIdForUi(result.archivedConversationId) : "none";
+          const defaults = formatConversationDefaults(result.runtime, config);
           return {
             type: "reply",
             text: [
               target.type === "new" ? "started new conversation" : "switched to stashed conversation",
               `conversation: ${formatConversationIdForUi(result.conversationId)}`,
               `alias: ${result.alias ?? "none"}`,
-              `archived: ${archived}`
+              `archived: ${archived}`,
+              defaults
             ].join("\n")
           };
         }
@@ -826,13 +879,15 @@ export function createCoreCommandHandler(params: {
           }
         );
 
+        const defaults = formatConversationDefaults(result.runtime, config);
         return {
           type: "reply",
           text: [
             `stashed: ${formatConversationIdForUi(result.stashedConversationId)} as ${result.stashedAlias}`,
             target.type === "new" ? "started new conversation" : "switched to stashed conversation",
             `conversation: ${formatConversationIdForUi(result.conversationId)}`,
-            `alias: ${result.alias ?? "none"}`
+            `alias: ${result.alias ?? "none"}`,
+            defaults
           ].join("\n")
         };
       } catch (error) {

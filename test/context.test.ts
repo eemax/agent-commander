@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildConversationBootstrapInstructions,
   buildSkillInvocationInstructions,
-  renderOperatingContractFromSoul,
   writeConversationContextSnapshot
 } from "../src/context.js";
 import type { ProviderFunctionTool } from "../src/harness/types.js";
@@ -18,6 +17,9 @@ function mkdtemp(prefix: string): string {
 function makeWorkspace(overrides: Partial<WorkspaceSnapshot> = {}): WorkspaceSnapshot {
   return {
     workspaceRoot: "/tmp/workspace",
+    systemPath: "/tmp/config/SYSTEM.md",
+    systemContent: "You are an agent running inside Agent Commander.",
+    systemSha256: "system-sha",
     agentsPath: "/tmp/workspace/AGENTS.md",
     agentsContent: [
       "# AGENTS.md",
@@ -63,55 +65,71 @@ function makeWorkspace(overrides: Partial<WorkspaceSnapshot> = {}): WorkspaceSna
 }
 
 describe("context compilation", () => {
-  it("builds session bootstrap instructions", () => {
+  it("builds bootstrap instructions with system, contracts, and skills", () => {
     const instructions = buildConversationBootstrapInstructions({
       workspace: makeWorkspace()
     });
 
-    expect(instructions).toContain("<session>");
-    expect(instructions).not.toContain("<base_instructions>");
-    expect(instructions).toContain("<operating_contract>");
-    expect(instructions).toContain("<identity>");
-    expect(instructions).toContain("<core_rules>");
-    expect(instructions).toContain("<nested_direction>");
-    expect(instructions).not.toContain("<available_tools>");
-    expect(instructions).not.toContain("<available_skills>");
-    expect(instructions).toContain("<environment>");
-    expect(instructions).toContain("<skills>");
-    expect(instructions).toContain("<reference_documents>");
-    expect(instructions).toContain('<document name="AGENTS.md" kind="agent_spec">');
+    expect(instructions).toContain("<system>");
+    expect(instructions).toContain("You are an agent running inside Agent Commander.");
+    expect(instructions).toContain("</system>");
+    expect(instructions).toContain("<operating_contracts>");
+    expect(instructions).toContain('<contract name="SOUL.md" kind="behavior_spec">');
+    expect(instructions).toContain("## Identity");
+    expect(instructions).toContain("## Core Rules!");
+    expect(instructions).toContain("## Voice");
+    expect(instructions).toContain("</contract>");
+    expect(instructions).toContain('<contract name="AGENTS.md" kind="agent_spec">');
     expect(instructions).toContain("# AGENTS.md");
     expect(instructions).toContain("## Header 2 Name");
-    expect(instructions).toContain("- /research: Research - Find facts & summarize.");
-    expect(instructions).not.toContain("<tools>");
-    expect(instructions).not.toContain("- bash: Run shell & return output");
-    expect(instructions).not.toContain("<tool>");
-    expect(instructions).not.toContain("<skill>");
+    expect(instructions).toContain("</operating_contracts>");
+    expect(instructions).toContain("<available_skills>");
+    expect(instructions).toContain('<skill name="Research" path="/tmp/workspace/skills/research/SKILL.md">');
+    expect(instructions).toContain("Find facts & summarize.");
+    expect(instructions).toContain("</skill>");
+    expect(instructions).toContain("</available_skills>");
+
+    // Old format elements should not appear
+    expect(instructions).not.toContain("<session>");
+    expect(instructions).not.toContain("<environment>");
+    expect(instructions).not.toContain("<reference_documents>");
+    expect(instructions).not.toContain("<identity>");
+    expect(instructions).not.toContain("<core_rules>");
   });
 
-  it("converts SOUL markdown H2+ headings into nested XML wrappers", () => {
-    const rendered = renderOperatingContractFromSoul([
-      "# Root Title",
-      "Preface text.",
-      "",
-      "## Core Rules!",
-      "- rule a",
-      "### Focus & Scope",
-      "Be explicit.",
-      "## Voice",
-      "Authentic.",
-      ""
-    ].join("\n"));
+  it("preserves SOUL.md markdown as-is without header-to-XML conversion", () => {
+    const instructions = buildConversationBootstrapInstructions({
+      workspace: makeWorkspace()
+    });
 
-    expect(rendered).not.toContain("# Root Title");
-    expect(rendered).toContain("Preface text.");
-    expect(rendered).toContain("<core_rules>");
-    expect(rendered).toContain("</core_rules>");
-    expect(rendered).toContain("<focus_scope>");
-    expect(rendered).toContain("- rule a");
-    expect(rendered).toContain("Be explicit.");
-    expect(rendered).toContain("<voice>");
-    expect(rendered).toContain("Authentic.");
+    // Headings should appear as markdown, not as XML tags
+    expect(instructions).toContain("## Identity");
+    expect(instructions).toContain("## Core Rules!");
+    expect(instructions).toContain("### Nested Direction");
+    expect(instructions).toContain("## Voice");
+    expect(instructions).not.toContain("<identity>");
+    expect(instructions).not.toContain("<core_rules>");
+    expect(instructions).not.toContain("<nested_direction>");
+    expect(instructions).not.toContain("<voice>");
+  });
+
+  it("omits system section when SYSTEM.md is empty", () => {
+    const instructions = buildConversationBootstrapInstructions({
+      workspace: makeWorkspace({ systemContent: "" })
+    });
+
+    expect(instructions).not.toContain("<system>");
+    expect(instructions).toContain("<operating_contracts>");
+  });
+
+  it("soul contract comes before agents contract", () => {
+    const instructions = buildConversationBootstrapInstructions({
+      workspace: makeWorkspace()
+    });
+
+    const soulIdx = instructions.indexOf('kind="behavior_spec"');
+    const agentsIdx = instructions.indexOf('kind="agent_spec"');
+    expect(soulIdx).toBeLessThan(agentsIdx);
   });
 
   it("keeps one-shot skill invocation text-only", () => {
@@ -123,7 +141,7 @@ describe("context compilation", () => {
 
     const instructions = buildSkillInvocationInstructions({
       skill,
-      baseInstructions: "<session>bootstrap</session>"
+      baseInstructions: "<system>bootstrap</system>"
     });
 
     expect(instructions).toContain("One-shot skill invocation: /research");
@@ -153,7 +171,7 @@ describe("context compilation", () => {
     expect(fs.existsSync(jsonPath)).toBe(false);
 
     const markdown = fs.readFileSync(markdownPath, "utf8");
-    expect(markdown).toContain("<session>");
+    expect(markdown).toContain("<system>");
     expect(markdown).toContain("<!-- acmd:snapshot-metadata:start -->");
     expect(markdown).toContain("<!-- acmd:snapshot-metadata:end -->");
 
@@ -169,12 +187,16 @@ describe("context compilation", () => {
     }
 
     const snapshot = JSON.parse(metadataJson) as {
+      systemPath?: string;
+      systemSha256?: string;
       soulPath?: string;
       soulSha256?: string;
       instructionsFormat?: string;
       instructionsPath?: string;
       instructionsSha256?: string;
     };
+    expect(snapshot.systemPath).toBe(workspace.systemPath);
+    expect(snapshot.systemSha256).toBe(workspace.systemSha256);
     expect(snapshot.soulPath).toBe(workspace.soulPath);
     expect(snapshot.soulSha256).toBe(workspace.soulSha256);
     expect(snapshot.instructionsFormat).toBe("hybrid_markdown_embedded_json_v1");

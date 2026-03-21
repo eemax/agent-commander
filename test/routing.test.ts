@@ -159,13 +159,15 @@ describe("createMessageRouter", () => {
 
     const call = vi.mocked(provider.generateReply).mock.calls[0]?.[0];
     expect(call?.history.map((item) => item.content)).toEqual(["hello"]);
-    expect(call?.instructions).toContain("<session>");
-    expect(call?.instructions).toContain("<operating_contract>");
-    expect(call?.instructions).toContain("<environment>");
-    expect(call?.instructions).toContain("<reference_documents>");
+    expect(call?.instructions).toContain("<operating_contracts>");
+    expect(call?.instructions).toContain('<contract name="SOUL.md" kind="behavior_spec">');
+    expect(call?.instructions).toContain('<contract name="AGENTS.md" kind="agent_spec">');
+    expect(call?.instructions).toContain("<available_skills>");
+    expect(call?.instructions).not.toContain("<session>");
+    expect(call?.instructions).not.toContain("<environment>");
+    expect(call?.instructions).not.toContain("<reference_documents>");
     expect(call?.instructions).not.toContain("<context>");
     expect(call?.instructions).not.toContain("<available_tools>");
-    expect(call?.instructions).not.toContain("<available_skills>");
     expect(call?.instructions).not.toContain("<base_instructions>");
 
     const snapshotChatDir = path.join(config.paths.contextSnapshotsDir, encodeURIComponent("chat-1"));
@@ -208,7 +210,7 @@ describe("createMessageRouter", () => {
     expect(onTextDelta).toHaveBeenCalledWith("hi");
   });
 
-  it("handles /new through inline selection callback", async () => {
+  it("handles /new by immediately creating a new conversation", async () => {
     const config = makeConfig();
     const workspace = createWorkspaceManager(config);
     await workspace.bootstrap();
@@ -240,6 +242,48 @@ describe("createMessageRouter", () => {
     if (result.type !== "reply") {
       return;
     }
+    expect(result.text).toContain("started new conversation");
+    expect(result.text).toContain("conversation: conv...");
+    expect(result.text).toContain("archived: conv...");
+    expect(result.text).toContain("model:");
+    expect(result.text).toContain("transport:");
+
+    const secondConversation = await conversations.getActiveConversation("chat-1");
+    expect(secondConversation).not.toBe(firstConversation);
+  });
+
+  it("handles /new from through inline selection callback", async () => {
+    const config = makeConfig();
+    const workspace = createWorkspaceManager(config);
+    await workspace.bootstrap();
+
+    const provider: Provider = {
+      generateReply: vi.fn(async () => "ok")
+    };
+
+    const conversations = createConversationStore({
+      conversationsDir: config.paths.conversationsDir,
+      stashedConversationsPath: config.paths.stashedConversationsPath,
+      defaultWorkingDirectory: config.tools.defaultCwd
+    });
+
+    const router = createMessageRouter({
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      provider,
+      config,
+      conversations,
+      workspace,
+      harness: makeHarnessMock()
+    });
+
+    await router.handleIncomingMessage(sampleIncoming({ text: "hello" }));
+    const firstConversation = await conversations.getActiveConversation("chat-1");
+
+    const result = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "/new from" }));
+    expect(result.type).toBe("reply");
+    if (result.type !== "reply") {
+      return;
+    }
     expect(result.inlineKeyboard?.length).toBeGreaterThan(0);
     const newCallbackData = result.inlineKeyboard?.flat().find((button) => button.text === "New")?.callbackData;
     expect(newCallbackData).toBeTruthy();
@@ -258,6 +302,7 @@ describe("createMessageRouter", () => {
     if (callbackResult.type === "reply") {
       expect(callbackResult.text).toContain("conversation: conv...");
       expect(callbackResult.text).toContain("archived: conv...");
+      expect(callbackResult.text).toContain("model:");
     }
 
     const secondConversation = await conversations.getActiveConversation("chat-1");
@@ -424,7 +469,7 @@ describe("createMessageRouter", () => {
       harness: makeHarnessMock()
     });
 
-    const menu = await router.handleIncomingMessage(sampleIncoming({ text: "/new", messageId: "msg-2" }));
+    const menu = await router.handleIncomingMessage(sampleIncoming({ text: "/new from", messageId: "msg-2" }));
     expect(menu.type).toBe("reply");
     if (menu.type !== "reply") {
       return;
@@ -474,7 +519,7 @@ describe("createMessageRouter", () => {
       harness: makeHarnessMock()
     });
 
-    const firstMenu = await router.handleIncomingMessage(sampleIncoming({ text: "/new", messageId: "msg-2" }));
+    const firstMenu = await router.handleIncomingMessage(sampleIncoming({ text: "/new from", messageId: "msg-2" }));
     expect(firstMenu.type).toBe("reply");
     if (firstMenu.type !== "reply") {
       return;

@@ -78,7 +78,7 @@ describe("loadAgentsManifest", () => {
     expect(manifest.agents[0].id).toBe("default");
     expect(manifest.agents[0].configDir).toBe(".");
 
-    const persisted = JSON.parse(fs.readFileSync(path.join(root, "agents.json"), "utf8")) as {
+    const persisted = JSON.parse(fs.readFileSync(path.join(root, "config", "agents.json"), "utf8")) as {
       agents: Array<{ id: string; config_dir: string; telegram_allowlist: string[] }>;
     };
     expect(persisted.agents[0]?.id).toBe("default");
@@ -89,7 +89,7 @@ describe("loadAgentsManifest", () => {
   it("loads agents from agents.json", () => {
     const root = createTempDir("acmd-agents-load-");
     fs.mkdirSync(path.join(root, "agents", "coder"), { recursive: true });
-    writeJson(path.join(root, "agents.json"), {
+    writeJson(path.join(root, "config", "agents.json"), {
       agents: [
         { id: "default", aliases: ["main"], config_dir: ".", telegram_allowlist: ["1001"] },
         { id: "coder", aliases: ["dev"], config_dir: "./agents/coder", telegram_allowlist: ["1002"] }
@@ -106,7 +106,7 @@ describe("loadAgentsManifest", () => {
   it("auto-prepends default agent if not listed", () => {
     const root = createTempDir("acmd-agents-nodefault-");
     fs.mkdirSync(path.join(root, "agents", "coder"), { recursive: true });
-    writeJson(path.join(root, "agents.json"), {
+    writeJson(path.join(root, "config", "agents.json"), {
       agents: [{ id: "coder", aliases: [], config_dir: "./agents/coder", telegram_allowlist: [] }]
     });
 
@@ -117,7 +117,7 @@ describe("loadAgentsManifest", () => {
 
   it("rejects duplicate agent ids", () => {
     const root = createTempDir("acmd-agents-dup-");
-    writeJson(path.join(root, "agents.json"), {
+    writeJson(path.join(root, "config", "agents.json"), {
       agents: [
         { id: "default", aliases: [], config_dir: "." },
         { id: "default", aliases: [], config_dir: ".", telegram_allowlist: [] }
@@ -131,7 +131,7 @@ describe("loadAgentsManifest", () => {
     const root = createTempDir("acmd-agents-alias-");
     fs.mkdirSync(path.join(root, "agents", "a"), { recursive: true });
     fs.mkdirSync(path.join(root, "agents", "b"), { recursive: true });
-    writeJson(path.join(root, "agents.json"), {
+    writeJson(path.join(root, "config", "agents.json"), {
       agents: [
         { id: "agent-a", aliases: ["shared"], config_dir: "./agents/a", telegram_allowlist: [] },
         { id: "agent-b", aliases: ["shared"], config_dir: "./agents/b", telegram_allowlist: [] }
@@ -143,7 +143,7 @@ describe("loadAgentsManifest", () => {
 
   it("rejects missing config_dir", () => {
     const root = createTempDir("acmd-agents-nodir-");
-    writeJson(path.join(root, "agents.json"), {
+    writeJson(path.join(root, "config", "agents.json"), {
       agents: [{ id: "ghost", aliases: [], config_dir: "./does-not-exist", telegram_allowlist: [] }]
     });
 
@@ -154,7 +154,7 @@ describe("loadAgentsManifest", () => {
 describe("loadAgentConfig", () => {
   it("loads config for default agent from root config.json", () => {
     const root = createTempDir("acmd-agentcfg-default-");
-    writeJson(path.join(root, "config.json"), minimalRootConfig());
+    writeJson(path.join(root, "config", "config.json"), minimalRootConfig());
 
     const config = loadAgentConfig(root, { id: "default", aliases: [], configDir: ".", telegramAllowlist: ["1001"] }, {
       telegramBotToken: "tg-default",
@@ -170,7 +170,7 @@ describe("loadAgentConfig", () => {
 
   it("deep merges agent config over root config", () => {
     const root = createTempDir("acmd-agentcfg-merge-");
-    writeJson(path.join(root, "config.json"), minimalRootConfig());
+    writeJson(path.join(root, "config", "config.json"), minimalRootConfig());
 
     const agentDir = path.join(root, "agents", "coder");
     fs.mkdirSync(agentDir, { recursive: true });
@@ -192,7 +192,7 @@ describe("loadAgentConfig", () => {
 
   it("namespaces paths for non-default agents", () => {
     const root = createTempDir("acmd-agentcfg-paths-");
-    writeJson(path.join(root, "config.json"), minimalRootConfig());
+    writeJson(path.join(root, "config", "config.json"), minimalRootConfig());
 
     const agentDir = path.join(root, "agents", "coder");
     fs.mkdirSync(agentDir, { recursive: true });
@@ -210,7 +210,7 @@ describe("loadAgentConfig", () => {
 
   it("does not namespace paths for default agent", () => {
     const root = createTempDir("acmd-agentcfg-defpath-");
-    writeJson(path.join(root, "config.json"), minimalRootConfig());
+    writeJson(path.join(root, "config", "config.json"), minimalRootConfig());
 
     const config = loadAgentConfig(root, { id: "default", aliases: [], configDir: ".", telegramAllowlist: [] }, {
       telegramBotToken: "tg-default",
@@ -223,7 +223,7 @@ describe("loadAgentConfig", () => {
 
   it("inherits all root config when agent config.json does not exist", () => {
     const root = createTempDir("acmd-agentcfg-nofile-");
-    writeJson(path.join(root, "config.json"), minimalRootConfig());
+    writeJson(path.join(root, "config", "config.json"), minimalRootConfig());
 
     const agentDir = path.join(root, "agents", "coder");
     fs.mkdirSync(agentDir, { recursive: true });
@@ -240,7 +240,7 @@ describe("loadAgentConfig", () => {
 
   it("enforces env secrets for required credentials", () => {
     const root = createTempDir("acmd-agentcfg-missing-secrets-");
-    writeJson(path.join(root, "config.json"), minimalRootConfig());
+    writeJson(path.join(root, "config", "config.json"), minimalRootConfig());
 
     expect(() =>
       loadAgentConfig(root, { id: "default", aliases: [], configDir: ".", telegramAllowlist: [] }, {

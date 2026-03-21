@@ -22,7 +22,7 @@ cp .env.example .env
 #    - DEFAULT_OPENAI_API_KEY
 #    - DEFAULT_PERPLEXITY_API_KEY (optional; enables web_search)
 
-# 3. Edit agents.json and set per-agent allowlists:
+# 3. Edit config/agents.json and set per-agent allowlists:
 #    - telegram_allowlist (Telegram sender IDs)
 
 # 4. Start
@@ -34,7 +34,8 @@ npm run dev
 | Command | Description |
 |---------|-------------|
 | `/start` | Start conversation |
-| `/new` | New conversation (inline menu) |
+| `/new` | Start fresh conversation immediately |
+| `/new from` | Restore stashed conversation (inline menu) |
 | `/stash <name>` | Archive current conversation under an alias |
 | `/stash list` | List archived conversations |
 | `/status` | Concise runtime status (model, tokens, budget) |
@@ -68,7 +69,7 @@ npm test             # vitest run
 | [AGENTS.md](AGENTS.md) | AI agents | Bootstrap context, constraints, file map |
 | [docs/](docs/README.md) | Everyone | Documentation index |
 | [docs/architecture.md](docs/architecture.md) | Developers | System design and message flow |
-| [docs/config-reference.md](docs/config-reference.md) | Everyone | Full config.json schema |
+| [docs/config-reference.md](docs/config-reference.md) | Everyone | Full config/config.json schema |
 | [docs/tools.md](docs/tools.md) | Developers | Tool harness reference |
 | [docs/user-guide.md](docs/user-guide.md) | Users | Setup, commands, observability, troubleshooting |
 | [docs/contributing.md](docs/contributing.md) | Contributors | Coding standards and scope guardrails |

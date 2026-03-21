@@ -570,7 +570,7 @@ export function buildConfigFromParsed(
 }
 
 export function loadConfig(repoRoot = process.cwd()): Config {
-  const configPath = path.resolve(repoRoot, "config.json");
+  const configPath = path.resolve(repoRoot, "config", "config.json");
   const raw = readRawConfig(configPath);
   const dotEnvDefaults = readDotEnvDefaults(repoRoot);
 

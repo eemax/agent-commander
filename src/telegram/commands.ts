@@ -25,7 +25,7 @@ export const CORE_COMMANDS: ReadonlyArray<TelegramCommandDefinition> = [
   },
   {
     command: "new",
-    description: "Switch conversation menu (archives current on selection)",
+    description: "Start fresh conversation (/new from to restore stashed)",
     kind: "core"
   },
   {

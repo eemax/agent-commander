@@ -189,6 +189,9 @@ export type TelegramCommandDefinition = {
 
 export type WorkspaceSnapshot = {
   workspaceRoot: string;
+  systemPath: string;
+  systemContent: string;
+  systemSha256: string;
   agentsPath: string;
   agentsContent: string;
   agentsSha256: string;

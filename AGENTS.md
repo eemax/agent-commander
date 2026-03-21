@@ -49,10 +49,10 @@ All four checks (lint, typecheck, build, test) must pass before any handoff.
 
 ## Config
 
-`config.json` at repo root, strict Zod schema. Required fields:
-- no secrets (credentials come from `.env` / environment variables)
+`config/config.json` in the `config/` directory, strict Zod schema. Required fields:
+- no secrets (credentials come from `.env` at repo root / environment variables)
 
-`agents.json` at repo root contains per-agent routing and allowlist settings:
+`config/agents.json` in the `config/` directory contains per-agent routing and allowlist settings:
 - `id`
 - `config_dir`
 - `telegram_allowlist` (sender IDs allowed to message that bot)
@@ -67,7 +67,7 @@ Telegram update → normalize → gatekeep (sender allowlist) → route (command
 
 - `docs/README.md` — index of all documentation
 - `docs/architecture.md` — system design and component layout
-- `docs/config-reference.md` — canonical config.json schema
+- `docs/config-reference.md` — canonical config/config.json schema
 - `docs/tools.md` — tool harness reference (all tool schemas and behaviors)
 - `docs/user-guide.md` — setup, commands, and operational guide
 - `docs/contributing.md` — coding standards and scope guardrails

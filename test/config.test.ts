@@ -5,7 +5,9 @@ import { loadConfig } from "../src/config.js";
 import { createTempDir } from "./helpers.js";
 
 function writeConfig(dir: string, payload: Record<string, unknown>): void {
-  fs.writeFileSync(path.join(dir, "config.json"), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  const configDir = path.join(dir, "config");
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, "config.json"), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
 function minimalPayload(): Record<string, unknown> {
@@ -75,7 +77,7 @@ describe("loadConfig", () => {
 
     expect(() => loadConfig(root)).toThrow("Missing required config file");
 
-    const created = fs.readFileSync(path.join(root, "config.json"), "utf8");
+    const created = fs.readFileSync(path.join(root, "config", "config.json"), "utf8");
     expect(created).toContain("\"telegram\"");
     expect(created).toContain("\"tools\"");
   });

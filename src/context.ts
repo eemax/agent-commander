@@ -4,116 +4,51 @@ import * as path from "node:path";
 import type { ProviderFunctionTool } from "./harness/types.js";
 import type { SkillDefinition, WorkspaceSnapshot } from "./types.js";
 
-type MarkdownHeading = {
-  level: number;
-  title: string;
-};
-
 function toSha256(content: string): string {
   return crypto.createHash("sha256").update(content).digest("hex");
 }
 
-function formatSkillSummaryMarkdown(skills: SkillDefinition[]): string {
+function formatSkillsXml(skills: SkillDefinition[]): string {
   if (skills.length === 0) {
-    return "No skills are currently available in the workspace.";
+    return "<available_skills>\nNo skills are currently available in the workspace.\n</available_skills>";
   }
 
-  return skills.map((skill) => `- /${skill.slug}: ${skill.name} - ${skill.description}`).join("\n");
-}
+  const entries = skills
+    .map((skill) => `<skill name="${skill.name}" path="${skill.path}">\n${skill.description}\n</skill>`)
+    .join("\n");
 
-function parseMarkdownHeading(line: string): MarkdownHeading | null {
-  const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
-  if (!match) {
-    return null;
-  }
-
-  const level = match[1].length;
-  const rawTitle = (match[2] ?? "").replace(/\s+#+\s*$/, "").trim();
-  if (rawTitle.length === 0) {
-    return null;
-  }
-
-  return {
-    level,
-    title: rawTitle
-  };
-}
-
-function toSnakeCaseTagName(input: string): string {
-  const normalized = input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-
-  return normalized.length > 0 ? normalized : "section";
-}
-
-export function renderOperatingContractFromSoul(soulMarkdown: string): string {
-  const lines = soulMarkdown.replace(/\r\n/g, "\n").split("\n");
-  const output: string[] = [];
-  const openHeadings: Array<{ level: number; tag: string }> = [];
-
-  const closeHeading = (): void => {
-    const heading = openHeadings.pop();
-    if (!heading) {
-      return;
-    }
-    output.push(`</${heading.tag}>`);
-  };
-
-  for (const line of lines) {
-    const heading = parseMarkdownHeading(line);
-    if (!heading) {
-      output.push(line);
-      continue;
-    }
-
-    // H1 is ignored for wrapper generation.
-    if (heading.level === 1) {
-      continue;
-    }
-
-    while (openHeadings.length > 0 && openHeadings[openHeadings.length - 1]!.level >= heading.level) {
-      closeHeading();
-    }
-
-    const tag = toSnakeCaseTagName(heading.title);
-    output.push(`<${tag}>`);
-    openHeadings.push({ level: heading.level, tag });
-  }
-
-  while (openHeadings.length > 0) {
-    closeHeading();
-  }
-
-  return output.join("\n").trim();
+  return `<available_skills>\n${entries}\n</available_skills>`;
 }
 
 export function buildConversationBootstrapInstructions(params: {
   workspace: WorkspaceSnapshot;
 }): string {
+  const systemContent = params.workspace.systemContent.trim();
+  const soulContent = params.workspace.soulContent.trim();
   const agentsContent = params.workspace.agentsContent.trim();
-  const operatingContractContent = renderOperatingContractFromSoul(params.workspace.soulContent);
 
-  return [
-    "<session>",
-    "<operating_contract>",
-    operatingContractContent.length > 0 ? operatingContractContent : "No SOUL.md content is available.",
-    "</operating_contract>",
-    "<environment>",
-    "<skills>",
-    formatSkillSummaryMarkdown(params.workspace.skills),
-    "</skills>",
-    "</environment>",
-    "<reference_documents>",
-    '<document name="AGENTS.md" kind="agent_spec">',
-    agentsContent.length > 0 ? agentsContent : "No AGENTS.md content is available.",
-    "</document>",
-    "</reference_documents>",
-    "</session>"
-  ]
-    .join("\n")
-    .trim();
+  const sections: string[] = [];
+
+  if (systemContent.length > 0) {
+    sections.push(`<system>\n${systemContent}\n</system>`);
+  }
+
+  sections.push(
+    [
+      "<operating_contracts>",
+      `<contract name="SOUL.md" kind="behavior_spec">`,
+      soulContent.length > 0 ? soulContent : "No SOUL.md content is available.",
+      "</contract>",
+      `<contract name="AGENTS.md" kind="agent_spec">`,
+      agentsContent.length > 0 ? agentsContent : "No AGENTS.md content is available.",
+      "</contract>",
+      "</operating_contracts>"
+    ].join("\n")
+  );
+
+  sections.push(formatSkillsXml(params.workspace.skills));
+
+  return sections.join("\n").trim();
 }
 
 export function buildSkillInvocationInstructions(params: {
@@ -151,6 +86,8 @@ export async function writeConversationContextSnapshot(params: {
     chatId: params.chatId,
     conversationId: params.conversationId,
     workspaceRoot: params.workspace.workspaceRoot,
+    systemPath: params.workspace.systemPath,
+    systemSha256: params.workspace.systemSha256,
     agentsPath: params.workspace.agentsPath,
     agentsSha256: params.workspace.agentsSha256,
     soulPath: params.workspace.soulPath,

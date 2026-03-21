@@ -31,6 +31,7 @@ type ParsedFrontmatter = {
 
 type WorkspaceManifest = {
   hash: string;
+  systemPath: string;
   agentsPath: string;
   soulPath: string;
   skillsDir: string;
@@ -126,12 +127,16 @@ async function fileStatsSignature(filePath: string): Promise<string | null> {
   }
 }
 
-async function buildManifest(workspaceRoot: string): Promise<WorkspaceManifest> {
+async function buildManifest(workspaceRoot: string, systemPath: string): Promise<WorkspaceManifest> {
   const agentsPath = path.join(workspaceRoot, "AGENTS.md");
   const soulPath = path.join(workspaceRoot, "SOUL.md");
   const skillsDir = path.join(workspaceRoot, "skills");
 
   const entries: string[] = [];
+  const systemSignature = await fileStatsSignature(systemPath);
+  if (systemSignature) {
+    entries.push(systemSignature);
+  }
   const agentsSignature = await fileStatsSignature(agentsPath);
   if (agentsSignature) {
     entries.push(agentsSignature);
@@ -162,6 +167,7 @@ async function buildManifest(workspaceRoot: string): Promise<WorkspaceManifest> 
 
   return {
     hash: sha256(entries.join("\n")),
+    systemPath,
     agentsPath,
     soulPath,
     skillsDir,
@@ -201,7 +207,16 @@ async function loadSkillsFromManifest(manifest: WorkspaceManifest): Promise<Skil
   return skills;
 }
 
+async function readFileOrEmpty(filePath: string): Promise<string> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch {
+    return "";
+  }
+}
+
 async function buildSnapshot(config: Config, manifest: WorkspaceManifest): Promise<WorkspaceSnapshot> {
+  const systemContent = await readFileOrEmpty(manifest.systemPath);
   const agentsContent = await fs.readFile(manifest.agentsPath, "utf8");
   const soulContent = await fs.readFile(manifest.soulPath, "utf8");
   const skills = await loadSkillsFromManifest(manifest);
@@ -209,6 +224,7 @@ async function buildSnapshot(config: Config, manifest: WorkspaceManifest): Promi
 
   const signature = sha256(
     JSON.stringify({
+      systemContent,
       agentsContent,
       soulContent,
       skills: skills.map((item) => ({
@@ -224,6 +240,9 @@ async function buildSnapshot(config: Config, manifest: WorkspaceManifest): Promi
 
   return {
     workspaceRoot: config.paths.workspaceRoot,
+    systemPath: manifest.systemPath,
+    systemContent,
+    systemSha256: sha256(systemContent),
     agentsPath: manifest.agentsPath,
     agentsContent,
     agentsSha256: sha256(agentsContent),
@@ -240,6 +259,7 @@ async function buildSnapshot(config: Config, manifest: WorkspaceManifest): Promi
 export type WorkspaceManager = WorkspaceCatalog;
 
 export function createWorkspaceManager(config: Config): WorkspaceManager {
+  const systemPath = path.join(path.dirname(config.configPath), "SYSTEM.md");
   let snapshot: WorkspaceSnapshot | null = null;
   let manifestHash: string | null = null;
   const health: WorkspaceCatalogHealth = {
@@ -265,7 +285,7 @@ export function createWorkspaceManager(config: Config): WorkspaceManager {
         await ensureFile(testSkillPath, DEFAULT_TEST_SKILL);
       }
 
-      const manifest = await buildManifest(config.paths.workspaceRoot);
+      const manifest = await buildManifest(config.paths.workspaceRoot, systemPath);
       const loaded = await buildSnapshot(config, manifest);
       snapshot = loaded;
       manifestHash = manifest.hash;
@@ -280,7 +300,7 @@ export function createWorkspaceManager(config: Config): WorkspaceManager {
 
       health.refreshCalls += 1;
 
-      const manifest = await buildManifest(config.paths.workspaceRoot);
+      const manifest = await buildManifest(config.paths.workspaceRoot, systemPath);
       if (manifest.hash === manifestHash) {
         health.refreshNoChange += 1;
         return {

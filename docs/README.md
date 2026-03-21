@@ -6,7 +6,7 @@
 |----------|---------------|
 | [../README.md](../README.md) | Project overview, quickstart, commands |
 | [user-guide.md](user-guide.md) | Setup, Telegram commands, persistence, context injection, observability, troubleshooting |
-| [config-reference.md](config-reference.md) | Full `config.json` schema — every key, type, default, and validation rule |
+| [config-reference.md](config-reference.md) | Full `config/config.json` schema — every key, type, default, and validation rule |
 
 ## For agents and developers
 

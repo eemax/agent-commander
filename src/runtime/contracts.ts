@@ -25,6 +25,15 @@ export type OpenAIModelCatalogEntry = {
   compactionThreshold: number;
 };
 
+export type ConversationSwitchRuntime = {
+  workingDirectory: string;
+  thinkingEffort: ThinkingEffort;
+  cacheRetention: CacheRetention;
+  transportMode: TransportMode;
+  activeModelOverride: string | null;
+  activeWebSearchModelOverride: string | null;
+};
+
 export type Config = {
   agentId: string;
   configPath: string;
@@ -175,6 +184,7 @@ export type StateStore = {
     archivedConversationId: string | null;
     conversationId: string;
     alias: string | null;
+    runtime: ConversationSwitchRuntime;
   }>;
   completeStashSelection(
     chatId: string,
@@ -194,6 +204,7 @@ export type StateStore = {
     stashedAlias: string;
     conversationId: string;
     alias: string | null;
+    runtime: ConversationSwitchRuntime;
   }>;
   appendUserMessageAndGetPromptContext(params: {
     chatId: string;

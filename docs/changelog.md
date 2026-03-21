@@ -37,9 +37,9 @@ Release history, project status, and architectural decision log for Agent Comman
 
 ```bash
 npm install                          # 1. install deps
-npm run dev                          # 2. first run creates config.json template
+npm run dev                          # 2. first run creates config/config.json template
 # create .env with DEFAULT_TELEGRAM_BOT_TOKEN and DEFAULT_OPENAI_API_KEY
-# edit agents.json: set telegram_allowlist
+# edit config/agents.json: set telegram_allowlist
 npm run dev                          # 3. start runtime
 # verify with a Telegram message to the bot
 ```
@@ -61,6 +61,11 @@ All four pass at latest checkpoint.
 
 ### Unreleased
 
+- Relocated `config.json` and `agents.json` from repo root to `config/` directory; `.env` remains at root.
+- Introduced `config/SYSTEM.md` as the first context section (`<system>` tags), loaded from the config directory.
+- Restructured first-turn context XML: replaced `<session>/<operating_contract>/<environment>/<reference_documents>` with flat `<system>`, `<operating_contracts>` (SOUL and AGENTS as raw markdown contracts), and `<available_skills>` (each skill in `<skill name="" path="">` tags). SOUL.md markdown is no longer converted to XML heading tags.
+- Split `/new` command: `/new` now immediately creates a fresh conversation; `/new from` opens the stash picker menu (previous `/new` behavior).
+- Conversation creation and restore now display defaults (model, search model, thinking, cwd, cache, transport).
 - Extracted shared `sanitizeReason()` to `src/provider/sanitize.ts`, eliminating duplicate security-critical redaction logic across `responses-transport.ts` and `retry-policy.ts`.
 - Extracted shared utilities (`isPlainObject`, `asRecord`, `normalizeNonEmptyString`, type guards) to `src/utils.ts`, fixing a subtle `readString` inconsistency between `tool-loop.ts` and `model-tool-output.ts`.
 - Created generic `createCatalogResolver<T>()` in `src/catalog-utils.ts`, replacing duplicate resolution logic in `model-catalog.ts` and `web-search-catalog.ts`.
@@ -123,7 +128,7 @@ All four pass at latest checkpoint.
 ### v0.2.0 runtime composition
 
 - **Runtime composition:** `src/runtime/bootstrap.ts` is the composition root; `src/runtime/contracts.ts` defines core interfaces
-- **Config:** strict nested `config.json` schema validated by Zod; unknown keys fail fast
+- **Config:** strict nested `config/config.json` schema validated by Zod; unknown keys fail fast
 - **Conversation store:** per-conversation append queues, atomic JSON writes, bounded LRU cache with deterministic eviction
 - **Provider:** canonical OpenAI type module across transport/tool-loop; SSE parser split out
 - **Harness:** bounded output buffers with truncation metrics surfaced in `/status`
@@ -168,7 +173,7 @@ All four pass at latest checkpoint.
 
 - **Status:** Accepted
 - **Date:** 2026-03-11
-- **Decision:** Configuration uses required repo-root `config.json` with strict startup validation.
+- **Decision:** Configuration uses required `config/config.json` with strict startup validation.
 - **Why:** Supports user-tinkerable runtime config and deterministic local startup behavior.
 - **Consequence:** Missing/invalid config entries are hard startup failures.
 

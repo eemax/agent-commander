@@ -21,7 +21,7 @@ Agent Commander is intentionally small:
 - `src/runtime/contracts.ts`
   Core runtime interfaces (`Config`, `StateStore`, `WorkspaceCatalog`, `RuntimeLogger`, provider transport contracts).
 - `src/config.ts`
-  Loads strict nested `config.json` via Zod, writes template on missing config, and normalizes path fields.
+  Loads strict nested `config/config.json` via Zod, writes template on missing config, and normalizes path fields.
 
 ### Shared
 
@@ -47,7 +47,7 @@ Agent Commander is intentionally small:
 - `src/context.ts`
   Compiles first-turn bootstrap instructions and writes per-conversation context snapshots.
 - `src/workspace.ts`
-  Bootstraps `paths.workspace_root` (`AGENTS.md`, `SOUL.md`, and default skill), validates skill frontmatter, builds command catalog, and uses manifest hash + mtime checks to skip no-change refresh rebuilds.
+  Bootstraps `paths.workspace_root` (`AGENTS.md`, `SOUL.md`, and default skill), loads `config/SYSTEM.md` from the config directory, validates skill frontmatter, builds command catalog, and uses manifest hash + mtime checks to skip no-change refresh rebuilds.
 
 ### Provider
 
@@ -89,7 +89,7 @@ Agent Commander is intentionally small:
 ### Telegram
 
 - `src/telegram/commands.ts`
-  Typed command registry + parsing (`/start`, `/new`, `/stash`, `/status` with optional `full` flag, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`, `/transport`, dynamic skill commands).
+  Typed command registry + parsing (`/start`, `/new`, `/new from`, `/stash`, `/status` with optional `full` flag, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`, `/transport`, dynamic skill commands).
 - `src/telegram/bot.ts`
   Telegram wiring, command registration sync (`setMyCommands`), text message + callback query dispatch (including inline keyboards and extra verbose replies), and safe error replies.
 
@@ -98,9 +98,9 @@ Agent Commander is intentionally small:
 1. Telegram delivers an update to the bot (text message or callback query).
 2. `normalizeTelegramMessage` / `normalizeTelegramCallbackQuery` produce normalized routing payloads.
 3. Bot syncs command catalog at startup and on workspace catalog changes.
-4. Router checks sender allowlist (`agents.json` → `telegram_allowlist` for the active agent).
+4. Router checks sender allowlist (`config/agents.json` → `telegram_allowlist` for the active agent).
 5. Router handles command or normal turn:
-- Core command (`/new`, `/stash`, `/status`, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`) handled directly.
+- Core command (`/new`, `/new from`, `/stash`, `/status`, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`) handled directly.
 - Conversation-menu callbacks are validated and handled via single-use menu tokens.
 - Skill command (`/<skill_slug>`) triggers one-shot skill invocation.
 - Normal text uses an atomic append+prompt-context read from conversation store and requests provider reply.
@@ -135,8 +135,8 @@ Conversation events are decoded/encoded through the typed event codec in `src/st
 
 ### Context snapshots (`context_snapshots_dir/<chatId>/<conversationId>.md`)
 
-- Markdown file stores the compiled first-turn context (`<session>`, `<operating_contract>`, `<environment>`, `<reference_documents>`) using wrapper tags with Markdown section bodies.
-- Metadata JSON is embedded at EOF in a marker-delimited fenced block (`<!-- acmd:snapshot-metadata:start -->` ... `<!-- acmd:snapshot-metadata:end -->`) and includes AGENTS/SOUL hashes, tool/skill metadata, compiled snapshot path, and instruction hash.
+- Markdown file stores the compiled first-turn context (`<system>`, `<operating_contracts>` with SOUL and AGENTS contracts, `<available_skills>`) as raw markdown inside XML wrapper tags.
+- Metadata JSON is embedded at EOF in a marker-delimited fenced block (`<!-- acmd:snapshot-metadata:start -->` ... `<!-- acmd:snapshot-metadata:end -->`) and includes SYSTEM/AGENTS/SOUL hashes, tool/skill metadata, compiled snapshot path, and instruction hash.
 
 ## Transport Modes
 
