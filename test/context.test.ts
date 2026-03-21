@@ -122,6 +122,28 @@ describe("context compilation", () => {
     expect(instructions).toContain("<operating_contracts>");
   });
 
+  it("emits empty contract tags when SOUL.md content is blank", () => {
+    const instructions = buildConversationBootstrapInstructions({
+      workspace: makeWorkspace({ soulContent: "", agentsContent: "" })
+    });
+
+    expect(instructions).toContain('<contract name="SOUL.md" kind="behavior_spec">');
+    expect(instructions).toContain("</contract>");
+    expect(instructions).toContain('<contract name="AGENTS.md" kind="agent_spec">');
+    expect(instructions).not.toContain("No SOUL.md content is available.");
+    expect(instructions).not.toContain("No AGENTS.md content is available.");
+  });
+
+  it("emits empty skills tags when no skills loaded", () => {
+    const instructions = buildConversationBootstrapInstructions({
+      workspace: makeWorkspace({ skills: [] })
+    });
+
+    expect(instructions).toContain("<available_skills>");
+    expect(instructions).toContain("</available_skills>");
+    expect(instructions).not.toContain("No skills are currently available");
+  });
+
   it("soul contract comes before agents contract", () => {
     const instructions = buildConversationBootstrapInstructions({
       workspace: makeWorkspace()

@@ -94,7 +94,7 @@ async function bootstrapAgentRuntime(
     configPath: config.configPath,
     agentId: agent.id
   });
-  const workspace = createWorkspaceManager(config);
+  const workspace = createWorkspaceManager(config, logger);
   await workspace.bootstrap();
   logger.info(`startup: workspace ready at ${config.paths.workspaceRoot}`);
   if (config.tools.webSearch.apiKey === null) {

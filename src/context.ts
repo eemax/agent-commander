@@ -10,7 +10,7 @@ function toSha256(content: string): string {
 
 function formatSkillsXml(skills: SkillDefinition[]): string {
   if (skills.length === 0) {
-    return "<available_skills>\nNo skills are currently available in the workspace.\n</available_skills>";
+    return "<available_skills>\n</available_skills>";
   }
 
   const entries = skills
@@ -37,10 +37,10 @@ export function buildConversationBootstrapInstructions(params: {
     [
       "<operating_contracts>",
       `<contract name="SOUL.md" kind="behavior_spec">`,
-      soulContent.length > 0 ? soulContent : "No SOUL.md content is available.",
+      soulContent,
       "</contract>",
       `<contract name="AGENTS.md" kind="agent_spec">`,
-      agentsContent.length > 0 ? agentsContent : "No AGENTS.md content is available.",
+      agentsContent,
       "</contract>",
       "</operating_contracts>"
     ].join("\n")
