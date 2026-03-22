@@ -658,7 +658,7 @@ describe("SubagentManager", () => {
       localManager.shutdown();
     });
 
-    it("without cursor, only sees events arriving after the call", async () => {
+    it("without cursor, pre-scans existing qualifying events", async () => {
       vi.useRealTimers();
       const localManager = new SubagentManager(makeConfig());
       const response = localManager.spawn("owner-1", makeSpawnParams());
@@ -668,16 +668,15 @@ describe("SubagentManager", () => {
         message: "What should I do?"
       });
 
-      // Without cursor, await_ starts from the last event (the question itself).
-      // No new requires_response events arrive, so it should timeout.
+      // Without cursor, await_ should pre-scan and find the existing question
       const result = await localManager.await_(
         response.taskId,
         ["requires_response"],
         200
       );
 
-      // Timed out — no NEW requires_response events after the last one
-      expect(result.events.length).toBe(0);
+      expect(result.events.some((e) => e.requiresResponse)).toBe(true);
+      expect(result.events.some((e) => e.kind === "question")).toBe(true);
       localManager.shutdown();
     });
   });

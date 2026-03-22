@@ -102,7 +102,9 @@ const awaitSchema = z.object({
   task_id: z.string().min(1),
   until: z.array(z.enum(["requires_response", "terminal", "any_event", "progress"])).min(1),
   timeout_ms: z.number().int().positive(),
-  cursor: z.string().optional()
+  cursor: z.string().optional().describe(
+    "Last-seen event ID (from spawn, recv, or send response). Events after this cursor are checked. Without cursor, only NEW events arriving after the call are visible."
+  )
 });
 
 // --- Combined discriminated union --------------------------------------------

@@ -23,7 +23,7 @@ function requireOwnerId(ownerId: string | null): string {
 export const subagentsTool: ToolDef<typeof subagentInputSchema> = {
   name: "subagents",
   description:
-    "Manage subagent tasks. Actions: spawn(task); recv(tasks, max_events?); send(task_id, message); inspect(task_id); list(filter?); cancel(task_id, reason); await(task_id, until, timeout_ms, cursor?).",
+    "Manage subagent tasks. Actions: spawn(task); recv(tasks, max_events?); send(task_id, message); inspect(task_id); list(filter?); cancel(task_id, reason); await(task_id, until, timeout_ms, cursor?) — pass cursor from last recv/spawn to avoid missing events.",
   schema: subagentInputSchema,
   async run(ctx, input: SubagentInput): Promise<JsonValue> {
     const manager = requireSubagentManager(ctx.subagentManager);

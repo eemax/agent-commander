@@ -696,6 +696,26 @@ export class SubagentManager {
       };
     }
 
+    // Pre-scan: if no cursor and task already has qualifying events, return immediately.
+    // This handles the case where qualifying events arrived before await_ was called.
+    // (Skips "any_event" — that condition means "wait for the next thing", not "return old events".
+    //  Skips "terminal" — already handled by the pre-scan above.)
+    if (!cursor) {
+      const matchingEvents = stream.filter((e) =>
+        (until.includes("requires_response") && e.requiresResponse) ||
+        (until.includes("progress") && (e.kind === "progress" || e.kind === "checkpoint"))
+      );
+
+      if (matchingEvents.length > 0) {
+        const firstMatchIdx = stream.indexOf(matchingEvents[0]);
+        const eventsFromMatch = stream.slice(firstMatchIdx);
+        return {
+          events: eventsFromMatch,
+          cursors: { [taskId]: eventsFromMatch[eventsFromMatch.length - 1].eventId }
+        };
+      }
+    }
+
     let startSeq: number;
     if (cursor) {
       const cursorIdx = stream.findIndex((e) => e.eventId === cursor);
