@@ -315,11 +315,15 @@ Block until a condition is met or timeout.
 - Every spawned task is guaranteed to reach a terminal state
 
 **Observability events:**
-- `subagent.task.spawned` — task created
+- `subagent.task.spawned` — task created (includes goal, instructions, context)
 - `subagent.task.state_change` — non-terminal state transitions (`needs_steer`, `needs_input`, `stalled`)
-- `subagent.task.terminal` — task reached terminal state
+- `subagent.task.terminal` — task reached terminal state (includes result/error payloads)
+- `subagent.supervisor.sent` — supervisor message delivered (includes content)
+- `subagent.worker.question` — subagent needs supervisor input
+- `subagent.worker.result` — subagent produced a result
 - `subagent.budget.warning` — budget 80% threshold crossed
-- `subagent.supervisor.sent` — supervisor message delivered
+
+See [subagents.md](subagents.md) for the full subagent reference (inheritance, system message, lifecycle).
 
 ## Tool registry internals
 

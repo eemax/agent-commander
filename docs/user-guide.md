@@ -260,6 +260,13 @@ When `observability.enabled` is `true`, runtime appends detailed JSONL trace ent
 - `provider.ws.event.received`
 - `provider.ws.request.started`
 - `provider.ws.request.completed`
+- `subagent.task.spawned`
+- `subagent.task.state_change`
+- `subagent.task.terminal`
+- `subagent.supervisor.sent`
+- `subagent.worker.question`
+- `subagent.worker.result`
+- `subagent.budget.warning`
 
 Notes:
 

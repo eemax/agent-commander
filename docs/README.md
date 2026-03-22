@@ -15,6 +15,7 @@
 | [../AGENTS.md](../AGENTS.md) | AI agent bootstrap — constraints, file map, key patterns |
 | [architecture.md](architecture.md) | System design, component layout, message flow, persistence model |
 | [tools.md](tools.md) | Tool harness reference — every tool's schema, parameters, and behavior |
+| [subagents.md](subagents.md) | Subagent system — inheritance, system message, lifecycle, observability |
 | [contributing.md](contributing.md) | Coding standards, scope guardrails, testing expectations |
 
 ## For maintainers
