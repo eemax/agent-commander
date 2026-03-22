@@ -23,6 +23,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
   const base: Config = {
     agentId: "default",
     configPath: path.join(root, "config", "config.json"),
+    repoRoot: root,
     telegram: {
       botToken: "telegram-token",
       streamingEnabled: true,

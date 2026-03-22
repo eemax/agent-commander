@@ -41,6 +41,7 @@ function makeConfig(): Config {
   return {
     agentId: "test-agent",
     configPath: "/tmp/test-config.json",
+    repoRoot: "/tmp",
     telegram: {
       botToken: "test",
       streamingEnabled: false,

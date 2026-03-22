@@ -552,6 +552,7 @@ export function buildConfigFromParsed(
   return {
     agentId,
     configPath,
+    repoRoot,
     telegram: {
       botToken: telegramBotToken,
       streamingEnabled: config.telegram.streaming_enabled,

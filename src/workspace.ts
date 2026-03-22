@@ -77,12 +77,14 @@ async function fileStatsSignature(filePath: string): Promise<string | null> {
   }
 }
 
-async function resolveFilePath(primary: string, fallback: string): Promise<string | null> {
+async function resolveFilePath(primary: string, ...fallbacks: string[]): Promise<string | null> {
   if (await fileStatsSignature(primary)) {
     return primary;
   }
-  if (await fileStatsSignature(fallback)) {
-    return fallback;
+  for (const fallback of fallbacks) {
+    if (await fileStatsSignature(fallback)) {
+      return fallback;
+    }
   }
   return null;
 }
@@ -130,15 +132,20 @@ function mergeSkillPaths(primaryPaths: string[], fallbackPaths: string[]): strin
 async function buildManifest(
   workspaceRoot: string,
   configDir: string,
-  systemPath: string
+  systemPath: string,
+  rootConfigDir?: string
 ): Promise<WorkspaceManifest> {
+  const extraFallbacks = rootConfigDir && rootConfigDir !== configDir ? [rootConfigDir] : [];
+
   const agentsPath = await resolveFilePath(
     path.join(workspaceRoot, "AGENTS.md"),
-    path.join(configDir, "AGENTS.md")
+    path.join(configDir, "AGENTS.md"),
+    ...extraFallbacks.map((d) => path.join(d, "AGENTS.md"))
   );
   const soulPath = await resolveFilePath(
     path.join(workspaceRoot, "SOUL.md"),
-    path.join(configDir, "SOUL.md")
+    path.join(configDir, "SOUL.md"),
+    ...extraFallbacks.map((d) => path.join(d, "SOUL.md"))
   );
 
   const entries: string[] = [];
@@ -157,7 +164,11 @@ async function buildManifest(
 
   const workspaceSkillPaths = await scanSkillPaths(path.join(workspaceRoot, "skills"));
   const configSkillPaths = await scanSkillPaths(path.join(configDir, "skills"));
-  const skillPaths = mergeSkillPaths(workspaceSkillPaths, configSkillPaths);
+  let skillPaths = mergeSkillPaths(workspaceSkillPaths, configSkillPaths);
+  for (const dir of extraFallbacks) {
+    const fallbackSkillPaths = await scanSkillPaths(path.join(dir, "skills"));
+    skillPaths = mergeSkillPaths(skillPaths, fallbackSkillPaths);
+  }
 
   for (const skillPath of skillPaths) {
     const signature = await fileStatsSignature(skillPath);
@@ -252,6 +263,7 @@ export type WorkspaceManager = WorkspaceCatalog;
 
 export function createWorkspaceManager(config: Config, logger?: RuntimeLogger): WorkspaceManager {
   const configDir = path.dirname(config.configPath);
+  const rootConfigDir = path.join(config.repoRoot, "config");
   const systemPath = path.join(configDir, "SYSTEM.md");
   let snapshot: WorkspaceSnapshot | null = null;
   let manifestHash: string | null = null;
@@ -267,7 +279,7 @@ export function createWorkspaceManager(config: Config, logger?: RuntimeLogger): 
       await fs.mkdir(config.paths.workspaceRoot, { recursive: true });
       await fs.mkdir(path.join(config.paths.workspaceRoot, "skills"), { recursive: true });
 
-      const manifest = await buildManifest(config.paths.workspaceRoot, configDir, systemPath);
+      const manifest = await buildManifest(config.paths.workspaceRoot, configDir, systemPath, rootConfigDir);
 
       if (!manifest.agentsPath) {
         logger?.warn("bootstrap: AGENTS.md not found in workspace or config directory");
@@ -293,7 +305,7 @@ export function createWorkspaceManager(config: Config, logger?: RuntimeLogger): 
 
       health.refreshCalls += 1;
 
-      const manifest = await buildManifest(config.paths.workspaceRoot, configDir, systemPath);
+      const manifest = await buildManifest(config.paths.workspaceRoot, configDir, systemPath, rootConfigDir);
       if (manifest.hash === manifestHash) {
         health.refreshNoChange += 1;
         return {

@@ -37,6 +37,7 @@ export type ConversationSwitchRuntime = {
 export type Config = {
   agentId: string;
   configPath: string;
+  repoRoot: string;
   telegram: {
     botToken: string;
     streamingEnabled: boolean;
