@@ -136,6 +136,8 @@ export class SubagentManager {
         state,
         kind,
         message: event.message,
+        result: event.result ?? null,
+        error: event.error ?? null,
         turnsUsed: task.budgetUsage.turnsUsed,
         tokensUsed: task.budgetUsage.tokensUsed,
         elapsedSec: (Date.now() - task.startedAtMs) / 1000,
@@ -484,6 +486,8 @@ export class SubagentManager {
       ownerId,
       title: params.title,
       goal: params.goal,
+      instructions: params.instructions ?? null,
+      context: params.context ?? null,
       constraints: {
         timeBudgetSec: constraints.timeBudgetSec,
         maxTurns: constraints.maxTurns,
@@ -597,6 +601,7 @@ export class SubagentManager {
 
     this.emitObs("subagent.supervisor.sent", taskId, {
       directiveType,
+      content: message.content,
       contentLength: message.content.length
     });
 
@@ -845,6 +850,21 @@ export class SubagentManager {
       checkpoint: fields.checkpoint,
       deadlineAt: fields.deadlineAt
     });
+
+    // Emit observability for key exchange events
+    if (kind === "question" || kind === "decision_request" || kind === "input_request") {
+      this.emitObs("subagent.worker.question", taskId, {
+        kind,
+        message: fields.message,
+        options: fields.options ?? null
+      });
+    } else if (kind === "result") {
+      this.emitObs("subagent.worker.result", taskId, {
+        message: fields.message,
+        result: fields.result ?? null,
+        partialResult: fields.partialResult ?? null
+      });
+    }
 
     // Reset idle timer on activity
     this.resetIdleTimer(task);

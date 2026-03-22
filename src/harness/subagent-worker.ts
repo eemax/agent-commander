@@ -74,7 +74,8 @@ const EXCLUDED_TOOLS = new Set(["subagents"]);
 
 function createScopedHarness(
   parent: ToolHarness,
-  taskId: string
+  taskId: string,
+  cwdOverride?: string
 ): ToolHarness {
   const filteredTools: ProviderFunctionTool[] = parent
     .exportProviderTools()
@@ -95,7 +96,9 @@ function createScopedHarness(
   };
 
   return {
-    config: parent.config,
+    config: cwdOverride
+      ? { ...parent.config, defaultCwd: cwdOverride }
+      : parent.config,
     context: {
       ...parent.context,
       subagentManager: undefined,
@@ -397,7 +400,11 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
     const abortController = new AbortController();
     const steerChannel = createSteerChannel();
     const model = resolveModel(task.execution.model);
-    const scopedHarness = createScopedHarness(harness, taskId);
+    // Resolve the supervisor's per-conversation cwd so the subagent inherits it
+    const supervisorCwd = harness.resolveDefaultCwd
+      ? await harness.resolveDefaultCwd(task.ownerId)
+      : undefined;
+    const scopedHarness = createScopedHarness(harness, taskId, supervisorCwd);
     const trace = createTraceRootContext("subagent");
 
     // Register available tools on the task

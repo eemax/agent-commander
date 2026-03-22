@@ -20,6 +20,7 @@ export type ToolHarness = {
   execute: (name: string, args: unknown, trace?: TraceContext, abortSignal?: AbortSignal) => Promise<JsonValue>;
   executeWithOwner: (ownerId: string, name: string, args: unknown, trace?: TraceContext, abortSignal?: AbortSignal) => Promise<JsonValue>;
   exportProviderTools: () => ProviderFunctionTool[];
+  resolveDefaultCwd?: (ownerId: string | null) => Promise<string>;
 };
 
 export function createToolHarness(
@@ -161,7 +162,8 @@ export function createToolHarness(
     metrics,
     execute: (name, args, trace, abortSignal) => executeScoped(null, name, args, trace, abortSignal),
     executeWithOwner,
-    exportProviderTools: () => registry.exportProviderTools()
+    exportProviderTools: () => registry.exportProviderTools(),
+    resolveDefaultCwd: deps.resolveDefaultCwd
   };
 }
 

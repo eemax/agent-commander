@@ -255,6 +255,11 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
       return formatFailure(`⚠️ Patch failed:${filesDisplay}`, report.error);
     }
 
+    if (report.tool === "subagents") {
+      const action = readString(args.action) ?? "unknown";
+      return formatFailure(`⚠️ Subagent \`${action}\` failed`, report.error);
+    }
+
     return formatFailure(`⚠️ \`${report.tool}\` failed`, report.error);
   }
 
@@ -307,6 +312,42 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
     const queryDisplay = query ? `"${query}"` : "(multi-query)";
     const model = readString(result.model) ?? "unknown";
     return `🔎 Web search: ${queryDisplay} · ${model}`;
+  }
+
+  if (report.tool === "subagents") {
+    const action = readString(args.action);
+    switch (action) {
+      case "spawn": {
+        const task = asRecord(args.task);
+        const title = readString(task.title) ?? "(untitled)";
+        return `🤖 Spawn subagent: \`${title}\``;
+      }
+      case "recv": {
+        const tasks = asRecord(args.tasks);
+        const count = Object.keys(tasks).length;
+        return `📥 Recv: ${count} task${count !== 1 ? "s" : ""}`;
+      }
+      case "send": {
+        const taskId = readString(args.task_id) ?? "?";
+        return `💬 Send to subagent: \`${taskId}\``;
+      }
+      case "inspect": {
+        const taskId = readString(args.task_id) ?? "?";
+        return `🔍 Inspect: \`${taskId}\``;
+      }
+      case "list":
+        return `📋 List subagents`;
+      case "cancel": {
+        const taskId = readString(args.task_id) ?? "?";
+        return `❌ Cancel: \`${taskId}\``;
+      }
+      case "await": {
+        const taskId = readString(args.task_id) ?? "?";
+        return `⏳ Await: \`${taskId}\``;
+      }
+      default:
+        return `🤖 Subagent: \`${action ?? "unknown"}\``;
+    }
   }
 
   return `🔧 Tool: \`${report.tool}\``;
