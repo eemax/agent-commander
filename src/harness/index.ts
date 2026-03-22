@@ -59,7 +59,7 @@ export function createToolHarness(
   };
 
   const subagentConfig = config.subagents;
-  const subagentManager = subagentConfig?.enabled !== false
+  const subagentManager = subagentConfig?.enabled === true
     ? new SubagentManager(
         {
           defaultModel: subagentConfig?.defaultModel ?? "gpt-4.1-mini",

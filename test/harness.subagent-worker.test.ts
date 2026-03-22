@@ -230,7 +230,11 @@ function makeMockHarness(): ToolHarness {
   return {
     config: context.config,
     context,
-    registry: {} as ToolHarness["registry"],
+    registry: {
+      execute: vi.fn().mockResolvedValue({ ok: true, output: "mock output" }),
+      register: vi.fn(),
+      exportProviderTools: () => mockTools
+    } as unknown as ToolHarness["registry"],
     metrics: context.metrics,
     execute: vi.fn().mockResolvedValue({ ok: true, output: "mock output" }),
     executeWithOwner: vi.fn().mockResolvedValue({ ok: true, output: "mock output" }),
@@ -289,7 +293,7 @@ describe("SubagentWorker", () => {
     const savedWorker = { start: vi.fn().mockResolvedValue(undefined), stop: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined) };
     manager.setWorker(savedWorker);
     const response = manager.spawn("owner-1", makeSpawnParams(params));
-    const snapshot = manager.inspect(response.taskId);
+    const snapshot = manager.inspect("owner-1", response.taskId);
     return {
       taskId: response.taskId,
       ownerId: "owner-1",
@@ -364,11 +368,11 @@ describe("SubagentWorker", () => {
 
       await worker.start(task);
       await waitFor(() => {
-        const recv = manager.recv({ [task.taskId]: "" });
+        const recv = manager.recv("owner-1", { [task.taskId]: "" });
         return recv.events.some((e) => e.kind === "result");
       });
 
-      const recv = manager.recv({ [task.taskId]: "" });
+      const recv = manager.recv("owner-1", { [task.taskId]: "" });
       const resultEvents = recv.events.filter((e) => e.kind === "result");
       expect(resultEvents.length).toBe(1);
       expect(resultEvents[0].result?.outcome).toBe("success");
@@ -388,11 +392,11 @@ describe("SubagentWorker", () => {
 
       await worker.start(task);
       await waitFor(() => {
-        const recv = manager.recv({ [task.taskId]: "" });
+        const recv = manager.recv("owner-1", { [task.taskId]: "" });
         return recv.events.some((e) => e.kind === "error");
       });
 
-      const recv = manager.recv({ [task.taskId]: "" });
+      const recv = manager.recv("owner-1", { [task.taskId]: "" });
       const errorEvents = recv.events.filter((e) => e.kind === "error");
       expect(errorEvents.length).toBeGreaterThanOrEqual(1);
     });
@@ -410,9 +414,9 @@ describe("SubagentWorker", () => {
       const task = buildTask();
 
       await worker.start(task);
-      await waitFor(() => manager.inspect(task.taskId).tokensUsed > 0);
+      await waitFor(() => manager.inspect("owner-1", task.taskId).tokensUsed > 0);
 
-      const snapshot = manager.inspect(task.taskId);
+      const snapshot = manager.inspect("owner-1", task.taskId);
       expect(snapshot.tokensUsed).toBe(300); // 200 + 100
     });
 
@@ -429,9 +433,9 @@ describe("SubagentWorker", () => {
       const task = buildTask();
 
       await worker.start(task);
-      await waitFor(() => manager.inspect(task.taskId).turnsUsed > 0);
+      await waitFor(() => manager.inspect("owner-1", task.taskId).turnsUsed > 0);
 
-      const snapshot = manager.inspect(task.taskId);
+      const snapshot = manager.inspect("owner-1", task.taskId);
       expect(snapshot.turnsUsed).toBe(1);
     });
   });
@@ -545,7 +549,7 @@ describe("SubagentWorker", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
       await settle(100);
 
-      const recv = manager.recv({ [response.taskId]: "" });
+      const recv = manager.recv("owner-1", { [response.taskId]: "" });
       const errorEvents = recv.events.filter((e) => e.kind === "error");
       expect(errorEvents.length).toBeGreaterThanOrEqual(1);
       expect(errorEvents.some((e) => e.message.includes("Worker start failed"))).toBe(true);
@@ -568,17 +572,17 @@ describe("SubagentWorker", () => {
         // Advance past idle timeout
         vi.advanceTimersByTime(5_001);
 
-        let snapshot = manager.inspect(taskId);
+        let snapshot = manager.inspect("owner-1", taskId);
         expect(snapshot.state).toBe("stalled");
 
         // Not yet failed — minimum 1s gap enforced
         vi.advanceTimersByTime(500);
-        snapshot = manager.inspect(taskId);
+        snapshot = manager.inspect("owner-1", taskId);
         expect(snapshot.state).toBe("stalled");
 
         // Advance past the enforced minimum gap
         vi.advanceTimersByTime(1_001);
-        snapshot = manager.inspect(taskId);
+        snapshot = manager.inspect("owner-1", taskId);
         expect(snapshot.state).toBe("failed");
       } finally {
         vi.useRealTimers();
@@ -589,7 +593,7 @@ describe("SubagentWorker", () => {
   describe("recv without wait_ms", () => {
     it("accepts only tasks and max_events", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
-      const recv = manager.recv({ [response.taskId]: "" }, 10);
+      const recv = manager.recv("owner-1", { [response.taskId]: "" }, 10);
       expect(recv.events.length).toBeGreaterThanOrEqual(1);
       expect(recv.cursors[response.taskId]).toBeDefined();
     });
@@ -658,16 +662,16 @@ describe("SubagentWorker", () => {
 
       await worker.start(task);
       await waitFor(() => {
-        const recv = manager.recv({ [task.taskId]: "" });
+        const recv = manager.recv("owner-1", { [task.taskId]: "" });
         return recv.events.some((e) => e.kind === "question");
       });
 
-      const snapshot = manager.inspect(task.taskId);
+      const snapshot = manager.inspect("owner-1", task.taskId);
       expect(snapshot.state).toBe("needs_steer");
       expect(snapshot.turnOwnership).toBe("supervisor");
 
       // Verify the question message doesn't include the marker
-      const recv = manager.recv({ [task.taskId]: "" });
+      const recv = manager.recv("owner-1", { [task.taskId]: "" });
       const questionEvents = recv.events.filter((e) => e.kind === "question");
       expect(questionEvents.length).toBe(1);
       expect(questionEvents[0].message).not.toContain("[NEEDS_INPUT]");
@@ -688,14 +692,14 @@ describe("SubagentWorker", () => {
 
       await worker.start(task);
       await waitFor(() => {
-        const recv = manager.recv({ [task.taskId]: "" });
+        const recv = manager.recv("owner-1", { [task.taskId]: "" });
         return recv.events.some((e) => e.kind === "result");
       });
 
-      const snapshot = manager.inspect(task.taskId);
+      const snapshot = manager.inspect("owner-1", task.taskId);
       expect(snapshot.state).toBe("completed");
 
-      const recv = manager.recv({ [task.taskId]: "" });
+      const recv = manager.recv("owner-1", { [task.taskId]: "" });
       const resultEvents = recv.events.filter((e) => e.kind === "result");
       expect(resultEvents[0].message).not.toContain("[TASK_COMPLETE]");
     });
@@ -720,16 +724,16 @@ describe("SubagentWorker", () => {
       manager.setWorker(worker);
 
       await worker.start(task);
-      await waitFor(() => manager.inspect(task.taskId).state === "needs_steer");
+      await waitFor(() => manager.inspect("owner-1", task.taskId).state === "needs_steer");
 
       // Send supervisor guidance — this should trigger resume
       // The manager's send() will transition back to running and call worker.send()
-      manager.send(task.taskId, { role: "supervisor", content: "Use PostgreSQL" });
+      manager.send("owner-1", task.taskId, { role: "supervisor", content: "Use PostgreSQL" });
 
       // Wait for the second loop to complete
-      await waitFor(() => manager.inspect(task.taskId).state === "completed");
+      await waitFor(() => manager.inspect("owner-1", task.taskId).state === "completed");
 
-      const snapshot = manager.inspect(task.taskId);
+      const snapshot = manager.inspect("owner-1", task.taskId);
       expect(snapshot.state).toBe("completed");
       expect(callCount).toBe(2);
     });
@@ -747,16 +751,16 @@ describe("SubagentWorker", () => {
       const task = buildTask();
 
       await worker.start(task);
-      await waitFor(() => manager.inspect(task.taskId).state === "completed");
+      await waitFor(() => manager.inspect("owner-1", task.taskId).state === "completed");
 
-      expect(manager.inspect(task.taskId).state).toBe("completed");
+      expect(manager.inspect("owner-1", task.taskId).state).toBe("completed");
     });
   });
 
   describe("capabilities in inspect", () => {
     it("inspect snapshot includes capabilities", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.capabilities).toBeDefined();
       expect(snapshot.capabilities.model).toBeDefined();
       expect(snapshot.capabilities.constraints.maxTurns).toBe(30);

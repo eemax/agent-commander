@@ -18,7 +18,7 @@ import type {
   SupervisorMessage,
   TaskResult
 } from "./subagent-types.js";
-import type { ProviderFunctionTool } from "./types.js";
+import type { ProviderFunctionTool, ToolContext } from "./types.js";
 import type { OpenAIInputMessage } from "../provider/openai-types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -92,7 +92,21 @@ function createScopedHarness(
         new Error(`Tool '${name}' is not available to subagents`)
       );
     }
-    return parent.executeWithOwner(taskId, name, args, trace, signal);
+    // Execute directly through registry with a pinned CWD context.
+    // We must NOT use parent.executeWithOwner(taskId, ...) because that
+    // re-resolves CWD via resolveDefaultCwd(taskId), which would pollute
+    // the conversation store with a fake entry keyed by the satask_* id.
+    const scopedCtx: ToolContext = {
+      ...parent.context,
+      config: {
+        ...parent.context.config,
+        defaultCwd: cwdOverride ?? parent.context.config.defaultCwd
+      },
+      ownerId: taskId,
+      trace,
+      abortSignal: signal
+    };
+    return parent.registry.execute(name, args, scopedCtx);
   };
 
   return {
@@ -315,7 +329,7 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
       if (error instanceof ToolWorkflowAbortError) {
         const code = error.payload.errorCode;
         if (code === "WORKFLOW_TIMEOUT") {
-          manager.pushWorkerEvent(taskId, "error", {
+          manager.pushWorkerEvent(taskId, "timeout", {
             message: `Time budget exceeded: ${message}`,
             error: { code: "TIME_BUDGET_EXCEEDED", retryable: false }
           });

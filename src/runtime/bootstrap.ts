@@ -131,7 +131,8 @@ async function bootstrapAgentRuntime(
       completedSessionRetentionMs: config.tools.completedSessionRetentionMs,
       maxCompletedSessions: config.tools.maxCompletedSessions,
       maxOutputChars: config.tools.maxOutputChars,
-      webSearch: config.tools.webSearch
+      webSearch: config.tools.webSearch,
+      subagents: config.subagents
     },
     {
       observability,

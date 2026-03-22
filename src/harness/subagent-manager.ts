@@ -93,6 +93,14 @@ export class SubagentManager {
     return task;
   }
 
+  private requireTaskForOwner(taskId: string, ownerId: string): SubagentTask {
+    const task = this.tasks.get(taskId);
+    if (!task || task.ownerId !== ownerId) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+    return task;
+  }
+
   private requireNonTerminal(task: SubagentTask): void {
     if (isTerminal(task.state)) {
       throw new Error(`Task ${task.taskId} is in terminal state: ${task.state}`);
@@ -263,7 +271,7 @@ export class SubagentManager {
 
       // Hard limit
       if (check.used >= check.limit) {
-        this.appendEvent(task.taskId, "error", "timed_out", "none", {
+        this.appendEvent(task.taskId, "timeout", "timed_out", "none", {
           message: `${check.resource} budget exceeded (${check.used}/${check.limit}).`,
           final: true,
           error: {
@@ -519,9 +527,19 @@ export class SubagentManager {
   }
 
   recv(
+    ownerId: string,
     tasks: Record<string, string>,
     maxEvents?: number
   ): RecvResponse {
+    // Filter to only tasks owned by the caller
+    const ownedTasks: Record<string, string> = {};
+    for (const [taskId, cursor] of Object.entries(tasks)) {
+      const task = this.tasks.get(taskId);
+      if (task && task.ownerId === ownerId) {
+        ownedTasks[taskId] = cursor;
+      }
+    }
+    tasks = ownedTasks;
     const effectiveMaxEvents = Math.min(
       maxEvents ?? this.config.recvMaxEvents,
       this.config.recvMaxEvents
@@ -544,6 +562,9 @@ export class SubagentManager {
           const cursorIdx = stream.findIndex((e) => e.eventId === lastCursor);
           if (cursorIdx >= 0) {
             startIdx = cursorIdx + 1;
+          } else {
+            // Cursor not found — treat as past-the-end to avoid replaying history
+            startIdx = stream.length;
           }
         }
 
@@ -579,8 +600,8 @@ export class SubagentManager {
     return collectEvents();
   }
 
-  send(taskId: string, message: SupervisorMessage): SendResponse {
-    const task = this.requireTask(taskId);
+  send(ownerId: string, taskId: string, message: SupervisorMessage): SendResponse {
+    const task = this.requireTaskForOwner(taskId, ownerId);
 
     if (isTerminal(task.state)) {
       throw new Error(`Cannot send to task ${taskId} in terminal state: ${task.state}`);
@@ -618,18 +639,19 @@ export class SubagentManager {
     };
   }
 
-  inspect(taskId: string): TaskSnapshot {
-    const task = this.requireTask(taskId);
+  inspect(ownerId: string, taskId: string): TaskSnapshot {
+    const task = this.requireTaskForOwner(taskId, ownerId);
     return this.toSnapshot(task);
   }
 
-  list(filter?: {
+  list(ownerId: string, filter?: {
     states?: TaskState[];
     labels?: Record<string, string>;
   }): ListTaskSummary[] {
     const results: ListTaskSummary[] = [];
 
     for (const task of this.tasks.values()) {
+      if (task.ownerId !== ownerId) continue;
       // Filter by states
       if (filter?.states && filter.states.length > 0) {
         if (!filter.states.includes(task.state)) continue;
@@ -653,8 +675,8 @@ export class SubagentManager {
     return results;
   }
 
-  cancel(taskId: string, reason: string): CancelResponse {
-    const task = this.requireTask(taskId);
+  cancel(ownerId: string, taskId: string, reason: string): CancelResponse {
+    const task = this.requireTaskForOwner(taskId, ownerId);
 
     if (isTerminal(task.state)) {
       throw new Error(`Task ${taskId} is already in terminal state: ${task.state}`);
@@ -678,13 +700,14 @@ export class SubagentManager {
   }
 
   async await_(
+    ownerId: string,
     taskId: string,
     until: AwaitCondition[],
     timeoutMs: number,
     cursor?: string
   ): Promise<RecvResponse> {
     const effectiveTimeout = Math.min(timeoutMs, this.config.awaitMaxTimeoutMs);
-    const task = this.requireTask(taskId);
+    const task = this.requireTaskForOwner(taskId, ownerId);
     const stream = this.events.get(taskId) ?? [];
 
     // If the task is already terminal and we're waiting for terminal, return immediately
@@ -802,6 +825,11 @@ export class SubagentManager {
         break;
       case "error":
         targetState = "failed";
+        targetOwnership = "none";
+        isFinal = true;
+        break;
+      case "timeout":
+        targetState = "timed_out";
         targetOwnership = "none";
         isFinal = true;
         break;

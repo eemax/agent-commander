@@ -198,7 +198,7 @@ describe("subagents tool (integration)", () => {
         action: "inspect",
         task_id: "satask_NONEXISTENT"
       })
-    ).rejects.toThrow(/Unknown task/);
+    ).rejects.toThrow(/Task not found/);
   });
 
   it("is not registered when subagents are disabled", () => {

@@ -11,7 +11,7 @@ function createHarnessRoot(prefix: string): string {
 }
 
 describe("tool registry", () => {
-  it("registers exactly the seven canonical tools", () => {
+  it("registers exactly the eight canonical tools", () => {
     const root = createHarnessRoot("acmd-harness-registry-");
     const harness = createToolHarness({
       defaultCwd: root,
@@ -22,7 +22,8 @@ describe("tool registry", () => {
       logPath: ".agent-commander/tool-calls.jsonl",
       completedSessionRetentionMs: 3_600_000,
       maxCompletedSessions: 500,
-    maxOutputChars: 200_000
+      maxOutputChars: 200_000,
+      subagents: { enabled: true }
     });
 
     const names = harness.registry

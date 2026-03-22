@@ -82,7 +82,7 @@ export const subagentsTool: ToolDef<typeof subagentInputSchema> = {
       }
 
       case "recv": {
-        const result = manager.recv(input.tasks, input.max_events);
+        const result = manager.recv(ownerId, input.tasks, input.max_events);
         return JSON.parse(JSON.stringify(result));
       }
 
@@ -92,11 +92,11 @@ export const subagentsTool: ToolDef<typeof subagentInputSchema> = {
           content: input.message.content,
           directiveType: input.message.directive_type as DirectiveType | undefined
         };
-        return JSON.parse(JSON.stringify(manager.send(input.task_id, message)));
+        return JSON.parse(JSON.stringify(manager.send(ownerId, input.task_id, message)));
       }
 
       case "inspect": {
-        return JSON.parse(JSON.stringify(manager.inspect(input.task_id)));
+        return JSON.parse(JSON.stringify(manager.inspect(ownerId, input.task_id)));
       }
 
       case "list": {
@@ -106,16 +106,16 @@ export const subagentsTool: ToolDef<typeof subagentInputSchema> = {
               labels: input.filter.labels
             }
           : undefined;
-        const tasks = manager.list(filter);
+        const tasks = manager.list(ownerId, filter);
         return JSON.parse(JSON.stringify({ tasks }));
       }
 
       case "cancel": {
-        return JSON.parse(JSON.stringify(manager.cancel(input.task_id, input.reason)));
+        return JSON.parse(JSON.stringify(manager.cancel(ownerId, input.task_id, input.reason)));
       }
 
       case "await": {
-        const result = await manager.await_(input.task_id, input.until, input.timeout_ms, input.cursor);
+        const result = await manager.await_(ownerId, input.task_id, input.until, input.timeout_ms, input.cursor);
         return JSON.parse(JSON.stringify(result));
       }
 

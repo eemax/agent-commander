@@ -49,6 +49,7 @@ export type EventKind =
   | "checkpoint"
   | "result"
   | "error"
+  | "timeout"
   | "status_change"
   | "budget_warning";
 

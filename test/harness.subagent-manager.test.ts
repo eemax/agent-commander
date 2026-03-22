@@ -57,7 +57,7 @@ describe("SubagentManager", () => {
 
     it("task is in running state after spawn", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("running");
       expect(snapshot.turnOwnership).toBe("subagent");
       expect(snapshot.turnsUsed).toBe(0);
@@ -66,7 +66,7 @@ describe("SubagentManager", () => {
 
     it("emits a started event", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
-      const recv = manager.recv({ [response.taskId]: "" });
+      const recv = manager.recv("owner-1", { [response.taskId]: "" });
       expect(recv.events.length).toBeGreaterThanOrEqual(1);
       expect(recv.events[0].kind).toBe("started");
       expect(recv.events[0].state).toBe("running");
@@ -80,7 +80,7 @@ describe("SubagentManager", () => {
           maxTotalTokens: 10_000
         }
       }));
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot).toBeDefined();
     });
 
@@ -101,7 +101,7 @@ describe("SubagentManager", () => {
       const response = manager.spawn("owner-1", makeSpawnParams({
         labels: { initiative: "payments", role: "diagnosis" }
       }));
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.labels).toEqual({ initiative: "payments", role: "diagnosis" });
     });
   });
@@ -119,7 +119,7 @@ describe("SubagentManager", () => {
         progress: { percent: 25, milestone: "step_1" }
       });
 
-      const recv = manager.recv({ [taskId]: response.cursor });
+      const recv = manager.recv("owner-1", { [taskId]: response.cursor });
       expect(recv.events.length).toBeGreaterThanOrEqual(1);
       expect(recv.events.some((e) => e.kind === "progress")).toBe(true);
     });
@@ -135,7 +135,7 @@ describe("SubagentManager", () => {
         });
       }
 
-      const recv = manager.recv({ [taskId]: "" }, 3);
+      const recv = manager.recv("owner-1", { [taskId]: "" }, 3);
       expect(recv.events.length).toBe(3);
     });
 
@@ -146,7 +146,7 @@ describe("SubagentManager", () => {
       manager.pushWorkerEvent(r1.taskId, "progress", { message: "T1 progress" });
       manager.pushWorkerEvent(r2.taskId, "progress", { message: "T2 progress" });
 
-      const recv = manager.recv({
+      const recv = manager.recv("owner-1", {
         [r1.taskId]: r1.cursor,
         [r2.taskId]: r2.cursor
       });
@@ -157,7 +157,7 @@ describe("SubagentManager", () => {
 
     it("returns updated cursors per task", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
-      const recv = manager.recv({ [response.taskId]: "" });
+      const recv = manager.recv("owner-1", { [response.taskId]: "" });
       expect(recv.cursors[response.taskId]).toBeDefined();
       expect(recv.cursors[response.taskId]).toMatch(/^saevt_/);
     });
@@ -167,11 +167,33 @@ describe("SubagentManager", () => {
       manager.pushWorkerEvent(response.taskId, "progress", { message: "A" });
       manager.pushWorkerEvent(response.taskId, "progress", { message: "B" });
 
-      const recv = manager.recv({ [response.taskId]: "" });
+      const recv = manager.recv("owner-1", { [response.taskId]: "" });
       const seqs = recv.events.map((e) => e.seq);
       for (let i = 1; i < seqs.length; i++) {
         expect(seqs[i]).toBeGreaterThan(seqs[i - 1]);
       }
+    });
+
+    it("returns empty when cursor points to last event", () => {
+      const response = manager.spawn("owner-1", makeSpawnParams());
+      manager.pushWorkerEvent(response.taskId, "progress", { message: "done" });
+
+      // First recv gets all events and returns a cursor
+      const first = manager.recv("owner-1", { [response.taskId]: "" });
+      expect(first.events.length).toBeGreaterThan(0);
+      const latestCursor = first.cursors[response.taskId];
+
+      // Second recv with that cursor should return empty
+      const second = manager.recv("owner-1", { [response.taskId]: latestCursor });
+      expect(second.events.length).toBe(0);
+    });
+
+    it("returns empty when cursor is unrecognized", () => {
+      const response = manager.spawn("owner-1", makeSpawnParams());
+      manager.pushWorkerEvent(response.taskId, "progress", { message: "data" });
+
+      const recv = manager.recv("owner-1", { [response.taskId]: "saevt_BOGUS" });
+      expect(recv.events.length).toBe(0);
     });
   });
 
@@ -191,10 +213,10 @@ describe("SubagentManager", () => {
         ]
       });
 
-      const snapshot = manager.inspect(taskId);
+      const snapshot = manager.inspect("owner-1", taskId);
       expect(snapshot.state).toBe("needs_steer");
 
-      const sendResult = manager.send(taskId, {
+      const sendResult = manager.send("owner-1", taskId, {
         role: "supervisor",
         content: "Choose option B.",
         directiveType: "guidance"
@@ -207,7 +229,7 @@ describe("SubagentManager", () => {
     it("rejects send when turn ownership is subagent", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
       expect(() => {
-        manager.send(response.taskId, {
+        manager.send("owner-1", response.taskId, {
           role: "supervisor",
           content: "Interrupt!"
         });
@@ -216,10 +238,10 @@ describe("SubagentManager", () => {
 
     it("rejects send to terminal task", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
-      manager.cancel(response.taskId, "test");
+      manager.cancel("owner-1", response.taskId, "test");
 
       expect(() => {
-        manager.send(response.taskId, {
+        manager.send("owner-1", response.taskId, {
           role: "supervisor",
           content: "Hello?"
         });
@@ -235,7 +257,7 @@ describe("SubagentManager", () => {
         labels: { initiative: "test" }
       }));
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.taskId).toBe(response.taskId);
       expect(snapshot.title).toBe("Test task");
       expect(snapshot.state).toBe("running");
@@ -247,7 +269,7 @@ describe("SubagentManager", () => {
     });
 
     it("throws for unknown task", () => {
-      expect(() => manager.inspect("satask_NONEXISTENT")).toThrow(/Unknown task/);
+      expect(() => manager.inspect("owner-1", "satask_NONEXISTENT")).toThrow(/Task not found/);
     });
 
     it("shows awaiting info when task needs steering", () => {
@@ -256,7 +278,7 @@ describe("SubagentManager", () => {
         message: "What database to use?"
       });
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.awaiting).toEqual({
         type: "supervisor",
         question: expect.stringContaining("database"),
@@ -272,19 +294,19 @@ describe("SubagentManager", () => {
       manager.spawn("owner-1", makeSpawnParams({ title: "task 1" }));
       manager.spawn("owner-1", makeSpawnParams({ title: "task 2" }));
 
-      const result = manager.list();
+      const result = manager.list("owner-1");
       expect(result.length).toBe(2);
     });
 
     it("filters by state", () => {
       const r1 = manager.spawn("owner-1", makeSpawnParams({ title: "task 1" }));
       manager.spawn("owner-1", makeSpawnParams({ title: "task 2" }));
-      manager.cancel(r1.taskId, "test");
+      manager.cancel("owner-1", r1.taskId, "test");
 
-      const running = manager.list({ states: ["running"] });
+      const running = manager.list("owner-1", { states: ["running"] });
       expect(running.length).toBe(1);
 
-      const cancelled = manager.list({ states: ["cancelled"] });
+      const cancelled = manager.list("owner-1", { states: ["cancelled"] });
       expect(cancelled.length).toBe(1);
     });
 
@@ -298,7 +320,7 @@ describe("SubagentManager", () => {
         labels: { initiative: "auth" }
       }));
 
-      const result = manager.list({ labels: { initiative: "payments" } });
+      const result = manager.list("owner-1", { labels: { initiative: "payments" } });
       expect(result.length).toBe(1);
       expect(result[0].title).toBe("payment task");
     });
@@ -309,29 +331,29 @@ describe("SubagentManager", () => {
   describe("cancel", () => {
     it("transitions task to cancelled", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
-      const cancelResult = manager.cancel(response.taskId, "User changed priorities");
+      const cancelResult = manager.cancel("owner-1", response.taskId, "User changed priorities");
 
       expect(cancelResult.state).toBe("cancelled");
       expect(cancelResult.finalEventId).toMatch(/^saevt_/);
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("cancelled");
     });
 
     it("throws when cancelling an already-terminal task", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
-      manager.cancel(response.taskId, "first cancel");
+      manager.cancel("owner-1", response.taskId, "first cancel");
 
       expect(() => {
-        manager.cancel(response.taskId, "second cancel");
+        manager.cancel("owner-1", response.taskId, "second cancel");
       }).toThrow(/terminal state/);
     });
 
     it("emits a terminal event with final: true", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
-      manager.cancel(response.taskId, "done");
+      manager.cancel("owner-1", response.taskId, "done");
 
-      const recv = manager.recv({ [response.taskId]: "" });
+      const recv = manager.recv("owner-1", { [response.taskId]: "" });
       const finalEvent = recv.events.find((e) => e.final);
       expect(finalEvent).toBeDefined();
       expect(finalEvent!.state).toBe("cancelled");
@@ -348,7 +370,7 @@ describe("SubagentManager", () => {
         progress: { percent: 30, milestone: "reproduced" }
       });
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.progress).toEqual({ percent: 30, milestone: "reproduced" });
     });
 
@@ -367,7 +389,7 @@ describe("SubagentManager", () => {
         }
       });
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("completed");
       expect(snapshot.result).toBeDefined();
       expect(snapshot.result!.summary).toBe("Fixed the bug");
@@ -384,7 +406,7 @@ describe("SubagentManager", () => {
         }
       });
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("failed");
     });
 
@@ -398,7 +420,7 @@ describe("SubagentManager", () => {
         ]
       });
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("needs_steer");
       expect(snapshot.turnOwnership).toBe("supervisor");
     });
@@ -418,13 +440,13 @@ describe("SubagentManager", () => {
       manager.recordTurnUsed(response.taskId);
       manager.recordTurnUsed(response.taskId);
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("running");
     });
 
     it("rejects events on terminal tasks", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
-      manager.cancel(response.taskId, "done");
+      manager.cancel("owner-1", response.taskId, "done");
 
       expect(() => {
         manager.pushWorkerEvent(response.taskId, "progress", { message: "Late event" });
@@ -446,7 +468,7 @@ describe("SubagentManager", () => {
         manager.recordTurnUsed(response.taskId);
       }
 
-      const recv = manager.recv({ [response.taskId]: "" });
+      const recv = manager.recv("owner-1", { [response.taskId]: "" });
       const warnings = recv.events.filter((e) => e.kind === "budget_warning");
       expect(warnings.length).toBeGreaterThanOrEqual(1);
       expect(warnings.some((w) => w.budget?.resource === "turns")).toBe(true);
@@ -462,7 +484,7 @@ describe("SubagentManager", () => {
         manager.recordTurnUsed(response.taskId);
       }
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("timed_out");
     });
 
@@ -473,7 +495,7 @@ describe("SubagentManager", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
       manager.recordTokensUsed(response.taskId, 1000);
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("timed_out");
     });
   });
@@ -490,7 +512,7 @@ describe("SubagentManager", () => {
       manager.recordTurnUsed(response.taskId);
       manager.recordTurnUsed(response.taskId);
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("needs_steer");
     });
 
@@ -508,7 +530,7 @@ describe("SubagentManager", () => {
       manager.recordTurnUsed(response.taskId);
       manager.recordTurnUsed(response.taskId);
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("running");
     });
 
@@ -522,7 +544,7 @@ describe("SubagentManager", () => {
         manager.recordTurnUsed(response.taskId);
       }
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("running");
     });
   });
@@ -539,7 +561,7 @@ describe("SubagentManager", () => {
       // Advance timer past one heartbeat interval
       vi.advanceTimersByTime(5_000);
 
-      const recv = manager.recv({ [response.taskId]: response.cursor });
+      const recv = manager.recv("owner-1", { [response.taskId]: response.cursor });
       const heartbeats = recv.events.filter((e) => e.kind === "heartbeat");
       expect(heartbeats.length).toBeGreaterThanOrEqual(1);
     });
@@ -556,7 +578,7 @@ describe("SubagentManager", () => {
       // Advance past idle timeout
       vi.advanceTimersByTime(2_500);
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("stalled");
     });
 
@@ -572,7 +594,7 @@ describe("SubagentManager", () => {
       // Advance past stall timeout
       vi.advanceTimersByTime(6_000);
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("failed");
     });
 
@@ -592,7 +614,7 @@ describe("SubagentManager", () => {
       // Advance another 2 seconds — should not be stalled because timer was reset
       vi.advanceTimersByTime(2_000);
 
-      const snapshot = manager.inspect(response.taskId);
+      const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("running");
     });
   });
@@ -606,9 +628,9 @@ describe("SubagentManager", () => {
       const localManager = new SubagentManager(makeConfig());
 
       const response = localManager.spawn("owner-1", makeSpawnParams());
-      localManager.cancel(response.taskId, "test");
+      localManager.cancel("owner-1", response.taskId, "test");
 
-      const result = await localManager.await_(response.taskId, ["terminal"], 5000);
+      const result = await localManager.await_("owner-1", response.taskId, ["terminal"], 5000);
       expect(result.events.some((e) => e.final)).toBe(true);
       localManager.shutdown();
     });
@@ -621,10 +643,10 @@ describe("SubagentManager", () => {
 
       // Schedule a cancel after 100ms
       setTimeout(() => {
-        localManager.cancel(response.taskId, "delayed cancel");
+        localManager.cancel("owner-1", response.taskId, "delayed cancel");
       }, 100);
 
-      const result = await localManager.await_(response.taskId, ["terminal"], 5000);
+      const result = await localManager.await_("owner-1", response.taskId, ["terminal"], 5000);
       expect(result.events.some((e) => e.state === "cancelled")).toBe(true);
       localManager.shutdown();
     });
@@ -647,6 +669,7 @@ describe("SubagentManager", () => {
 
       // With cursor from spawn: sees both events including the question
       const result = await localManager.await_(
+        "owner-1",
         response.taskId,
         ["requires_response"],
         1000,
@@ -670,6 +693,7 @@ describe("SubagentManager", () => {
 
       // Without cursor, await_ should pre-scan and find the existing question
       const result = await localManager.await_(
+        "owner-1",
         response.taskId,
         ["requires_response"],
         200
@@ -690,8 +714,8 @@ describe("SubagentManager", () => {
 
       manager.shutdown();
 
-      const s1 = manager.inspect(r1.taskId);
-      const s2 = manager.inspect(r2.taskId);
+      const s1 = manager.inspect("owner-1", r1.taskId);
+      const s2 = manager.inspect("owner-1", r2.taskId);
       expect(s1.state).toBe("cancelled");
       expect(s2.state).toBe("cancelled");
     });
@@ -703,7 +727,7 @@ describe("SubagentManager", () => {
     it("returns correct health stats", () => {
       const r1 = manager.spawn("owner-1", makeSpawnParams({ title: "task 1" }));
       manager.spawn("owner-1", makeSpawnParams({ title: "task 2" }));
-      manager.cancel(r1.taskId, "done");
+      manager.cancel("owner-1", r1.taskId, "done");
 
       const health = manager.getHealth();
       expect(health.totalTasks).toBe(2);
@@ -742,7 +766,7 @@ describe("SubagentManager", () => {
       manager.shutdown();
       manager = new SubagentManager(makeConfig(), mockWorker);
       const response = manager.spawn("owner-1", makeSpawnParams());
-      manager.cancel(response.taskId, "done");
+      manager.cancel("owner-1", response.taskId, "done");
 
       await vi.advanceTimersByTimeAsync(0);
 
@@ -765,7 +789,7 @@ describe("SubagentManager", () => {
         message: "What next?"
       });
 
-      manager.send(response.taskId, {
+      manager.send("owner-1", response.taskId, {
         role: "supervisor",
         content: "Continue with plan B."
       });
@@ -811,7 +835,7 @@ describe("SubagentManager", () => {
     it("emits subagent.task.terminal on cancel", () => {
       const { manager: m, events } = createObsManager();
       const r = m.spawn("owner-1", makeSpawnParams());
-      m.cancel(r.taskId, "done");
+      m.cancel("owner-1", r.taskId, "done");
 
       const terminal = events.filter((e) => e.event === "subagent.task.terminal");
       expect(terminal.length).toBe(1);
@@ -896,7 +920,7 @@ describe("SubagentManager", () => {
       const r = m.spawn("owner-1", makeSpawnParams());
       m.pushWorkerEvent(r.taskId, "question", { message: "What next?" });
 
-      m.send(r.taskId, {
+      m.send("owner-1", r.taskId, {
         role: "supervisor",
         content: "Do plan B.",
         directiveType: "guidance"
@@ -920,7 +944,7 @@ describe("SubagentManager", () => {
       };
       const m = new SubagentManager(makeConfig(), undefined, sink);
       const r = m.spawn("owner-1", makeSpawnParams());
-      m.cancel(r.taskId, "test");
+      m.cancel("owner-1", r.taskId, "test");
 
       expect(events.length).toBe(0);
       m.shutdown();
@@ -933,8 +957,8 @@ describe("SubagentManager", () => {
         message: "Choose?",
         options: [{ id: "a", label: "A" }]
       });
-      m.send(r.taskId, { role: "supervisor", content: "Go with A." });
-      m.cancel(r.taskId, "done");
+      m.send("owner-1", r.taskId, { role: "supervisor", content: "Go with A." });
+      m.cancel("owner-1", r.taskId, "done");
 
       const taskEvents = events.filter((e) => e.taskId === r.taskId);
       expect(taskEvents.length).toBeGreaterThanOrEqual(3);
@@ -942,6 +966,77 @@ describe("SubagentManager", () => {
       const traceIds = new Set(taskEvents.map((e) => e.trace.traceId));
       expect(traceIds.size).toBe(1);
       m.shutdown();
+    });
+  });
+
+  // ── Owner isolation ──────────────────────────────────────────────────────
+
+  describe("owner isolation", () => {
+    it("list only returns tasks for the calling owner", () => {
+      manager.spawn("owner-1", makeSpawnParams({ title: "task A" }));
+      manager.spawn("owner-2", makeSpawnParams({ title: "task B" }));
+
+      const owner1Tasks = manager.list("owner-1");
+      expect(owner1Tasks.length).toBe(1);
+      expect(owner1Tasks[0].title).toBe("task A");
+
+      const owner2Tasks = manager.list("owner-2");
+      expect(owner2Tasks.length).toBe(1);
+      expect(owner2Tasks[0].title).toBe("task B");
+    });
+
+    it("inspect rejects task not owned by caller", () => {
+      const r = manager.spawn("owner-1", makeSpawnParams());
+      expect(() => manager.inspect("owner-2", r.taskId)).toThrow(/Task not found/);
+    });
+
+    it("send rejects task not owned by caller", () => {
+      const r = manager.spawn("owner-1", makeSpawnParams());
+      manager.pushWorkerEvent(r.taskId, "question", { message: "What?" });
+
+      expect(() => manager.send("owner-2", r.taskId, {
+        role: "supervisor",
+        content: "hijack"
+      })).toThrow(/Task not found/);
+    });
+
+    it("cancel rejects task not owned by caller", () => {
+      const r = manager.spawn("owner-1", makeSpawnParams());
+      expect(() => manager.cancel("owner-2", r.taskId, "nope")).toThrow(/Task not found/);
+    });
+
+    it("recv silently drops tasks not owned by caller", () => {
+      const r = manager.spawn("owner-1", makeSpawnParams());
+      manager.pushWorkerEvent(r.taskId, "progress", { message: "secret" });
+
+      const recv = manager.recv("owner-2", { [r.taskId]: "" });
+      expect(recv.events.length).toBe(0);
+    });
+
+    it("await_ rejects task not owned by caller", async () => {
+      vi.useRealTimers();
+      const localManager = new SubagentManager(makeConfig());
+      const r = localManager.spawn("owner-1", makeSpawnParams());
+
+      await expect(
+        localManager.await_("owner-2", r.taskId, ["terminal"], 200)
+      ).rejects.toThrow(/Task not found/);
+      localManager.shutdown();
+    });
+  });
+
+  // ── Timeout event kind ─────────────────────────────────────────────────
+
+  describe("timeout event kind", () => {
+    it("pushWorkerEvent with 'timeout' transitions to timed_out state", () => {
+      const r = manager.spawn("owner-1", makeSpawnParams());
+      manager.pushWorkerEvent(r.taskId, "timeout", {
+        message: "Time budget exceeded",
+        error: { code: "TIME_BUDGET_EXCEEDED", retryable: false }
+      });
+
+      const snapshot = manager.inspect("owner-1", r.taskId);
+      expect(snapshot.state).toBe("timed_out");
     });
   });
 });

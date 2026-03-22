@@ -198,13 +198,23 @@ function normalizeSubagentsArgs(args: unknown): Record<string, unknown> {
     case "spawn":
       return dropUndefined({ action: "spawn", task: source.task });
     case "recv": {
-      // Normalize tasks: accept array of task IDs as a convenience → convert to record with empty cursors
+      // Normalize tasks: accept array of task IDs as a convenience → convert to record with cursors
       let tasks = source.tasks;
+      const defaultCursor = readString(firstDefined(source, ["cursor", "last_cursor"])) ?? "";
       if (Array.isArray(tasks)) {
         const record: Record<string, string> = {};
         for (const item of tasks) {
           if (typeof item === "string" && item.length > 0) {
-            record[item] = "";
+            record[item] = defaultCursor;
+          }
+        }
+        tasks = record;
+      } else if (typeof tasks === "object" && tasks !== null && defaultCursor) {
+        // If a top-level cursor was provided, fill in any empty cursors in the record
+        const record = tasks as Record<string, string>;
+        for (const key of Object.keys(record)) {
+          if (!record[key]) {
+            record[key] = defaultCursor;
           }
         }
         tasks = record;
@@ -250,7 +260,8 @@ function normalizeSubagentsArgs(args: unknown): Record<string, unknown> {
         action: "await",
         task_id: readNonEmptyString(firstDefined(source, ["task_id", "taskId", "task"])),
         until: source.until,
-        timeout_ms: readPositiveInt(firstDefined(source, ["timeout_ms", "timeoutMs", "timeout"]))
+        timeout_ms: readPositiveInt(firstDefined(source, ["timeout_ms", "timeoutMs", "timeout"])),
+        cursor: readString(firstDefined(source, ["cursor", "last_cursor"]))
       });
     default:
       return dropUndefined({ action, ...source });
