@@ -12,11 +12,11 @@ import { ProviderError } from "../provider-error.js";
 import { formatSteerNotice, formatVerboseToolCallNotice } from "./formatters.js";
 import { buildProviderFallbackText } from "./provider-fallback.js";
 import type { SteerChannel } from "../steer-channel.js";
-import type { MessageRouteResult, NormalizedTelegramMessage, Provider, SkillDefinition } from "../types.js";
+import type { MessageRouteResult, NormalizedTelegramMessage, Provider, SkillDefinition, ContentPart } from "../types.js";
 
 export type AssistantTurnHandlerInput = {
   message: NormalizedTelegramMessage;
-  userContent: string;
+  userContent: string | ContentPart[];
   oneShotSkill: SkillDefinition | null;
   trace: TraceContext;
   abortSignal?: AbortSignal;

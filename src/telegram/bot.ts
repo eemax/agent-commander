@@ -13,8 +13,11 @@ import type {
   NormalizedTelegramCallbackQuery,
   NormalizedTelegramMessage,
   TelegramInlineKeyboard,
-  TelegramCommandDefinition
+  TelegramCommandDefinition,
+  ContentPart
 } from "../types.js";
+import { downloadTelegramFile, FileTooLargeError } from "./file-download.js";
+import { resolveAttachmentContentParts } from "./attachment-resolve.js";
 import { renderBasicTelegramHtml, renderMarkdownToTelegramHtml } from "./assistant-format.js";
 import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
 import { normalizeTelegramCallbackQuery, normalizeTelegramMessage } from "./normalize.js";
@@ -22,7 +25,8 @@ import { normalizeTelegramCallbackQuery, normalizeTelegramMessage } from "./norm
 export type TelegramTextHandler = (
   message: NormalizedTelegramMessage,
   stream?: MessageStreamingSink,
-  trace?: TraceContext
+  trace?: TraceContext,
+  userContent?: string | ContentPart[]
 ) => Promise<MessageRouteResult>;
 
 export type TelegramCallbackQueryHandler = (
@@ -153,6 +157,7 @@ export async function dispatchTelegramTextMessage(params: {
   nowMs?: () => number;
   trace?: TraceContext;
   observability?: ObservabilitySink;
+  userContent?: string | ContentPart[];
 }): Promise<MessageRouteResult> {
   const messageTrace = params.trace ?? createTraceRootContext("telegram");
   const nowMs = params.nowMs ?? Date.now;
@@ -376,7 +381,7 @@ export async function dispatchTelegramTextMessage(params: {
     }
   }
 
-  const result = await params.handleMessage(params.message, stream, messageTrace);
+  const result = await params.handleMessage(params.message, stream, messageTrace, params.userContent);
   stopTypingIndicator();
   await flushToolCallDraft(true);
   await commitToolCallBuffer();
@@ -435,6 +440,7 @@ export function createTelegramBot(params: {
   handleMessage: TelegramTextHandler;
   handleCallbackQuery: TelegramCallbackQueryHandler;
   getCommands: () => Promise<TelegramCommandDefinition[]>;
+  isAuthorizedSender: (senderId: string) => boolean;
   observability?: ObservabilitySink;
 }): TelegramRuntime {
   const bot = new Bot(params.token);
@@ -463,7 +469,10 @@ export function createTelegramBot(params: {
     params.logger.info(`telegram: registered ${commands.length} commands`);
   };
 
-  bot.on("message:text", (ctx) => {
+  const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+  const FILE_DOWNLOAD_TIMEOUT_MS = 30_000;
+
+  bot.on(["message:text", "message:photo", "message:document"], (ctx) => {
     const normalized = normalizeTelegramMessage(ctx);
     if (!normalized) {
       return;
@@ -472,9 +481,69 @@ export function createTelegramBot(params: {
     const inboundTrace = createTraceRootContext("telegram");
     void (async () => {
       try {
+        let resolvedUserContent: string | ContentPart[] | undefined;
+
+        if (normalized.attachments && normalized.attachments.length > 0 && params.isAuthorizedSender(normalized.senderId)) {
+          const downloaded = [];
+          const errors: string[] = [];
+
+          for (const attachment of normalized.attachments) {
+            try {
+              const file = await downloadTelegramFile({
+                bot,
+                fileId: attachment.fileId,
+                declaredMimeType: attachment.mimeType,
+                declaredFileName: attachment.fileName,
+                declaredFileSize: attachment.fileSize,
+                maxSizeBytes: MAX_FILE_SIZE_BYTES,
+                timeoutMs: FILE_DOWNLOAD_TIMEOUT_MS,
+                logger: params.logger
+              });
+              downloaded.push(file);
+            } catch (error) {
+              if (error instanceof FileTooLargeError) {
+                errors.push(`File too large (${Math.round(error.fileSize / 1024 / 1024)}MB). Maximum size is 10MB.`);
+              } else {
+                const msg = error instanceof Error ? error.message : String(error);
+                params.logger.error(`telegram: file download failed: ${msg}`);
+                errors.push("Failed to download file.");
+              }
+            }
+          }
+
+          const { parts, rejected } = resolveAttachmentContentParts({
+            downloaded,
+            logger: params.logger
+          });
+
+          for (const mime of rejected) {
+            errors.push(`Unsupported file type: ${mime}. I can process images, PDFs, and text files.`);
+          }
+
+          if (errors.length > 0 && parts.length === 0 && normalized.text.length === 0) {
+            await ctx.reply(errors.join("\n"), { link_preview_options: { is_disabled: true } });
+            return;
+          }
+
+          if (errors.length > 0) {
+            await ctx.reply(errors.join("\n"), { link_preview_options: { is_disabled: true } });
+          }
+
+          if (parts.length > 0) {
+            const contentParts: ContentPart[] = [];
+            if (normalized.text.length > 0) {
+              contentParts.push({ type: "text", text: normalized.text });
+            }
+            contentParts.push(...parts);
+            resolvedUserContent = contentParts;
+          }
+        }
+
         await dispatchTelegramTextMessage({
           message: normalized,
-          handleMessage: (message, stream) => params.handleMessage(message, stream, inboundTrace),
+          handleMessage: (message, stream, trace, userContent) =>
+            params.handleMessage(message, stream, inboundTrace, userContent),
+          userContent: resolvedUserContent,
           sendReply: async (text, meta) => {
             const prepared = prepareTelegramReply({
               text,

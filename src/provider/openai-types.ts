@@ -1,9 +1,28 @@
 import type { ThinkingEffort } from "../types.js";
 
+export type OpenAIInputText = {
+  type: "input_text";
+  text: string;
+};
+
+export type OpenAIInputImage = {
+  type: "input_image";
+  image_url: string;
+  detail?: "auto" | "low" | "high";
+};
+
+export type OpenAIInputFile = {
+  type: "input_file";
+  filename: string;
+  file_data: string;
+};
+
+export type OpenAIContentBlock = OpenAIInputText | OpenAIInputImage | OpenAIInputFile;
+
 export type OpenAIInputMessage = {
   type: "message";
   role: "user" | "assistant";
-  content: string;
+  content: string | OpenAIContentBlock[];
 };
 
 export type OpenAIFunctionCallOutput = {

@@ -1,5 +1,6 @@
 import type {
   PromptMessage,
+  ContentPart,
   ProviderUsageSnapshot,
   ProviderErrorKind,
   ProviderRequest,
@@ -228,7 +229,7 @@ export type StateStore = {
     telegramMessageId: string;
     senderId: string;
     senderName: string;
-    content: string;
+    content: string | ContentPart[];
     historyLimit: number | null;
     trace?: TraceContext;
   }): Promise<{
@@ -241,7 +242,7 @@ export type StateStore = {
     telegramMessageId: string;
     senderId: string;
     senderName: string;
-    content: string;
+    content: string | ContentPart[];
     trace?: TraceContext;
   }): Promise<void>;
   appendAssistantMessage(params: {

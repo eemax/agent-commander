@@ -3,6 +3,26 @@ import type { SteerChannel } from "./steer-channel.js";
 
 export type PromptRole = "user" | "assistant";
 
+export type TextContentPart = {
+  type: "text";
+  text: string;
+};
+
+export type ImageContentPart = {
+  type: "image";
+  mimeType: string;
+  base64: string;
+};
+
+export type FileContentPart = {
+  type: "file";
+  mimeType: string;
+  base64: string;
+  fileName: string;
+};
+
+export type ContentPart = TextContentPart | ImageContentPart | FileContentPart;
+
 export const THINKING_EFFORT_VALUES = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
 export type ThinkingEffort = (typeof THINKING_EFFORT_VALUES)[number];
 export const CACHE_RETENTION_VALUES = ["in_memory", "24h"] as const;
@@ -10,12 +30,20 @@ export type CacheRetention = (typeof CACHE_RETENTION_VALUES)[number];
 export const TRANSPORT_MODE_VALUES = ["http", "wss"] as const;
 export type TransportMode = (typeof TRANSPORT_MODE_VALUES)[number];
 
+export type TelegramAttachment = {
+  fileId: string;
+  fileName: string | null;
+  mimeType: string | null;
+  fileSize: number | null;
+};
+
 export type NormalizedTelegramMessage = {
   chatId: string;
   messageId: string;
   senderId: string;
   senderName: string;
   text: string;
+  attachments?: TelegramAttachment[];
   receivedAt: string;
 };
 
@@ -38,7 +66,7 @@ export type TelegramInlineKeyboard = TelegramInlineButton[][];
 
 export type PromptMessage = {
   role: PromptRole;
-  content: string;
+  content: string | ContentPart[];
   createdAt: string;
   senderId: string | null;
   senderName: string | null;

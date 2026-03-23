@@ -1,8 +1,9 @@
-import type { NormalizedTelegramMessage, MessageStreamingSink } from "./types.js";
+import type { NormalizedTelegramMessage, MessageStreamingSink, ContentPart } from "./types.js";
 import type { TraceContext } from "./observability.js";
 
 export type QueuedMessage = {
   message: NormalizedTelegramMessage;
+  userContent?: string | ContentPart[];
   stream?: MessageStreamingSink;
   trace: TraceContext;
 };

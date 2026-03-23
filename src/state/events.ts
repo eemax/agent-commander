@@ -28,10 +28,36 @@ const conversationArchiveEventSchema = baseEventSchema.extend({
   reason: z.string().min(1)
 });
 
+const textContentPartSchema = z.object({
+  type: z.literal("text"),
+  text: z.string()
+});
+
+const imageContentPartSchema = z.object({
+  type: z.literal("image"),
+  mimeType: z.string(),
+  base64: z.string()
+});
+
+const fileContentPartSchema = z.object({
+  type: z.literal("file"),
+  mimeType: z.string(),
+  base64: z.string(),
+  fileName: z.string()
+});
+
+const contentPartArraySchema = z.array(
+  z.discriminatedUnion("type", [
+    textContentPartSchema,
+    imageContentPartSchema,
+    fileContentPartSchema
+  ])
+);
+
 const messageEventSchema = baseEventSchema.extend({
   type: z.literal("message"),
   role: z.enum(["user", "assistant"]),
-  content: z.string(),
+  content: z.union([z.string(), contentPartArraySchema]),
   senderId: z.string().nullable(),
   senderName: z.string().nullable(),
   telegramMessageId: z.string().nullable()

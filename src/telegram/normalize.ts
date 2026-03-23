@@ -1,29 +1,54 @@
 import type { Context } from "grammy";
-import type { NormalizedTelegramCallbackQuery, NormalizedTelegramMessage } from "../types.js";
+import type { NormalizedTelegramCallbackQuery, NormalizedTelegramMessage, TelegramAttachment } from "../types.js";
+
+function extractSender(from: { id?: number; username?: string; first_name?: string; last_name?: string } | undefined) {
+  const senderId = from?.id ? String(from.id) : "unknown";
+  const senderName =
+    from?.username ??
+    [from?.first_name, from?.last_name].filter(Boolean).join(" ").trim() ??
+    "unknown";
+  return { senderId, senderName: senderName || "unknown" };
+}
 
 export function normalizeTelegramMessage(ctx: Context): NormalizedTelegramMessage | null {
   const message = ctx.message;
-  if (!message || !("text" in message) || typeof message.text !== "string") {
+  if (!message) return null;
+
+  const text = (message.text ?? message.caption ?? "").trim();
+  const attachments: TelegramAttachment[] = [];
+
+  if (message.photo && message.photo.length > 0) {
+    const largest = message.photo[message.photo.length - 1]!;
+    attachments.push({
+      fileId: largest.file_id,
+      fileName: null,
+      mimeType: "image/jpeg",
+      fileSize: largest.file_size ?? null
+    });
+  }
+
+  if (message.document) {
+    attachments.push({
+      fileId: message.document.file_id,
+      fileName: message.document.file_name ?? null,
+      mimeType: message.document.mime_type ?? null,
+      fileSize: message.document.file_size ?? null
+    });
+  }
+
+  if (text.length === 0 && attachments.length === 0) {
     return null;
   }
 
-  const text = message.text.trim();
-  if (text.length === 0) {
-    return null;
-  }
-
-  const senderId = message.from?.id ? String(message.from.id) : "unknown";
-  const senderName =
-    message.from?.username ??
-    [message.from?.first_name, message.from?.last_name].filter(Boolean).join(" ").trim() ??
-    "unknown";
+  const { senderId, senderName } = extractSender(message.from);
 
   return {
     chatId: String(message.chat.id),
     messageId: String(message.message_id),
     senderId,
-    senderName: senderName || "unknown",
+    senderName,
     text,
+    ...(attachments.length > 0 ? { attachments } : {}),
     receivedAt: new Date().toISOString()
   };
 }

@@ -8,7 +8,8 @@ import type {
   MessageStreamingSink,
   NormalizedTelegramMessage,
   Provider,
-  TelegramCommandDefinition
+  TelegramCommandDefinition,
+  ContentPart
 } from "./types.js";
 import { createAssistantTurnHandler } from "./routing/assistant-turn.js";
 import { createCoreCommandHandler } from "./routing/core-commands.js";
@@ -19,7 +20,8 @@ export type MessageRouter = {
   handleIncomingMessage(
     message: NormalizedTelegramMessage,
     stream?: MessageStreamingSink,
-    trace?: TraceContext
+    trace?: TraceContext,
+    userContent?: string | ContentPart[]
   ): Promise<MessageRouteResult>;
   handleIncomingCallbackQuery(query: NormalizedTelegramCallbackQuery, trace?: TraceContext): Promise<MessageRouteResult>;
 };
@@ -40,7 +42,7 @@ export function createMessageRouter(params: {
 
   const runSingleTurn = async (
     message: NormalizedTelegramMessage,
-    userContent: string,
+    userContent: string | ContentPart[],
     oneShotSkill: Parameters<typeof handleAssistantTurn>[0]["oneShotSkill"],
     trace: TraceContext,
     stream?: MessageStreamingSink
@@ -102,10 +104,26 @@ export function createMessageRouter(params: {
     if (config.runtime.messageQueueMode === "batch") {
       const entries = queue.drain();
       turns.deleteQueue(chatId);
-      const combinedText = entries.map((e) => e.message.text).join("\n\n");
       const last = entries[entries.length - 1]!;
+      const hasMultipart = entries.some((e) => Array.isArray(e.userContent));
 
-      await runSingleTurn(last.message, combinedText, null, last.trace, last.stream);
+      let combinedContent: string | ContentPart[];
+      if (hasMultipart) {
+        const parts: ContentPart[] = [];
+        for (const e of entries) {
+          const uc = e.userContent ?? e.message.text;
+          if (typeof uc === "string") {
+            if (uc.length > 0) parts.push({ type: "text", text: uc });
+          } else {
+            parts.push(...uc);
+          }
+        }
+        combinedContent = parts;
+      } else {
+        combinedContent = entries.map((e) => (e.userContent as string | undefined) ?? e.message.text).join("\n\n");
+      }
+
+      await runSingleTurn(last.message, combinedContent, null, last.trace, last.stream);
     } else {
       const entry = queue.drainOne();
       if (queue.length === 0) {
@@ -115,14 +133,14 @@ export function createMessageRouter(params: {
         return;
       }
 
-      await runSingleTurn(entry.message, entry.message.text, null, entry.trace, entry.stream);
+      await runSingleTurn(entry.message, entry.userContent ?? entry.message.text, null, entry.trace, entry.stream);
       await processQueue(chatId);
     }
   };
 
   const runTurnAndDrainQueue = async (
     message: NormalizedTelegramMessage,
-    userContent: string,
+    userContent: string | ContentPart[],
     oneShotSkill: Parameters<typeof handleAssistantTurn>[0]["oneShotSkill"],
     trace: TraceContext,
     stream?: MessageStreamingSink
@@ -155,7 +173,8 @@ export function createMessageRouter(params: {
     async handleIncomingMessage(
       message: NormalizedTelegramMessage,
       stream?: MessageStreamingSink,
-      trace?: TraceContext
+      trace?: TraceContext,
+      resolvedUserContent?: string | ContentPart[]
     ): Promise<MessageRouteResult> {
       const inboundTrace = trace ?? createTraceRootContext("routing");
       const routingTrace = createChildTraceContext(inboundTrace, "routing");
@@ -189,7 +208,7 @@ export function createMessageRouter(params: {
         const activeTurn = turns.getActiveTurn(message.chatId);
         if (activeTurn) {
           const queue = turns.getOrCreateQueue(message.chatId);
-          const count = queue.push({ message, stream, trace: routingTrace });
+          const count = queue.push({ message, userContent: resolvedUserContent, stream, trace: routingTrace });
 
           await observability?.record({
             event: "routing.message.queued",
@@ -203,7 +222,7 @@ export function createMessageRouter(params: {
           return { type: "reply", text: `Message queued (${count} pending)` };
         }
 
-        return await runTurnAndDrainQueue(message, message.text, null, routingTrace, stream);
+        return await runTurnAndDrainQueue(message, resolvedUserContent ?? message.text, null, routingTrace, stream);
       }
 
       if (parsedCommand.command === "steer") {
@@ -290,8 +309,20 @@ export function createMessageRouter(params: {
         return result;
       }
 
-      const userContent = parsedCommand.args.length > 0 ? parsedCommand.args : message.text;
-      return await runTurnAndDrainQueue(message, userContent, skill, routingTrace, stream);
+      let skillUserContent: string | ContentPart[];
+      if (Array.isArray(resolvedUserContent)) {
+        const textPart = parsedCommand.args.length > 0 ? parsedCommand.args : message.text;
+        const nonTextParts = resolvedUserContent.filter((p) => p.type !== "text");
+        const existingText = resolvedUserContent.filter((p) => p.type === "text");
+        skillUserContent = [
+          { type: "text" as const, text: textPart },
+          ...existingText.filter((p) => p.text !== textPart),
+          ...nonTextParts
+        ];
+      } else {
+        skillUserContent = parsedCommand.args.length > 0 ? parsedCommand.args : message.text;
+      }
+      return await runTurnAndDrainQueue(message, skillUserContent, skill, routingTrace, stream);
     },
 
     async handleIncomingCallbackQuery(

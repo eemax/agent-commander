@@ -185,6 +185,7 @@ async function bootstrapAgentRuntime(
     handleMessage: router.handleIncomingMessage,
     handleCallbackQuery: router.handleIncomingCallbackQuery,
     getCommands: async () => workspace.getSnapshot().commands,
+    isAuthorizedSender: (senderId: string) => config.access.allowedSenderIds.has(senderId),
     observability
   });
   syncCommandsRef = telegram.syncCommands;
