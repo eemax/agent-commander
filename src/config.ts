@@ -18,7 +18,10 @@ const DEFAULT_CONFIG_TEMPLATE = {
   telegram: {
     streaming_enabled: true,
     streaming_min_update_ms: 100,
-    assistant_format: "plain_text"
+    assistant_format: "plain_text",
+    max_file_size_mb: 10,
+    file_download_timeout_ms: 30_000,
+    max_concurrent_downloads: 4
   },
   openai: {
     model: "gpt-4.1-mini",
@@ -165,7 +168,10 @@ export const configSchema = z
         streaming_min_update_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.streaming_min_update_ms),
         assistant_format: z
           .enum(TELEGRAM_ASSISTANT_FORMAT_VALUES)
-          .default(DEFAULT_CONFIG_TEMPLATE.telegram.assistant_format as TelegramAssistantFormat)
+          .default(DEFAULT_CONFIG_TEMPLATE.telegram.assistant_format as TelegramAssistantFormat),
+        max_file_size_mb: z.number().positive().default(DEFAULT_CONFIG_TEMPLATE.telegram.max_file_size_mb),
+        file_download_timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.file_download_timeout_ms),
+        max_concurrent_downloads: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.max_concurrent_downloads)
       })
       .strict(),
     openai: z
@@ -557,7 +563,10 @@ export function buildConfigFromParsed(
       botToken: telegramBotToken,
       streamingEnabled: config.telegram.streaming_enabled,
       streamingMinUpdateMs: config.telegram.streaming_min_update_ms,
-      assistantFormat: config.telegram.assistant_format
+      assistantFormat: config.telegram.assistant_format,
+      maxFileSizeBytes: Math.round(config.telegram.max_file_size_mb * 1024 * 1024),
+      fileDownloadTimeoutMs: config.telegram.file_download_timeout_ms,
+      maxConcurrentDownloads: config.telegram.max_concurrent_downloads
     },
     openai: {
       apiKey: openAIApiKey,

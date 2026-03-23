@@ -11,7 +11,7 @@ const IMAGE_MIME_TYPES = new Set([
 
 const TEXT_EXTENSIONS = new Set([
   ".txt", ".md", ".json", ".csv", ".xml", ".yaml", ".yml", ".toml", ".ini",
-  ".log", ".env", ".sh", ".py", ".js", ".ts", ".html", ".css", ".sql",
+  ".log", ".sh", ".py", ".js", ".ts", ".html", ".css", ".sql",
   ".rs", ".go", ".java", ".c", ".cpp", ".h", ".rb", ".swift", ".kt"
 ]);
 
@@ -36,6 +36,15 @@ function isTextExtension(fileName: string): boolean {
   const dot = fileName.lastIndexOf(".");
   if (dot === -1) return false;
   return TEXT_EXTENSIONS.has(fileName.slice(dot).toLowerCase());
+}
+
+function decodeUtf8Strict(buffer: Buffer): string | null {
+  try {
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    return decoder.decode(buffer);
+  } catch {
+    return null;
+  }
 }
 
 export function resolveAttachmentContentParts(params: {
@@ -63,10 +72,16 @@ export function resolveAttachmentContentParts(params: {
       });
       logger.debug(`attachment-resolve: pdf ${file.fileName}`);
     } else if (isTextMime(file.mimeType) || TEXT_MIME_TYPES.has(file.mimeType) || isTextExtension(file.fileName)) {
-      const textContent = file.buffer.toString("utf-8");
+      const textContent = decodeUtf8Strict(file.buffer);
+      if (textContent === null) {
+        rejected.push(`${file.fileName}: not valid UTF-8 text`);
+        logger.debug(`attachment-resolve: rejected ${file.fileName} (invalid UTF-8)`);
+        continue;
+      }
+      const safeName = file.fileName.replace(/`/g, "'");
       parts.push({
         type: "text",
-        text: `\`${file.fileName}\`:\n${textContent}`
+        text: `\`${safeName}\`:\n${textContent}`
       });
       logger.debug(`attachment-resolve: text file ${file.fileName} (${file.mimeType})`);
     } else {

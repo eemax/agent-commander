@@ -52,7 +52,7 @@ const contentPartArraySchema = z.array(
     imageContentPartSchema,
     fileContentPartSchema
   ])
-);
+).min(1);
 
 const messageEventSchema = baseEventSchema.extend({
   type: z.literal("message"),

@@ -44,6 +44,9 @@ export type Config = {
     streamingEnabled: boolean;
     streamingMinUpdateMs: number;
     assistantFormat: TelegramAssistantFormat;
+    maxFileSizeBytes: number;
+    fileDownloadTimeoutMs: number;
+    maxConcurrentDownloads: number;
   };
   openai: {
     apiKey: string;

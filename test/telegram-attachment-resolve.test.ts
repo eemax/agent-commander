@@ -170,6 +170,50 @@ describe("resolveAttachmentContentParts", () => {
     expect(rejected).toEqual(["video/mp4"]);
   });
 
+  it("rejects .env files as unsupported type", () => {
+    const { parts, rejected } = resolveAttachmentContentParts({
+      downloaded: [makeFile({ mimeType: "application/octet-stream", fileName: ".env", buffer: Buffer.from("SECRET=abc") })],
+      logger: noopLogger
+    });
+
+    expect(parts).toHaveLength(0);
+    expect(rejected).toEqual(["application/octet-stream"]);
+  });
+
+  it("rejects files with invalid UTF-8 content", () => {
+    const { parts, rejected } = resolveAttachmentContentParts({
+      downloaded: [makeFile({ mimeType: "text/plain", fileName: "data.txt", buffer: Buffer.from([0x80, 0x81, 0xfe, 0xff]) })],
+      logger: noopLogger
+    });
+
+    expect(parts).toHaveLength(0);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toContain("not valid UTF-8");
+  });
+
+  it("resolves valid UTF-8 text files normally", () => {
+    const content = "Hello 世界 🌍";
+    const { parts, rejected } = resolveAttachmentContentParts({
+      downloaded: [makeFile({ mimeType: "text/plain", fileName: "greeting.txt", buffer: Buffer.from(content) })],
+      logger: noopLogger
+    });
+
+    expect(rejected).toHaveLength(0);
+    expect(parts).toHaveLength(1);
+    expect(parts[0]!.type).toBe("text");
+    expect((parts[0] as { text: string }).text).toContain(content);
+  });
+
+  it("escapes backticks in filenames", () => {
+    const { parts } = resolveAttachmentContentParts({
+      downloaded: [makeFile({ mimeType: "text/plain", fileName: "file`name`.txt", buffer: Buffer.from("content") })],
+      logger: noopLogger
+    });
+
+    expect(parts).toHaveLength(1);
+    expect((parts[0] as { text: string }).text.startsWith("`file'name'.txt`:\n")).toBe(true);
+  });
+
   it("returns empty parts and rejected for empty input", () => {
     const { parts, rejected } = resolveAttachmentContentParts({
       downloaded: [],

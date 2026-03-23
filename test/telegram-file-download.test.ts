@@ -151,6 +151,40 @@ describe("downloadTelegramFile", () => {
     expect(result.fileName).toBe("report.pdf");
   });
 
+  it("rejects file_path containing path traversal", async () => {
+    const { bot } = createMockBot({ filePath: "../../etc/passwd" });
+
+    await expect(
+      downloadTelegramFile({
+        bot,
+        fileId: "file-123",
+        declaredMimeType: null,
+        declaredFileName: null,
+        declaredFileSize: null,
+        maxSizeBytes: 10 * 1024 * 1024,
+        timeoutMs: 5000,
+        logger: noopLogger
+      })
+    ).rejects.toThrow("Invalid file_path");
+  });
+
+  it("rejects file_path with unexpected characters", async () => {
+    const { bot } = createMockBot({ filePath: "photos/file name.jpg" });
+
+    await expect(
+      downloadTelegramFile({
+        bot,
+        fileId: "file-123",
+        declaredMimeType: null,
+        declaredFileName: null,
+        declaredFileSize: null,
+        maxSizeBytes: 10 * 1024 * 1024,
+        timeoutMs: 5000,
+        logger: noopLogger
+      })
+    ).rejects.toThrow("Invalid file_path");
+  });
+
   it("falls back to octet-stream for unknown extension", async () => {
     const { bot } = createMockBot({ filePath: "files/data.xyz" });
 

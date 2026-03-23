@@ -170,6 +170,69 @@ describe("normalizeTelegramMessage", () => {
     expect(normalizeTelegramMessage(ctx as never)).toBeNull();
   });
 
+  it("truncates very long sender names to 128 characters", () => {
+    const longName = "A".repeat(300);
+    const ctx = {
+      message: {
+        chat: { id: 1 },
+        message_id: 10,
+        text: "hi",
+        from: { id: 42, first_name: longName }
+      }
+    };
+
+    const normalized = normalizeTelegramMessage(ctx as never);
+    expect(normalized?.senderName).toHaveLength(128);
+  });
+
+  it("normalizes a video message as attachment", () => {
+    const ctx = {
+      message: {
+        chat: { id: 1 },
+        message_id: 10,
+        caption: "Watch this",
+        video: {
+          file_id: "vid-1",
+          file_unique_id: "v1",
+          width: 1920,
+          height: 1080,
+          duration: 30,
+          mime_type: "video/mp4",
+          file_size: 5000000
+        },
+        from: { id: 42 }
+      }
+    };
+
+    const normalized = normalizeTelegramMessage(ctx as never);
+    expect(normalized).not.toBeNull();
+    expect(normalized!.attachments).toHaveLength(1);
+    expect(normalized!.attachments![0]!.mimeType).toBe("video/mp4");
+  });
+
+  it("normalizes a voice message as attachment", () => {
+    const ctx = {
+      message: {
+        chat: { id: 1 },
+        message_id: 10,
+        voice: {
+          file_id: "voice-1",
+          file_unique_id: "vo1",
+          duration: 5,
+          mime_type: "audio/ogg",
+          file_size: 10000
+        },
+        from: { id: 42 }
+      }
+    };
+
+    const normalized = normalizeTelegramMessage(ctx as never);
+    expect(normalized).not.toBeNull();
+    expect(normalized!.text).toBe("");
+    expect(normalized!.attachments).toHaveLength(1);
+    expect(normalized!.attachments![0]!.mimeType).toBe("audio/ogg");
+  });
+
   it("does not include attachments field when there are none", () => {
     const ctx = {
       message: {

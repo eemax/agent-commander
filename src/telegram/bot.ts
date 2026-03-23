@@ -18,6 +18,7 @@ import type {
 } from "../types.js";
 import { downloadTelegramFile, FileTooLargeError } from "./file-download.js";
 import { resolveAttachmentContentParts } from "./attachment-resolve.js";
+import { Semaphore } from "../concurrency.js";
 import { renderBasicTelegramHtml, renderMarkdownToTelegramHtml } from "./assistant-format.js";
 import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
 import { normalizeTelegramCallbackQuery, normalizeTelegramMessage } from "./normalize.js";
@@ -436,6 +437,9 @@ export function createTelegramBot(params: {
   streamingEnabled: boolean;
   streamingMinUpdateMs: number;
   assistantFormat: TelegramAssistantFormat;
+  maxFileSizeBytes: number;
+  fileDownloadTimeoutMs: number;
+  maxConcurrentDownloads: number;
   logger: RuntimeLogger;
   handleMessage: TelegramTextHandler;
   handleCallbackQuery: TelegramCallbackQueryHandler;
@@ -469,10 +473,11 @@ export function createTelegramBot(params: {
     params.logger.info(`telegram: registered ${commands.length} commands`);
   };
 
-  const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
-  const FILE_DOWNLOAD_TIMEOUT_MS = 30_000;
+  const maxFileSizeBytes = params.maxFileSizeBytes;
+  const fileDownloadTimeoutMs = params.fileDownloadTimeoutMs;
+  const downloadSemaphore = new Semaphore(params.maxConcurrentDownloads);
 
-  bot.on(["message:text", "message:photo", "message:document"], (ctx) => {
+  bot.on(["message:text", "message:photo", "message:document", "message:video", "message:audio", "message:voice", "message:animation"], (ctx) => {
     const normalized = normalizeTelegramMessage(ctx);
     if (!normalized) {
       return;
@@ -488,6 +493,7 @@ export function createTelegramBot(params: {
           const errors: string[] = [];
 
           for (const attachment of normalized.attachments) {
+            await downloadSemaphore.acquire();
             try {
               const file = await downloadTelegramFile({
                 bot,
@@ -495,19 +501,21 @@ export function createTelegramBot(params: {
                 declaredMimeType: attachment.mimeType,
                 declaredFileName: attachment.fileName,
                 declaredFileSize: attachment.fileSize,
-                maxSizeBytes: MAX_FILE_SIZE_BYTES,
-                timeoutMs: FILE_DOWNLOAD_TIMEOUT_MS,
+                maxSizeBytes: maxFileSizeBytes,
+                timeoutMs: fileDownloadTimeoutMs,
                 logger: params.logger
               });
               downloaded.push(file);
             } catch (error) {
               if (error instanceof FileTooLargeError) {
-                errors.push(`File too large (${Math.round(error.fileSize / 1024 / 1024)}MB). Maximum size is 10MB.`);
+                errors.push(`File too large (${Math.round(error.fileSize / 1024 / 1024)}MB). Maximum size is ${Math.round(maxFileSizeBytes / 1024 / 1024)}MB.`);
               } else {
                 const msg = error instanceof Error ? error.message : String(error);
                 params.logger.error(`telegram: file download failed: ${msg}`);
                 errors.push("Failed to download file.");
               }
+            } finally {
+              downloadSemaphore.release();
             }
           }
 

@@ -110,8 +110,11 @@ export function createMessageRouter(params: {
       let combinedContent: string | ContentPart[];
       if (hasMultipart) {
         const parts: ContentPart[] = [];
-        for (const e of entries) {
-          const uc = e.userContent ?? e.message.text;
+        for (let i = 0; i < entries.length; i++) {
+          if (i > 0 && parts.length > 0) {
+            parts.push({ type: "text", text: "---" });
+          }
+          const uc = entries[i]!.userContent ?? entries[i]!.message.text;
           if (typeof uc === "string") {
             if (uc.length > 0) parts.push({ type: "text", text: uc });
           } else {
@@ -311,14 +314,13 @@ export function createMessageRouter(params: {
 
       let skillUserContent: string | ContentPart[];
       if (Array.isArray(resolvedUserContent)) {
-        const textPart = parsedCommand.args.length > 0 ? parsedCommand.args : message.text;
-        const nonTextParts = resolvedUserContent.filter((p) => p.type !== "text");
-        const existingText = resolvedUserContent.filter((p) => p.type === "text");
-        skillUserContent = [
-          { type: "text" as const, text: textPart },
-          ...existingText.filter((p) => p.text !== textPart),
-          ...nonTextParts
-        ];
+        const skillText = parsedCommand.args.length > 0 ? parsedCommand.args : message.text;
+        // User text is always at index 0 (added first in bot.ts); replace it with skill args.
+        // Keep all attachment-derived parts (images, files, file-content text parts).
+        const isUserTextPart = (p: ContentPart, idx: number) =>
+          idx === 0 && p.type === "text" && p.text === message.text;
+        const rest = resolvedUserContent.filter((p, i) => !isUserTextPart(p, i));
+        skillUserContent = [{ type: "text" as const, text: skillText }, ...rest];
       } else {
         skillUserContent = parsedCommand.args.length > 0 ? parsedCommand.args : message.text;
       }

@@ -28,7 +28,10 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       botToken: "telegram-token",
       streamingEnabled: true,
       streamingMinUpdateMs: 100,
-      assistantFormat: "plain_text"
+      assistantFormat: "plain_text",
+      maxFileSizeBytes: 10 * 1024 * 1024,
+      fileDownloadTimeoutMs: 30_000,
+      maxConcurrentDownloads: 4
     },
     openai: {
       apiKey: "openai-key",

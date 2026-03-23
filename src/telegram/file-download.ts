@@ -25,7 +25,6 @@ const EXTENSION_MIME_MAP: Record<string, string> = {
   ".toml": "text/plain",
   ".ini": "text/plain",
   ".log": "text/plain",
-  ".env": "text/plain",
   ".sh": "text/x-shellscript",
   ".py": "text/x-python",
   ".js": "text/javascript",
@@ -80,6 +79,10 @@ export async function downloadTelegramFile(params: {
   const filePath = file.file_path;
   if (!filePath) {
     throw new Error(`Telegram returned no file_path for fileId=${fileId}`);
+  }
+
+  if (filePath.includes("..") || /[^a-zA-Z0-9_\-./]/.test(filePath)) {
+    throw new Error(`Invalid file_path from Telegram: ${filePath}`);
   }
 
   const token = bot.token;

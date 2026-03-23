@@ -3,11 +3,12 @@ import type { NormalizedTelegramCallbackQuery, NormalizedTelegramMessage, Telegr
 
 function extractSender(from: { id?: number; username?: string; first_name?: string; last_name?: string } | undefined) {
   const senderId = from?.id ? String(from.id) : "unknown";
-  const senderName =
+  const raw =
     from?.username ??
     [from?.first_name, from?.last_name].filter(Boolean).join(" ").trim() ??
     "unknown";
-  return { senderId, senderName: senderName || "unknown" };
+  const senderName = (raw || "unknown").slice(0, 128);
+  return { senderId, senderName };
 }
 
 export function normalizeTelegramMessage(ctx: Context): NormalizedTelegramMessage | null {
@@ -33,6 +34,42 @@ export function normalizeTelegramMessage(ctx: Context): NormalizedTelegramMessag
       fileName: message.document.file_name ?? null,
       mimeType: message.document.mime_type ?? null,
       fileSize: message.document.file_size ?? null
+    });
+  }
+
+  if (message.video) {
+    attachments.push({
+      fileId: message.video.file_id,
+      fileName: null,
+      mimeType: message.video.mime_type ?? "video/mp4",
+      fileSize: message.video.file_size ?? null
+    });
+  }
+
+  if (message.audio) {
+    attachments.push({
+      fileId: message.audio.file_id,
+      fileName: message.audio.file_name ?? null,
+      mimeType: message.audio.mime_type ?? "audio/mpeg",
+      fileSize: message.audio.file_size ?? null
+    });
+  }
+
+  if (message.voice) {
+    attachments.push({
+      fileId: message.voice.file_id,
+      fileName: null,
+      mimeType: message.voice.mime_type ?? "audio/ogg",
+      fileSize: message.voice.file_size ?? null
+    });
+  }
+
+  if (message.animation) {
+    attachments.push({
+      fileId: message.animation.file_id,
+      fileName: message.animation.file_name ?? null,
+      mimeType: message.animation.mime_type ?? "video/mp4",
+      fileSize: message.animation.file_size ?? null
     });
   }
 
