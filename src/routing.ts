@@ -43,7 +43,6 @@ export function createMessageRouter(params: {
   const runSingleTurn = async (
     message: NormalizedTelegramMessage,
     userContent: string | ContentPart[],
-    oneShotSkill: Parameters<typeof handleAssistantTurn>[0]["oneShotSkill"],
     trace: TraceContext,
     stream?: MessageStreamingSink
   ): Promise<MessageRouteResult> => {
@@ -64,7 +63,6 @@ export function createMessageRouter(params: {
       result = await handleAssistantTurn({
         message,
         userContent,
-        oneShotSkill,
         trace,
         abortSignal: turn.controller.signal,
         steerChannel: turn.steerChannel,
@@ -86,7 +84,7 @@ export function createMessageRouter(params: {
       stage: "completed",
       chatId: message.chatId,
       messageId: message.messageId,
-      decision: oneShotSkill ? "skill_command" : "assistant_turn",
+      decision: "assistant_turn",
       resultType: result.type,
       result
     });
@@ -126,7 +124,7 @@ export function createMessageRouter(params: {
         combinedContent = entries.map((e) => (e.userContent as string | undefined) ?? e.message.text).join("\n\n");
       }
 
-      await runSingleTurn(last.message, combinedContent, null, last.trace, last.stream);
+      await runSingleTurn(last.message, combinedContent, last.trace, last.stream);
     } else {
       const entry = queue.drainOne();
       if (queue.length === 0) {
@@ -136,7 +134,7 @@ export function createMessageRouter(params: {
         return;
       }
 
-      await runSingleTurn(entry.message, entry.userContent ?? entry.message.text, null, entry.trace, entry.stream);
+      await runSingleTurn(entry.message, entry.userContent ?? entry.message.text, entry.trace, entry.stream);
       await processQueue(chatId);
     }
   };
@@ -144,11 +142,10 @@ export function createMessageRouter(params: {
   const runTurnAndDrainQueue = async (
     message: NormalizedTelegramMessage,
     userContent: string | ContentPart[],
-    oneShotSkill: Parameters<typeof handleAssistantTurn>[0]["oneShotSkill"],
     trace: TraceContext,
     stream?: MessageStreamingSink
   ): Promise<MessageRouteResult> => {
-    const result = await runSingleTurn(message, userContent, oneShotSkill, trace, stream);
+    const result = await runSingleTurn(message, userContent, trace, stream);
     void processQueue(message.chatId).catch((error) => {
       const msg = error instanceof Error ? error.message : String(error);
       logger.error(`routing: failed to process queued messages for chat=${message.chatId}: ${msg}`);
@@ -225,7 +222,7 @@ export function createMessageRouter(params: {
           return { type: "reply", text: `Message queued (${count} pending)` };
         }
 
-        return await runTurnAndDrainQueue(message, resolvedUserContent ?? message.text, null, routingTrace, stream);
+        return await runTurnAndDrainQueue(message, resolvedUserContent ?? message.text, routingTrace, stream);
       }
 
       if (parsedCommand.command === "steer") {
@@ -292,7 +289,7 @@ export function createMessageRouter(params: {
         return coreHandled;
       }
 
-      const skill = workspace.getSkillBySlug(parsedCommand.command);
+      const skill = workspace.getSkillByName(parsedCommand.command);
       if (!skill) {
         const result: MessageRouteResult = {
           type: "reply",
@@ -312,19 +309,26 @@ export function createMessageRouter(params: {
         return result;
       }
 
+      const userArgs = parsedCommand.args;
+      const skillNotice = [
+        `[Skill Invoked: /${skill.name}]`,
+        `The user invoked the "${skill.name}" skill: ${skill.description}`,
+        `Read the skill file to understand and apply its instructions: ${skill.path}`,
+        ...(userArgs.length > 0 ? ["", "---", "", userArgs] : [])
+      ].join("\n");
+
       let skillUserContent: string | ContentPart[];
       if (Array.isArray(resolvedUserContent)) {
-        const skillText = parsedCommand.args.length > 0 ? parsedCommand.args : message.text;
-        // User text is always at index 0 (added first in bot.ts); replace it with skill args.
+        // Replace the user text part (index 0) with the skill notice.
         // Keep all attachment-derived parts (images, files, file-content text parts).
         const isUserTextPart = (p: ContentPart, idx: number) =>
           idx === 0 && p.type === "text" && p.text === message.text;
         const rest = resolvedUserContent.filter((p, i) => !isUserTextPart(p, i));
-        skillUserContent = [{ type: "text" as const, text: skillText }, ...rest];
+        skillUserContent = [{ type: "text" as const, text: skillNotice }, ...rest];
       } else {
-        skillUserContent = parsedCommand.args.length > 0 ? parsedCommand.args : message.text;
+        skillUserContent = skillNotice;
       }
-      return await runTurnAndDrainQueue(message, skillUserContent, skill, routingTrace, stream);
+      return await runTurnAndDrainQueue(message, skillUserContent, routingTrace, stream);
     },
 
     async handleIncomingCallbackQuery(

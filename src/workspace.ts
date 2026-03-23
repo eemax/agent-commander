@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { Config, RuntimeLogger, WorkspaceCatalog, WorkspaceCatalogHealth } from "./runtime/contracts.js";
 import type { SkillDefinition, WorkspaceSnapshot } from "./types.js";
-import { assertValidCommandSlug, buildCommandCatalog, toSkillCommandSlug } from "./telegram/commands.js";
+import { assertValidCommandName, buildCommandCatalog, toTelegramCommand } from "./telegram/commands.js";
 
 type ParsedFrontmatter = {
   name: string;
@@ -192,12 +192,9 @@ async function loadSkillsFromManifest(manifest: WorkspaceManifest): Promise<Skil
   for (const skillPath of manifest.skillPaths) {
     const content = await fs.readFile(skillPath, "utf8");
     const frontmatter = parseFrontmatter(content, skillPath);
-    const folderName = path.basename(path.dirname(skillPath));
-    const slug = toSkillCommandSlug(folderName);
-    assertValidCommandSlug(slug, skillPath);
+    assertValidCommandName(frontmatter.name, skillPath);
 
     skills.push({
-      slug,
       name: frontmatter.name,
       description: frontmatter.description,
       path: skillPath,
@@ -205,14 +202,15 @@ async function loadSkillsFromManifest(manifest: WorkspaceManifest): Promise<Skil
     });
   }
 
-  skills.sort((left, right) => left.slug.localeCompare(right.slug));
+  skills.sort((left, right) => left.name.localeCompare(right.name));
 
   const seen = new Set<string>();
   for (const skill of skills) {
-    if (seen.has(skill.slug)) {
-      throw new Error(`Duplicate skill command slug: ${skill.slug}`);
+    const command = toTelegramCommand(skill.name);
+    if (seen.has(command)) {
+      throw new Error(`Duplicate skill command name: ${skill.name}`);
     }
-    seen.add(skill.slug);
+    seen.add(command);
   }
 
   return skills;
@@ -231,7 +229,6 @@ async function buildSnapshot(config: Config, manifest: WorkspaceManifest): Promi
       agentsContent,
       soulContent,
       skills: skills.map((item) => ({
-        slug: item.slug,
         name: item.name,
         description: item.description,
         path: item.path,
@@ -338,12 +335,13 @@ export function createWorkspaceManager(config: Config, logger?: RuntimeLogger): 
       return snapshot;
     },
 
-    getSkillBySlug(slug: string): SkillDefinition | null {
+    getSkillByName(name: string): SkillDefinition | null {
       if (snapshot === null) {
         throw new Error("Workspace manager not bootstrapped");
       }
 
-      return snapshot.skills.find((item) => item.slug === slug) ?? null;
+      const normalized = toTelegramCommand(name);
+      return snapshot.skills.find((item) => toTelegramCommand(item.name) === normalized) ?? null;
     },
 
     getHealth(): WorkspaceCatalogHealth {

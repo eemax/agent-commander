@@ -1,5 +1,5 @@
 ---
-name: send_file
+name: send-file
 description: "Send files from the filesystem as Telegram attachments. USE WHEN: the user asks you to send, share, deliver, or attach a file — or when your task produces an output file the user needs to receive directly in the chat."
 ---
 

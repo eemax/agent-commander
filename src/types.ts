@@ -201,7 +201,6 @@ export type MessageRouteResult =
     };
 
 export type SkillDefinition = {
-  slug: string;
   name: string;
   description: string;
   path: string;
@@ -212,7 +211,7 @@ export type TelegramCommandDefinition = {
   command: string;
   description: string;
   kind: "core" | "skill";
-  skillSlug?: string;
+  skillName?: string;
 };
 
 export type WorkspaceSnapshot = {

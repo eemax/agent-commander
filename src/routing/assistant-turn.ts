@@ -1,6 +1,5 @@
 import {
   buildConversationBootstrapInstructions,
-  buildSkillInvocationInstructions,
   writeConversationContextSnapshot
 } from "../context.js";
 import { ToolWorkflowAbortError } from "../agent/tool-loop.js";
@@ -12,12 +11,11 @@ import { ProviderError } from "../provider-error.js";
 import { formatSteerNotice, formatVerboseToolCallNotice } from "./formatters.js";
 import { buildProviderFallbackText } from "./provider-fallback.js";
 import type { SteerChannel } from "../steer-channel.js";
-import type { MessageRouteResult, NormalizedTelegramMessage, Provider, SkillDefinition, ContentPart } from "../types.js";
+import type { MessageRouteResult, NormalizedTelegramMessage, Provider, ContentPart } from "../types.js";
 
 export type AssistantTurnHandlerInput = {
   message: NormalizedTelegramMessage;
   userContent: string | ContentPart[];
-  oneShotSkill: SkillDefinition | null;
   trace: TraceContext;
   abortSignal?: AbortSignal;
   steerChannel?: SteerChannel;
@@ -112,13 +110,6 @@ export function createAssistantTurnHandler(params: {
         workspace: workspaceSnapshot,
         harnessTools: providerTools,
         compiledInstructions: instructions
-      });
-    }
-
-    if (input.oneShotSkill) {
-      instructions = buildSkillInvocationInstructions({
-        skill: input.oneShotSkill,
-        baseInstructions: instructions
       });
     }
 

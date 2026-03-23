@@ -113,14 +113,14 @@ function normalizeDescription(raw: string): string {
   return `${trimmed.slice(0, 253)}...`;
 }
 
-export function toSkillCommandSlug(rawFolderName: string): string {
-  const normalized = rawFolderName.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-  return normalized;
+export function toTelegramCommand(name: string): string {
+  return name.replace(/-/g, "_");
 }
 
-export function assertValidCommandSlug(slug: string, sourcePath: string): void {
-  if (!TELEGRAM_COMMAND_REGEX.test(slug)) {
-    throw new Error(`Invalid skill command slug '${slug}' from ${sourcePath}`);
+export function assertValidCommandName(name: string, sourcePath: string): void {
+  const command = toTelegramCommand(name);
+  if (!TELEGRAM_COMMAND_REGEX.test(command)) {
+    throw new Error(`Invalid skill command name '${name}' from ${sourcePath}. Must match /^[a-z][a-z0-9_-]{0,31}$/`);
   }
 }
 
@@ -129,16 +129,17 @@ export function buildCommandCatalog(skills: SkillDefinition[]): TelegramCommandD
   const seen = new Set<string>(CORE_COMMAND_SET);
 
   for (const skill of skills) {
-    if (seen.has(skill.slug)) {
-      throw new Error(`Skill command collision: '/${skill.slug}'`);
+    const command = toTelegramCommand(skill.name);
+    if (seen.has(command)) {
+      throw new Error(`Skill command collision: '/${skill.name}'`);
     }
 
-    seen.add(skill.slug);
+    seen.add(command);
     commands.push({
-      command: skill.slug,
+      command,
       description: normalizeDescription(skill.description),
       kind: "skill",
-      skillSlug: skill.slug
+      skillName: skill.name
     });
   }
 

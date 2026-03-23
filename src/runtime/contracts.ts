@@ -280,7 +280,7 @@ export type WorkspaceCatalog = {
   bootstrap(): Promise<void>;
   refresh(): Promise<{ snapshot: WorkspaceSnapshot; changed: boolean }>;
   getSnapshot(): WorkspaceSnapshot;
-  getSkillBySlug(slug: string): SkillDefinition | null;
+  getSkillByName(name: string): SkillDefinition | null;
   getHealth(): WorkspaceCatalogHealth;
 };
 

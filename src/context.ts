@@ -51,25 +51,6 @@ export function buildConversationBootstrapInstructions(params: {
   return sections.join("\n").trim();
 }
 
-export function buildSkillInvocationInstructions(params: {
-  skill: SkillDefinition;
-  baseInstructions: string;
-}): string {
-  return [
-    params.baseInstructions.trim(),
-    "",
-    `One-shot skill invocation: /${params.skill.slug}`,
-    `Skill name: ${params.skill.name}`,
-    `Skill description: ${params.skill.description}`,
-    "Skill file (full content):",
-    params.skill.content.trim(),
-    "",
-    "Apply this skill only for this request. Do not persist skill activation across future turns unless the user invokes it again."
-  ]
-    .join("\n")
-    .trim();
-}
-
 export async function writeConversationContextSnapshot(params: {
   contextSnapshotsDir: string;
   chatId: string;
@@ -97,7 +78,6 @@ export async function writeConversationContextSnapshot(params: {
       description: tool.description
     })),
     skills: params.workspace.skills.map((skill) => ({
-      slug: skill.slug,
       name: skill.name,
       description: skill.description,
       path: skill.path,
