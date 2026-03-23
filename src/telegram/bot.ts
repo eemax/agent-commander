@@ -18,6 +18,7 @@ import type {
 } from "../types.js";
 import { downloadTelegramFile, FileTooLargeError } from "./file-download.js";
 import { resolveAttachmentContentParts } from "./attachment-resolve.js";
+import { extractAttachMarkers, resolveOutboundAttachment, type OutboundAttachment } from "./outbound-attachments.js";
 import { Semaphore } from "../concurrency.js";
 import { renderBasicTelegramHtml, renderMarkdownToTelegramHtml } from "./assistant-format.js";
 import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
@@ -153,6 +154,8 @@ export async function dispatchTelegramTextMessage(params: {
   handleMessage: TelegramTextHandler;
   sendReply: (text: string, meta: TelegramOutboundReplyMeta) => Promise<void>;
   sendDraft?: (text: string) => Promise<void>;
+  sendAttachment?: (attachment: OutboundAttachment) => Promise<void>;
+  logger?: RuntimeLogger;
   draftMinUpdateMs?: number;
   onDraftFailure?: (error: unknown) => void | Promise<void>;
   nowMs?: () => number;
@@ -388,28 +391,50 @@ export async function dispatchTelegramTextMessage(params: {
   await commitToolCallBuffer();
   await flushDraft(true);
 
+  const sendExtractedAttachments = async (markerPaths: string[]): Promise<void> => {
+    if (!params.sendAttachment || !params.logger || markerPaths.length === 0) {
+      return;
+    }
+
+    for (const markerPath of markerPaths) {
+      const attachment = await resolveOutboundAttachment(markerPath, params.logger);
+      if (attachment) {
+        try {
+          await params.sendAttachment(attachment);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          params.logger.warn(`outbound-attachment: failed to send ${attachment.fileName}: ${message}`);
+        }
+      }
+    }
+  };
+
   switch (result.type) {
     case "reply": {
       const extras = result.extraReplies?.filter((item) => item.trim().length > 0) ?? [];
       const origin = result.origin ?? "system";
+      const { cleanText, markers } = extractAttachMarkers(result.text);
       for (const extra of extras) {
         await sendOutbound(extra, result.type, true, origin);
       }
       for (const late of lateToolCallNotices) {
         await sendOutbound(late, result.type, true, "system");
       }
-      await sendOutbound(result.text, result.type, false, origin, result.inlineKeyboard);
+      await sendOutbound(cleanText, result.type, false, origin, result.inlineKeyboard);
+      await sendExtractedAttachments(markers);
       break;
     }
     case "fallback": {
       const extras = result.extraReplies?.filter((item) => item.trim().length > 0) ?? [];
+      const { cleanText, markers } = extractAttachMarkers(result.text);
       for (const extra of extras) {
         await sendOutbound(extra, result.type, true, "system");
       }
       for (const late of lateToolCallNotices) {
         await sendOutbound(late, result.type, true, "system");
       }
-      await sendOutbound(result.text, result.type, false, "system", result.inlineKeyboard);
+      await sendOutbound(cleanText, result.type, false, "system", result.inlineKeyboard);
+      await sendExtractedAttachments(markers);
       break;
     }
     case "unauthorized":
@@ -600,6 +625,22 @@ export function createTelegramBot(params: {
                 );
               }
             : undefined,
+          sendAttachment: async (attachment) => {
+            const { InputFile } = await import("grammy");
+            const source = new InputFile(attachment.buffer, attachment.fileName);
+            await withTelegramRateLimitBackoff(
+              `send attachment chat=${normalized.chatId} message=${normalized.messageId}`,
+              params.logger,
+              async () => {
+                if (attachment.sendAsPhoto) {
+                  await ctx.replyWithPhoto(source);
+                } else {
+                  await ctx.replyWithDocument(source);
+                }
+              }
+            );
+          },
+          logger: params.logger,
           draftMinUpdateMs: params.streamingMinUpdateMs,
           onDraftFailure: (error) => {
             const message = error instanceof Error ? error.message : String(error);
