@@ -2,7 +2,10 @@
   "telegram": {
     "streaming_enabled": true,
     "streaming_min_update_ms": 1000,
-    "assistant_format": "markdown_to_html"
+    "assistant_format": "markdown_to_html",
+    "max_file_size_mb": 10,
+    "file_download_timeout_ms": 30000,
+    "max_concurrent_downloads": 4
   },
   "openai": {
     "model": "gpt-5.3-codex",
@@ -44,7 +47,7 @@
     "tool_heartbeat_interval_ms": 5000,
     "tool_cleanup_grace_ms": 3000,
     "tool_failure_breaker_threshold": 5,
-    "session_cache_max_entries": 200,
+    "session_cache_max_entries": 20,
     "app_log_flush_interval_ms": 250,
     "message_queue_mode": "batch"
   },
