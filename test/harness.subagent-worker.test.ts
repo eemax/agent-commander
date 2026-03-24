@@ -64,7 +64,7 @@ function makeConfig(): Config {
     runtime: {
       logLevel: "error",
       promptHistoryLimit: null,
-      defaultVerbose: false,
+      defaultVerbose: "off",
       toolLoopMaxSteps: 50,
       toolWorkflowTimeoutMs: 300_000,
       toolCommandTimeoutMs: 60_000,

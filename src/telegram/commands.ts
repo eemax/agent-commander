@@ -55,7 +55,7 @@ export const CORE_COMMANDS: ReadonlyArray<TelegramCommandDefinition> = [
   },
   {
     command: "verbose",
-    description: "Toggle tool-call updates: /verbose on|off",
+    description: "Tool-call updates: /verbose full|count|off",
     kind: "core"
   },
   {

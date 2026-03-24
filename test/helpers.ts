@@ -67,7 +67,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
     runtime: {
       logLevel: "info",
       promptHistoryLimit: 20,
-      defaultVerbose: true,
+      defaultVerbose: "full",
       toolLoopMaxSteps: 30,
       toolWorkflowTimeoutMs: 120_000,
       toolCommandTimeoutMs: 15_000,

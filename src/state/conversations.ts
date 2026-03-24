@@ -15,9 +15,10 @@ import {
   type ThinkingEffort,
   type CacheRetention,
   type TransportMode,
-  type AuthMode
+  type AuthMode,
+  type VerboseMode
 } from "../types.js";
-import { isPlainObject, normalizeNonEmptyString, isThinkingEffort, isCacheRetention, isTransportMode, isAuthMode } from "../utils.js";
+import { isPlainObject, normalizeNonEmptyString, isThinkingEffort, isCacheRetention, isTransportMode, isAuthMode, isVerboseMode } from "../utils.js";
 import {
   type ConversationArchiveEvent,
   type ConversationCreatedEvent,
@@ -30,7 +31,7 @@ import {
 
 type ConversationRuntimeProfile = {
   workingDirectory: string;
-  verboseMode: boolean;
+  verboseMode: VerboseMode;
   thinkingEffort: ThinkingEffort;
   cacheRetention: CacheRetention;
   transportMode: TransportMode;
@@ -71,7 +72,7 @@ type ConversationStoreParams = {
   stashedConversationsPath: string;
   activeConversationsPath?: string;
   defaultWorkingDirectory?: string;
-  defaultVerboseMode?: boolean;
+  defaultVerboseMode?: VerboseMode;
   defaultThinkingEffort?: ThinkingEffort;
   defaultCacheRetention?: CacheRetention;
   defaultAuthMode?: AuthMode;
@@ -228,7 +229,7 @@ function cloneProviderFailureSummary(value: ProviderFailureSummary): ProviderFai
 
 function createDefaultRuntimeProfile(params: {
   defaultWorkingDirectory: string;
-  defaultVerboseMode: boolean;
+  defaultVerboseMode: VerboseMode;
   defaultThinkingEffort: ThinkingEffort;
   defaultCacheRetention: CacheRetention;
   defaultAuthMode: AuthMode;
@@ -270,7 +271,7 @@ function normalizeRuntimeProfile(
   value: unknown,
   defaults: {
     defaultWorkingDirectory: string;
-    defaultVerboseMode: boolean;
+    defaultVerboseMode: VerboseMode;
     defaultThinkingEffort: ThinkingEffort;
     defaultCacheRetention: CacheRetention;
     defaultAuthMode: AuthMode;
@@ -294,7 +295,11 @@ function normalizeRuntimeProfile(
 
   return {
     workingDirectory: normalizeNonEmptyString(value.workingDirectory) ?? defaults.defaultWorkingDirectory,
-    verboseMode: typeof value.verboseMode === "boolean" ? value.verboseMode : defaults.defaultVerboseMode,
+    verboseMode: isVerboseMode(value.verboseMode)
+      ? value.verboseMode
+      : value.verboseMode === true ? "full"
+      : value.verboseMode === false ? "off"
+      : defaults.defaultVerboseMode,
     thinkingEffort: isThinkingEffort(value.thinkingEffort) ? value.thinkingEffort : defaults.defaultThinkingEffort,
     cacheRetention: isCacheRetention(value.cacheRetention) ? value.cacheRetention : defaults.defaultCacheRetention,
     transportMode: isTransportMode(value.transportMode) ? value.transportMode : "http",
@@ -314,7 +319,7 @@ function parseCurrentConversationsIndex(
   raw: string,
   defaults: {
     defaultWorkingDirectory: string;
-    defaultVerboseMode: boolean;
+    defaultVerboseMode: VerboseMode;
     defaultThinkingEffort: ThinkingEffort;
     defaultCacheRetention: CacheRetention;
     defaultAuthMode: AuthMode;
@@ -357,7 +362,7 @@ function parseActiveConversationsIndex(
   raw: string,
   defaults: {
     defaultWorkingDirectory: string;
-    defaultVerboseMode: boolean;
+    defaultVerboseMode: VerboseMode;
     defaultThinkingEffort: ThinkingEffort;
     defaultCacheRetention: CacheRetention;
     defaultAuthMode: AuthMode;
@@ -458,7 +463,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     path.join(path.dirname(params.stashedConversationsPath), "active-conversations.json");
   const defaults = {
     defaultWorkingDirectory: params.defaultWorkingDirectory ?? process.cwd(),
-    defaultVerboseMode: params.defaultVerboseMode ?? true,
+    defaultVerboseMode: params.defaultVerboseMode ?? "full",
     defaultThinkingEffort: params.defaultThinkingEffort ?? "medium",
     defaultCacheRetention: params.defaultCacheRetention ?? "in_memory",
     defaultAuthMode: params.defaultAuthMode ?? "api"
@@ -823,7 +828,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       });
     },
 
-    async getVerboseMode(chatId): Promise<boolean> {
+    async getVerboseMode(chatId): Promise<VerboseMode> {
       return enqueueMutation(async () => {
         const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
         return ensured.record.runtime.verboseMode;
@@ -844,10 +849,10 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       });
     },
 
-    async setVerboseMode(chatId, enabled, options): Promise<void> {
+    async setVerboseMode(chatId, mode, options): Promise<void> {
       await enqueueMutation(async () => {
         const ensured = await ensureCurrentConversationRecord(chatId, "auto_start", options?.trace);
-        if (ensured.record.runtime.verboseMode === enabled) {
+        if (ensured.record.runtime.verboseMode === mode) {
           return;
         }
 
@@ -857,7 +862,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
             ...ensured.record,
             runtime: {
               ...ensured.record.runtime,
-              verboseMode: enabled
+              verboseMode: mode
             }
           }
         };
@@ -870,7 +875,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
           chatId,
           conversationId: ensured.record.conversationId,
           setting: "verboseMode",
-          value: enabled
+          value: mode
         });
       });
     },

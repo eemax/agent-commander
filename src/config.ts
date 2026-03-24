@@ -6,7 +6,7 @@ import type { EnvSecrets } from "./env.js";
 import type { Config, LogLevel, TelegramAssistantFormat } from "./runtime/contracts.js";
 import type { WebSearchModelCatalogEntry } from "./web-search-catalog.js";
 import { DEFAULT_OBSERVABILITY_REDACTION } from "./observability.js";
-import { THINKING_EFFORT_VALUES, CACHE_RETENTION_VALUES, type ThinkingEffort, type CacheRetention } from "./types.js";
+import { THINKING_EFFORT_VALUES, CACHE_RETENTION_VALUES, VERBOSE_MODE_VALUES, type ThinkingEffort, type CacheRetention } from "./types.js";
 
 const LOG_LEVEL_VALUES = ["debug", "info", "warn", "error"] as const;
 const TELEGRAM_ASSISTANT_FORMAT_VALUES = ["plain_text", "markdown_to_html"] as const;
@@ -56,7 +56,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
   runtime: {
     log_level: "info",
     prompt_history_limit: 20,
-    default_verbose: true,
+    default_verbose: "full",
     tool_loop_max_steps: 30,
     tool_workflow_timeout_ms: 120_000,
     tool_command_timeout_ms: 15_000,
@@ -190,7 +190,10 @@ export const configSchema = z
       .object({
         log_level: z.enum(LOG_LEVEL_VALUES).default(DEFAULT_CONFIG_TEMPLATE.runtime.log_level as LogLevel),
         prompt_history_limit: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.runtime.prompt_history_limit),
-        default_verbose: z.boolean().default(DEFAULT_CONFIG_TEMPLATE.runtime.default_verbose),
+        default_verbose: z.union([
+          z.enum(VERBOSE_MODE_VALUES),
+          z.boolean().transform((v): "full" | "off" => v ? "full" : "off")
+        ]).default(DEFAULT_CONFIG_TEMPLATE.runtime.default_verbose),
         tool_loop_max_steps: z.number().int().positive().nullable().default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_loop_max_steps),
         tool_workflow_timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_workflow_timeout_ms),
         tool_command_timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_command_timeout_ms),

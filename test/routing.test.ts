@@ -690,20 +690,20 @@ describe("createMessageRouter", () => {
     const usage = await router.handleIncomingMessage(sampleIncoming({ text: "/verbose" }));
     expect(usage).toEqual({
       type: "reply",
-      text: "Usage: /verbose <on|off>\nverbose mode: on"
+      text: "Usage: /verbose <full|count|off>\nverbose mode: full"
     });
 
-    const enabled = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "/verbose on" }));
+    const enabled = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "/verbose full" }));
     expect(enabled).toEqual({
       type: "reply",
-      text: "verbose mode: on"
+      text: "verbose mode: full"
     });
-    expect(await conversations.getVerboseMode("chat-1")).toBe(true);
+    expect(await conversations.getVerboseMode("chat-1")).toBe("full");
 
     const status = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-3", text: "/status full" }));
     expect(status.type).toBe("reply");
     if (status.type === "reply") {
-      expect(status.text).toContain("verbose: on");
+      expect(status.text).toContain("verbose: full");
     }
   });
 
@@ -715,7 +715,7 @@ describe("createMessageRouter", () => {
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
       stashedConversationsPath: config.paths.stashedConversationsPath,
-      defaultVerboseMode: false
+      defaultVerboseMode: "off"
     });
 
     const router = createMessageRouter({
@@ -1056,7 +1056,7 @@ describe("createMessageRouter", () => {
       harness: makeHarnessMock()
     });
 
-    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose on" }));
+    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose full" }));
     const result = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "hello" }));
 
     expect(result.type).toBe("reply");
@@ -1112,7 +1112,7 @@ describe("createMessageRouter", () => {
       harness: makeHarnessMock()
     });
 
-    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose on" }));
+    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose full" }));
     const onTextDelta = vi.fn();
     const result = await router.handleIncomingMessage(
       sampleIncoming({ messageId: "msg-2", text: "hello" }),
@@ -1208,7 +1208,7 @@ describe("createMessageRouter", () => {
       harness: makeHarnessMock()
     });
 
-    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose on" }));
+    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose full" }));
     const onTextDelta = vi.fn();
     const result = await router.handleIncomingMessage(
       sampleIncoming({ messageId: "msg-2", text: "hello" }),
@@ -1260,7 +1260,7 @@ describe("createMessageRouter", () => {
       harness: makeHarnessMock()
     });
 
-    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose on" }));
+    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose full" }));
     const result = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "run" }));
     expect(result.type).toBe("fallback");
     if (result.type === "fallback") {
@@ -1270,7 +1270,7 @@ describe("createMessageRouter", () => {
   });
 
   it("logs structured provider failure diagnostics and reports them in /status full", async () => {
-    const config = makeConfig({ runtime: { defaultVerbose: false } });
+    const config = makeConfig({ runtime: { defaultVerbose: "off" } });
     const workspace = createWorkspaceManager(config);
     await workspace.bootstrap();
     const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -1299,7 +1299,7 @@ describe("createMessageRouter", () => {
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
       stashedConversationsPath: config.paths.stashedConversationsPath,
-      defaultVerboseMode: false
+      defaultVerboseMode: "off"
     });
 
     const router = createMessageRouter({
@@ -1340,7 +1340,7 @@ describe("createMessageRouter", () => {
   });
 
   it("appends safe provider failure details in verbose mode fallback messages", async () => {
-    const config = makeConfig({ runtime: { defaultVerbose: true } });
+    const config = makeConfig({ runtime: { defaultVerbose: "full" } });
     const workspace = createWorkspaceManager(config);
     await workspace.bootstrap();
 

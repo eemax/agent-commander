@@ -23,6 +23,7 @@ import { Semaphore } from "../concurrency.js";
 import { renderBasicTelegramHtml, renderMarkdownToTelegramHtml } from "./assistant-format.js";
 import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
 import { normalizeTelegramCallbackQuery, normalizeTelegramMessage } from "./normalize.js";
+import { VERBOSE_REPLACE_PREFIX } from "../routing/formatters.js";
 
 export type TelegramTextHandler = (
   message: NormalizedTelegramMessage,
@@ -326,6 +327,19 @@ export async function dispatchTelegramTextMessage(params: {
           stopTypingIndicator();
 
           if (typeof notice !== "string" || notice.length === 0) {
+            return;
+          }
+
+          // Count-mode: replace the entire buffer instead of appending
+          if (notice.startsWith(VERBOSE_REPLACE_PREFIX)) {
+            const content = notice.slice(VERBOSE_REPLACE_PREFIX.length);
+            toolCallBuffer = content.length > TELEGRAM_MESSAGE_LIMIT
+              ? content.slice(0, TELEGRAM_MESSAGE_LIMIT)
+              : content;
+            if (!textStreamingStarted) {
+              await flushToolCallDraft(false);
+              startToolCallTypingIndicator();
+            }
             return;
           }
 

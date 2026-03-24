@@ -9,7 +9,7 @@ const baseParams = {
   workspaceRoot: "/tmp/workspace",
   skillsCount: 2,
   fullObservabilityEnabled: false,
-  verboseEnabled: false,
+  verboseMode: "off" as const,
   thinkingEffort: "medium" as const,
   cwd: "/tmp/workspace",
   sessions: [],
@@ -71,7 +71,7 @@ describe("buildStatusReply", () => {
   it("shows budget context summary and cache details when usage is available", () => {
     const text = buildStatusReply({
       ...baseParams,
-      verboseEnabled: true,
+      verboseMode: "full" as const,
       thinkingEffort: "high",
       latestUsage: {
         inputTokens: 8_700,

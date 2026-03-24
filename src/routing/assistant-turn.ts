@@ -8,7 +8,14 @@ import { resolveActiveModel } from "../model-catalog.js";
 import { createChildTraceContext, type TraceContext } from "../observability.js";
 import type { RuntimeLogger, StateStore, WorkspaceCatalog, Config } from "../runtime/contracts.js";
 import { ProviderError } from "../provider-error.js";
-import { formatSteerNotice, formatVerboseToolCallNotice } from "./formatters.js";
+import {
+  formatSteerNotice,
+  formatVerboseToolCallNotice,
+  extractCountUpdate,
+  formatCountModeBuffer,
+  VERBOSE_REPLACE_PREFIX,
+  type CountAccumulatorEntry
+} from "./formatters.js";
 import { buildProviderFallbackText } from "./provider-fallback.js";
 import type { SteerChannel } from "../steer-channel.js";
 import type { MessageRouteResult, NormalizedTelegramMessage, Provider, ContentPart } from "../types.js";
@@ -63,7 +70,7 @@ export function createAssistantTurnHandler(params: {
 
   return async (input: AssistantTurnHandlerInput): Promise<MessageRouteResult> => {
     const conversationId = await conversations.ensureActiveConversation(input.message.chatId);
-    const [verboseEnabled, thinkingEffort, cacheRetention, transportMode, authMode, activeModelOverride] = await Promise.all([
+    const [verboseMode, thinkingEffort, cacheRetention, transportMode, authMode, activeModelOverride] = await Promise.all([
       conversations.getVerboseMode(input.message.chatId),
       conversations.getThinkingEffort(input.message.chatId),
       conversations.getCacheRetention(input.message.chatId),
@@ -77,6 +84,8 @@ export function createAssistantTurnHandler(params: {
       overrideModelId: activeModelOverride
     });
     const verboseReplies: string[] = [];
+    const toolCallAccumulator = new Map<string, CountAccumulatorEntry>();
+    let countModeBufferIndex = -1;
 
     if (input.interruptedPreviousTurn) {
       const note = "Interrupted previous in-progress run and handling your latest message.";
@@ -137,17 +146,45 @@ export function createAssistantTurnHandler(params: {
             tool: event.tool,
             success: event.success
           });
-          if (verboseEnabled) {
+          if (verboseMode === "full") {
             const notice = formatVerboseToolCallNotice(event);
             if (input.onToolCallNotice) {
               await input.onToolCallNotice(notice);
             } else {
               verboseReplies.push(notice);
             }
+          } else if (verboseMode === "count") {
+            const update = extractCountUpdate(event);
+            const existing = toolCallAccumulator.get(update.key);
+            if (existing) {
+              existing.count += 1;
+              existing.chars += update.chars;
+              if (!update.success) existing.failed += 1;
+            } else {
+              toolCallAccumulator.set(update.key, {
+                emoji: update.emoji,
+                label: update.label,
+                count: 1,
+                failed: update.success ? 0 : 1,
+                chars: update.chars,
+                trackChars: update.trackChars
+              });
+            }
+            const buffer = formatCountModeBuffer(toolCallAccumulator);
+            if (input.onToolCallNotice) {
+              await input.onToolCallNotice(VERBOSE_REPLACE_PREFIX + buffer);
+            } else {
+              if (countModeBufferIndex >= 0) {
+                verboseReplies[countModeBufferIndex] = buffer;
+              } else {
+                countModeBufferIndex = verboseReplies.length;
+                verboseReplies.push(buffer);
+              }
+            }
           }
         },
         onToolProgress: async (event) => {
-          if (event.type === "steer" && verboseEnabled) {
+          if (event.type === "steer" && verboseMode !== "off") {
             const notice = formatSteerNotice(event.message);
             if (input.onToolCallNotice) {
               await input.onToolCallNotice(notice);
@@ -230,7 +267,7 @@ export function createAssistantTurnHandler(params: {
         text: buildProviderFallbackText({
           kind: error.kind,
           detail: error.detail,
-          includeDetail: verboseEnabled
+          includeDetail: verboseMode !== "off"
         }),
         ...(verboseReplies.length > 0 ? { extraReplies: [...verboseReplies] } : {})
       };

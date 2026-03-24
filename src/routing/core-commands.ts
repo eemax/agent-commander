@@ -12,7 +12,7 @@ import {
   type TelegramInlineButton,
   type TelegramInlineKeyboard
 } from "../types.js";
-import { isThinkingEffort, isCacheRetention, isTransportMode, isAuthMode } from "../utils.js";
+import { isThinkingEffort, isCacheRetention, isTransportMode, isAuthMode, isVerboseMode } from "../utils.js";
 import { formatConversationIdForUi, formatConversationIdTail } from "./conversation-id.js";
 import { buildStatusReply, formatBashReply, formatCompactNumber } from "./formatters.js";
 
@@ -375,7 +375,7 @@ export function createCoreCommandHandler(params: {
           const conversationId = await conversations.ensureActiveConversation(message.chatId);
           const [
             conversationCwd,
-            verboseEnabled,
+            verboseMode,
             thinkingEffort,
             cacheRetention,
             transportMode,
@@ -435,7 +435,7 @@ export function createCoreCommandHandler(params: {
               workspaceRoot: config.paths.workspaceRoot,
               skillsCount: snapshot.skills.length,
               fullObservabilityEnabled: config.observability.enabled,
-              verboseEnabled,
+              verboseMode,
               thinkingEffort,
               cwd: conversationCwd,
               latestUsage,
@@ -570,26 +570,15 @@ export function createCoreCommandHandler(params: {
         case "verbose": {
           const state = args.trim().toLowerCase();
 
-          if (state === "on") {
-            await conversations.setVerboseMode(message.chatId, true, { trace });
-            return {
-              type: "reply",
-              text: "verbose mode: on"
-            };
+          if (state === "full" || state === "count" || state === "off") {
+            await conversations.setVerboseMode(message.chatId, state, { trace });
+            return { type: "reply", text: `verbose mode: ${state}` };
           }
 
-          if (state === "off") {
-            await conversations.setVerboseMode(message.chatId, false, { trace });
-            return {
-              type: "reply",
-              text: "verbose mode: off"
-            };
-          }
-
-          const enabled = await conversations.getVerboseMode(message.chatId);
+          const current = await conversations.getVerboseMode(message.chatId);
           return {
             type: "reply",
-            text: [`Usage: /verbose <on|off>`, `verbose mode: ${enabled ? "on" : "off"}`].join("\n")
+            text: [`Usage: /verbose <full|count|off>`, `verbose mode: ${current}`].join("\n")
           };
         }
         case "thinking": {

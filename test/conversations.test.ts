@@ -132,14 +132,14 @@ describe("conversation store", () => {
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
       stashedConversationsPath: path.join(root, "active.json"),
-      defaultVerboseMode: true,
+      defaultVerboseMode: "full",
       defaultThinkingEffort: "medium"
     });
 
     const chatId = "chat-1";
     const conversationA = await store.ensureActiveConversation(chatId);
 
-    await store.setVerboseMode(chatId, false);
+    await store.setVerboseMode(chatId, "off");
     await store.setWorkingDirectory(chatId, "/tmp/project-focus");
     await store.setThinkingEffort(chatId, "high");
     await store.setCacheRetention(chatId, "24h");
@@ -157,7 +157,7 @@ describe("conversation store", () => {
     expect(stashResult.stashedAlias).toBe("focus");
 
     expect(await store.getWorkingDirectory(chatId)).toBe(process.cwd());
-    expect(await store.getVerboseMode(chatId)).toBe(true);
+    expect(await store.getVerboseMode(chatId)).toBe("full");
     expect(await store.getThinkingEffort(chatId)).toBe("medium");
     expect(await store.getCacheRetention(chatId)).toBe("in_memory");
     expect(await store.getActiveModelOverride(chatId)).toBeNull();
@@ -173,7 +173,7 @@ describe("conversation store", () => {
 
     expect(await store.getActiveConversation(chatId)).toBe(conversationA);
     expect(await store.getWorkingDirectory(chatId)).toBe("/tmp/project-focus");
-    expect(await store.getVerboseMode(chatId)).toBe(false);
+    expect(await store.getVerboseMode(chatId)).toBe("off");
     expect(await store.getThinkingEffort(chatId)).toBe("high");
     expect(await store.getCacheRetention(chatId)).toBe("24h");
     expect(await store.getActiveModelOverride(chatId)).toBe("gpt-5.3-codex");
@@ -336,7 +336,7 @@ describe("conversation store", () => {
     const chatId = "chat-1";
     const conversationA = await firstStore.ensureActiveConversation(chatId);
     await firstStore.setWorkingDirectory(chatId, "/tmp/project-alpha");
-    await firstStore.setVerboseMode(chatId, false);
+    await firstStore.setVerboseMode(chatId, "off");
     await firstStore.setCacheRetention(chatId, "24h");
 
     await firstStore.completeStashSelection(chatId, "alpha", { type: "new" }, "manual_stash");
@@ -353,7 +353,7 @@ describe("conversation store", () => {
 
     await secondStore.completeNewSelection(chatId, { type: "stash", conversationId: conversationA }, "manual_new");
     expect(await secondStore.getWorkingDirectory(chatId)).toBe("/tmp/project-alpha");
-    expect(await secondStore.getVerboseMode(chatId)).toBe(false);
+    expect(await secondStore.getVerboseMode(chatId)).toBe("off");
     expect(await secondStore.getCacheRetention(chatId)).toBe("24h");
   });
 
@@ -423,7 +423,7 @@ describe("conversation store", () => {
       path.join(root, "runtime-settings.json"),
       JSON.stringify(
         {
-          verboseMode: false,
+          verboseMode: "off",
           thinkingEffort: "high"
         },
         null,
@@ -436,13 +436,13 @@ describe("conversation store", () => {
       conversationsDir,
       stashedConversationsPath,
       activeConversationsPath,
-      defaultVerboseMode: true,
+      defaultVerboseMode: "full",
       defaultThinkingEffort: "medium"
     });
 
     const conversationId = await store.ensureActiveConversation("chat-1");
     expect(conversationId).not.toBe("conv_legacy");
-    expect(await store.getVerboseMode("chat-1")).toBe(true);
+    expect(await store.getVerboseMode("chat-1")).toBe("full");
     expect(await store.getThinkingEffort("chat-1")).toBe("medium");
   });
 
@@ -454,7 +454,7 @@ describe("conversation store", () => {
     const oldCurrentPath = path.join(root, ".agent-commander", "current-conversations.json");
 
     const runtime = {
-      verboseMode: false,
+      verboseMode: "off",
       thinkingEffort: "high",
       activeModelOverride: "gpt-5.3-codex",
       latestUsage: {
@@ -512,7 +512,7 @@ describe("conversation store", () => {
       conversationsDir,
       stashedConversationsPath: newStashedPath,
       activeConversationsPath: newCurrentPath,
-      defaultVerboseMode: true,
+      defaultVerboseMode: "full",
       defaultThinkingEffort: "medium"
     });
 
@@ -520,7 +520,7 @@ describe("conversation store", () => {
     expect(conversationId).not.toBe("conv_old_stash");
     expect(conversationId).not.toBe("conv_old_current");
     expect(await store.listStashedConversations("chat-1")).toEqual([]);
-    expect(await store.getVerboseMode("chat-1")).toBe(true);
+    expect(await store.getVerboseMode("chat-1")).toBe("full");
     expect(await store.getThinkingEffort("chat-1")).toBe("medium");
   });
 
@@ -538,7 +538,7 @@ describe("conversation store", () => {
             conversationId: "conv_existing",
             alias: "existing",
             runtime: {
-              verboseMode: false,
+              verboseMode: "off",
               thinkingEffort: "high",
               activeModelOverride: null,
               latestUsage: null,
@@ -563,7 +563,7 @@ describe("conversation store", () => {
     });
 
     expect(await store.ensureActiveConversation("chat-1")).toBe("conv_existing");
-    expect(await store.getVerboseMode("chat-1")).toBe(false);
+    expect(await store.getVerboseMode("chat-1")).toBe("off");
     expect(await store.getThinkingEffort("chat-1")).toBe("high");
   });
 
@@ -573,13 +573,13 @@ describe("conversation store", () => {
       conversationsDir: path.join(root, "conversations"),
       stashedConversationsPath: path.join(root, "active.json"),
       defaultWorkingDirectory: "/tmp/default-cwd",
-      defaultVerboseMode: false,
+      defaultVerboseMode: "off",
       defaultThinkingEffort: "xhigh"
     });
 
     await store.ensureActiveConversation("chat-1");
     expect(await store.getWorkingDirectory("chat-1")).toBe("/tmp/default-cwd");
-    expect(await store.getVerboseMode("chat-1")).toBe(false);
+    expect(await store.getVerboseMode("chat-1")).toBe("off");
     expect(await store.getThinkingEffort("chat-1")).toBe("xhigh");
     expect(await store.getCacheRetention("chat-1")).toBe("in_memory");
   });

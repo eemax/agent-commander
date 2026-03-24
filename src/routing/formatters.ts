@@ -1,4 +1,4 @@
-import type { ProviderUsageSnapshot, ThinkingEffort, CacheRetention, TransportMode, AuthMode, ToolCallReport, ToolProgressEvent } from "../types.js";
+import type { ProviderUsageSnapshot, ThinkingEffort, CacheRetention, TransportMode, AuthMode, VerboseMode, ToolCallReport, ToolProgressEvent } from "../types.js";
 import { formatConversationIdForUi } from "./conversation-id.js";
 
 const BASH_MAX_OUTPUT_CHARS = 3_000;
@@ -299,7 +299,7 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
 
   if (report.tool === "process") {
     const action = readString(args.action) ?? "unknown";
-    return `>_ Process: \`${action}\``;
+    return `⚙️ Process: \`${action}\``;
   }
 
   if (report.tool === "web_fetch") {
@@ -357,6 +357,108 @@ export function formatSteerNotice(message: string): string {
   const truncated = message.length > 100 ? `${message.slice(0, 100)}...` : message;
   return `🎯 Steer: ${truncated}`;
 }
+
+// ---------------------------------------------------------------------------
+// Count-mode verbose formatting
+// ---------------------------------------------------------------------------
+
+export type CountAccumulatorEntry = {
+  emoji: string;
+  label: string;
+  count: number;
+  failed: number;
+  chars: number;
+  trackChars: boolean;
+};
+
+type CountUpdate = {
+  key: string;
+  emoji: string;
+  label: string;
+  chars: number;
+  trackChars: boolean;
+  success: boolean;
+};
+
+const TOOL_META: Record<string, { emoji: string; label: string; trackChars: boolean }> = {
+  read_file:       { emoji: "📖", label: "Read",       trackChars: true },
+  write_file:      { emoji: "✍️", label: "Write",      trackChars: true },
+  bash:            { emoji: "🐚", label: "Bash",       trackChars: true },
+  replace_in_file: { emoji: "🔁", label: "Replace",    trackChars: false },
+  apply_patch:     { emoji: "🩹", label: "Patch",      trackChars: false },
+  process:         { emoji: "⚙️", label: "Process",    trackChars: false },
+  web_fetch:       { emoji: "🔗", label: "Web fetch",  trackChars: true },
+  web_search:      { emoji: "🔎", label: "Web search", trackChars: true },
+  subagents:       { emoji: "🤖", label: "Subagent",   trackChars: false }
+};
+
+export function extractCountUpdate(report: ToolCallReport): CountUpdate {
+  const meta = TOOL_META[report.tool] ?? { emoji: "🔧", label: report.tool, trackChars: false };
+  let chars = 0;
+
+  if (meta.trackChars && report.success) {
+    const args = asRecord(report.args);
+    const result = asRecord(report.result);
+
+    switch (report.tool) {
+      case "read_file": {
+        const content = result.content;
+        if (typeof content === "string") chars = content.length;
+        break;
+      }
+      case "write_file": {
+        const content = args.content;
+        if (typeof content === "string") {
+          chars = content.length;
+        } else {
+          const size = result.size;
+          if (typeof size === "number") chars = size;
+        }
+        break;
+      }
+      case "bash": {
+        const combined = result.combined;
+        const stdout = result.stdout;
+        if (typeof combined === "string") {
+          chars = combined.length;
+        } else if (typeof stdout === "string") {
+          chars = stdout.length;
+        }
+        break;
+      }
+      case "web_fetch": {
+        const content = result.content;
+        if (typeof content === "string") chars = content.length;
+        break;
+      }
+      case "web_search": {
+        const responseText = result.response_text;
+        if (typeof responseText === "string") chars = responseText.length;
+        break;
+      }
+    }
+  }
+
+  return { key: report.tool, emoji: meta.emoji, label: meta.label, chars, trackChars: meta.trackChars, success: report.success };
+}
+
+export function formatCountModeBuffer(entries: Map<string, CountAccumulatorEntry>): string {
+  const lines: string[] = [];
+  for (const entry of entries.values()) {
+    let line = `${entry.emoji} ${entry.label} ×${entry.count}`;
+    if (entry.trackChars && entry.chars > 0) {
+      line += ` (${formatCompactNumber(entry.chars)} chars)`;
+    }
+    if (entry.failed > 0) {
+      line += ` · ${entry.failed} failed`;
+    }
+    lines.push(line);
+  }
+  return lines.join("\n");
+}
+
+/** Prefix used to signal the Telegram bot to replace the buffer instead of appending. */
+export const VERBOSE_REPLACE_PREFIX = "\x00REPLACE\x00";
 
 export function formatToolProgressNotice(event: ToolProgressEvent): string {
   const elapsedSeconds = Math.max(0, Math.floor(event.elapsedMs / 1000));
@@ -490,7 +592,7 @@ export function buildStatusReply(params: {
   workspaceRoot: string;
   skillsCount: number;
   fullObservabilityEnabled: boolean;
-  verboseEnabled: boolean;
+  verboseMode: VerboseMode;
   thinkingEffort: ThinkingEffort;
   cwd: string;
   latestUsage: ProviderUsageSnapshot | null;
@@ -571,7 +673,7 @@ export function buildStatusReply(params: {
   const lines = [
     ...summaryLines,
     "",
-    `verbose: ${params.verboseEnabled ? "on" : "off"}`,
+    `verbose: ${params.verboseMode}`,
     `observability: ${params.fullObservabilityEnabled ? "on" : "off"}`,
     `provider.last_failure_kind: ${params.lastProviderFailure?.kind ?? "none"}`,
     `provider.last_failure_status: ${params.lastProviderFailure?.statusCode ?? "none"}`,

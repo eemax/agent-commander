@@ -108,7 +108,7 @@ describe("loadConfig", () => {
     expect(config.openai.models.find((item) => item.id === "gpt-5.3-codex")?.defaultThinking).toBe("medium");
     expect(config.openai.models.find((item) => item.id === "gpt-5.3-codex")?.cacheRetention).toBe("in_memory");
     expect(config.runtime.logLevel).toBe("info");
-    expect(config.runtime.defaultVerbose).toBe(true);
+    expect(config.runtime.defaultVerbose).toBe("full");
     expect(config.runtime.toolLoopMaxSteps).toBe(30);
     expect(config.runtime.toolWorkflowTimeoutMs).toBe(120000);
     expect(config.runtime.toolCommandTimeoutMs).toBe(15000);
