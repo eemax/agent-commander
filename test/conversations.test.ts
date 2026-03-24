@@ -628,6 +628,74 @@ describe("conversation store", () => {
     expect((messageEntry as { payload: { content?: string } }).payload.content).toBe("hello observability");
   });
 
+  it("normalizes legacy boolean verboseMode from persisted data", async () => {
+    const root = createTempDir("acmd-conv-verbose-compat-");
+    const conversationsDir = path.join(root, "conversations");
+    const stashedConversationsPath = path.join(root, "stashed.json");
+    const activeConversationsPath = path.join(root, "active.json");
+
+    // Write a current-conversations index with boolean verboseMode values
+    await fs.promises.mkdir(path.dirname(activeConversationsPath), { recursive: true });
+    fs.writeFileSync(
+      activeConversationsPath,
+      JSON.stringify(
+        {
+          "chat-bool-true": {
+            conversationId: "conv_true",
+            alias: null,
+            runtime: {
+              verboseMode: true,
+              thinkingEffort: "medium"
+            }
+          },
+          "chat-bool-false": {
+            conversationId: "conv_false",
+            alias: null,
+            runtime: {
+              verboseMode: false,
+              thinkingEffort: "medium"
+            }
+          },
+          "chat-string-count": {
+            conversationId: "conv_count",
+            alias: null,
+            runtime: {
+              verboseMode: "count",
+              thinkingEffort: "medium"
+            }
+          },
+          "chat-garbage": {
+            conversationId: "conv_garbage",
+            alias: null,
+            runtime: {
+              verboseMode: "garbage",
+              thinkingEffort: "medium"
+            }
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const store = createConversationStore({
+      conversationsDir,
+      stashedConversationsPath,
+      activeConversationsPath,
+      defaultVerboseMode: "full"
+    });
+
+    // true → "full"
+    expect(await store.getVerboseMode("chat-bool-true")).toBe("full");
+    // false → "off"
+    expect(await store.getVerboseMode("chat-bool-false")).toBe("off");
+    // "count" → "count" (valid string passes through)
+    expect(await store.getVerboseMode("chat-string-count")).toBe("count");
+    // "garbage" → default ("full")
+    expect(await store.getVerboseMode("chat-garbage")).toBe("full");
+  });
+
   it("skips malformed JSONL lines instead of failing to load", async () => {
     const root = createTempDir("acmd-conv-malformed-");
     const store = createConversationStore({

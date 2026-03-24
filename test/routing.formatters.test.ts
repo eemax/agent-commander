@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildStatusReply } from "../src/routing/formatters.js";
+import type { ToolCallReport } from "../src/types.js";
+import type { CountAccumulatorEntry } from "../src/routing/formatters.js";
+import { buildStatusReply, extractCountUpdate, formatCountModeBuffer, VERBOSE_REPLACE_PREFIX } from "../src/routing/formatters.js";
 
 const baseParams = {
   conversationId: "conv_1",
@@ -360,5 +362,169 @@ describe("buildStatusReply", () => {
     const contextIdx = lines.findIndex((l) => l.startsWith("📚"));
     const tokensIdx = lines.findIndex((l) => l.startsWith("🧮"));
     expect(contextIdx).toBeLessThan(tokensIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractCountUpdate
+// ---------------------------------------------------------------------------
+
+function makeReport(overrides: Partial<ToolCallReport> & { tool: string }): ToolCallReport {
+  return { args: {}, result: {}, success: true, error: null, ...overrides };
+}
+
+describe("extractCountUpdate", () => {
+  it("extracts read_file chars from result.content", () => {
+    const update = extractCountUpdate(makeReport({
+      tool: "read_file",
+      result: { content: "hello world" }
+    }));
+    expect(update).toMatchObject({ key: "read_file", emoji: "📖", label: "Read", chars: 11, trackChars: true, success: true });
+  });
+
+  it("extracts write_file chars from args.content first", () => {
+    const update = extractCountUpdate(makeReport({
+      tool: "write_file",
+      args: { content: "abc" },
+      result: { size: 99 }
+    }));
+    expect(update.chars).toBe(3);
+  });
+
+  it("falls back to result.size for write_file when args.content is missing", () => {
+    const update = extractCountUpdate(makeReport({
+      tool: "write_file",
+      args: {},
+      result: { size: 42 }
+    }));
+    expect(update.chars).toBe(42);
+  });
+
+  it("extracts bash chars from result.combined first", () => {
+    const update = extractCountUpdate(makeReport({
+      tool: "bash",
+      result: { combined: "output", stdout: "out" }
+    }));
+    expect(update.chars).toBe(6);
+  });
+
+  it("falls back to result.stdout for bash when combined is missing", () => {
+    const update = extractCountUpdate(makeReport({
+      tool: "bash",
+      result: { stdout: "fallback" }
+    }));
+    expect(update.chars).toBe(8);
+  });
+
+  it("extracts web_fetch chars from result.content", () => {
+    const update = extractCountUpdate(makeReport({
+      tool: "web_fetch",
+      result: { content: "page content" }
+    }));
+    expect(update).toMatchObject({ emoji: "🔗", label: "Web fetch", chars: 12, trackChars: true });
+  });
+
+  it("extracts web_search chars from result.response_text", () => {
+    const update = extractCountUpdate(makeReport({
+      tool: "web_search",
+      result: { response_text: "search results" }
+    }));
+    expect(update).toMatchObject({ emoji: "🔎", label: "Web search", chars: 14, trackChars: true });
+  });
+
+  it("returns zero chars for non-tracked tools", () => {
+    const update = extractCountUpdate(makeReport({
+      tool: "replace_in_file",
+      result: { replacements: 3 }
+    }));
+    expect(update).toMatchObject({ emoji: "🔁", label: "Replace", chars: 0, trackChars: false });
+  });
+
+  it("returns zero chars for failed tracked tools", () => {
+    const update = extractCountUpdate(makeReport({
+      tool: "read_file",
+      success: false,
+      error: "not found",
+      result: { content: "should be ignored" }
+    }));
+    expect(update.chars).toBe(0);
+    expect(update.success).toBe(false);
+  });
+
+  it("uses fallback meta for unknown tools", () => {
+    const update = extractCountUpdate(makeReport({
+      tool: "custom_magic_tool"
+    }));
+    expect(update).toMatchObject({ emoji: "🔧", label: "custom_magic_tool", chars: 0, trackChars: false });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatCountModeBuffer
+// ---------------------------------------------------------------------------
+
+describe("formatCountModeBuffer", () => {
+  it("formats a single entry", () => {
+    const entries = new Map<string, CountAccumulatorEntry>([
+      ["read_file", { emoji: "📖", label: "Read", count: 3, failed: 0, chars: 1500, trackChars: true }]
+    ]);
+    expect(formatCountModeBuffer(entries)).toBe("📖 Read ×3 (1.5k chars)");
+  });
+
+  it("formats multiple entries in insertion order", () => {
+    const entries = new Map<string, CountAccumulatorEntry>([
+      ["bash", { emoji: "🐚", label: "Bash", count: 2, failed: 0, chars: 500, trackChars: true }],
+      ["read_file", { emoji: "📖", label: "Read", count: 1, failed: 0, chars: 100, trackChars: true }]
+    ]);
+    const lines = formatCountModeBuffer(entries).split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("Bash");
+    expect(lines[1]).toContain("Read");
+  });
+
+  it("shows failed suffix when failed > 0", () => {
+    const entries = new Map<string, CountAccumulatorEntry>([
+      ["bash", { emoji: "🐚", label: "Bash", count: 3, failed: 1, chars: 2000, trackChars: true }]
+    ]);
+    expect(formatCountModeBuffer(entries)).toBe("🐚 Bash ×3 (2k chars) · 1 failed");
+  });
+
+  it("omits char suffix for non-tracked tools", () => {
+    const entries = new Map<string, CountAccumulatorEntry>([
+      ["replace_in_file", { emoji: "🔁", label: "Replace", count: 5, failed: 0, chars: 0, trackChars: false }]
+    ]);
+    expect(formatCountModeBuffer(entries)).toBe("🔁 Replace ×5");
+  });
+
+  it("omits char suffix when chars is zero even if tracked", () => {
+    const entries = new Map<string, CountAccumulatorEntry>([
+      ["bash", { emoji: "🐚", label: "Bash", count: 1, failed: 1, chars: 0, trackChars: true }]
+    ]);
+    expect(formatCountModeBuffer(entries)).toBe("🐚 Bash ×1 · 1 failed");
+  });
+
+  it("returns empty string for empty accumulator", () => {
+    expect(formatCountModeBuffer(new Map())).toBe("");
+  });
+
+  it("handles large char counts via formatCompactNumber", () => {
+    const entries = new Map<string, CountAccumulatorEntry>([
+      ["read_file", { emoji: "📖", label: "Read", count: 1, failed: 0, chars: 2_500_000, trackChars: true }]
+    ]);
+    const output = formatCountModeBuffer(entries);
+    expect(output).toContain("2.5m chars");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// VERBOSE_REPLACE_PREFIX
+// ---------------------------------------------------------------------------
+
+describe("VERBOSE_REPLACE_PREFIX", () => {
+  it("is a non-empty string that can be detected with startsWith", () => {
+    expect(VERBOSE_REPLACE_PREFIX.length).toBeGreaterThan(0);
+    const prefixed = VERBOSE_REPLACE_PREFIX + "📖 Read ×1";
+    expect(prefixed.startsWith(VERBOSE_REPLACE_PREFIX)).toBe(true);
+    expect(prefixed.slice(VERBOSE_REPLACE_PREFIX.length)).toBe("📖 Read ×1");
   });
 });

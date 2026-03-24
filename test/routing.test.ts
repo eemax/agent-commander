@@ -707,6 +707,52 @@ describe("createMessageRouter", () => {
     }
   });
 
+  it("sets verbose count mode and reflects it in status", async () => {
+    const config = makeConfig();
+    const workspace = createWorkspaceManager(config);
+    await workspace.bootstrap();
+
+    const conversations = createConversationStore({
+      conversationsDir: config.paths.conversationsDir,
+      stashedConversationsPath: config.paths.stashedConversationsPath
+    });
+
+    const router = createMessageRouter({
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      provider: { generateReply: vi.fn(async () => "unused") },
+      config,
+      conversations,
+      workspace,
+      harness: makeHarnessMock()
+    });
+
+    const countResult = await router.handleIncomingMessage(sampleIncoming({ text: "/verbose count" }));
+    expect(countResult).toEqual({
+      type: "reply",
+      text: "verbose mode: count"
+    });
+    expect(await conversations.getVerboseMode("chat-1")).toBe("count");
+
+    const offResult = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "/verbose off" }));
+    expect(offResult).toEqual({
+      type: "reply",
+      text: "verbose mode: off"
+    });
+    expect(await conversations.getVerboseMode("chat-1")).toBe("off");
+
+    const invalidResult = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-3", text: "/verbose on" }));
+    expect(invalidResult).toEqual({
+      type: "reply",
+      text: "Usage: /verbose <full|count|off>\nverbose mode: off"
+    });
+
+    const status = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-4", text: "/status full" }));
+    expect(status.type).toBe("reply");
+    if (status.type === "reply") {
+      expect(status.text).toContain("verbose: off");
+    }
+  });
+
   it("updates thinking effort through core commands", async () => {
     const config = makeConfig();
     const workspace = createWorkspaceManager(config);
