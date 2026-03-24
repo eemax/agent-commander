@@ -349,6 +349,7 @@ export async function dispatchTelegramTextMessage(params: {
           }
 
           await flushToolCallDraft(false);
+          startToolCallTypingIndicator();
         }
       }
     : undefined;
@@ -362,6 +363,36 @@ export async function dispatchTelegramTextMessage(params: {
       clearInterval(typingTimer);
       typingTimer = null;
     }
+  };
+
+  const startToolCallTypingIndicator = (): void => {
+    if (draftDisabled || !params.sendDraft) return;
+    stopTypingIndicator();
+    typingFrameIndex = 0;
+    let consecutiveErrors = 0;
+
+    const sendFrame = (): void => {
+      if (draftDisabled || !params.sendDraft || textStreamingStarted) {
+        stopTypingIndicator();
+        return;
+      }
+      const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
+      typingFrameIndex += 1;
+      const prefix = toolCallBuffer.length > 0 ? toolCallBuffer + "\n" : "";
+      const candidate = prefix + frame;
+      const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? toolCallBuffer : candidate;
+      params.sendDraft(draft).then(() => {
+        consecutiveErrors = 0;
+      }).catch(() => {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 3) {
+          stopTypingIndicator();
+        }
+      });
+    };
+
+    sendFrame();
+    typingTimer = setInterval(sendFrame, draftMinUpdateMs);
   };
 
   if (params.sendDraft && !draftDisabled) {

@@ -333,7 +333,9 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
       ".",
       "📖 Read: `foo.ts`",
-      "📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`"
+      "📖 Read: `foo.ts`\n.",
+      "📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`",
+      "📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`\n."
     ]);
     expect(sendReply).toHaveBeenCalledTimes(2);
     expect(sendReply.mock.calls.map((call) => call[0])).toEqual([
@@ -403,10 +405,11 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Draft: typing indicator, tool call, then text drafts
+    // Draft: typing indicator, tool call, tool call animation frame, then text drafts
     expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
       ".",
       "📖 Read: `foo.ts`",
+      "📖 Read: `foo.ts`\n.",
       "Reply ",
       "Reply text"
     ]);
