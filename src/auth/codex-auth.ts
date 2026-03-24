@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, renameSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { RuntimeLogger } from "../runtime/contracts.js";
@@ -72,8 +72,13 @@ export function createCodexAuthManager(
       throw new Error("codex-auth: access_token is not a valid JWT");
     }
     // Base64url decode the payload
-    const payload = Buffer.from(parts[1]!, "base64url").toString("utf-8");
-    const claims = JSON.parse(payload) as { exp?: number };
+    let claims: { exp?: number };
+    try {
+      const payload = Buffer.from(parts[1]!, "base64url").toString("utf-8");
+      claims = JSON.parse(payload) as { exp?: number };
+    } catch {
+      throw new Error("codex-auth: access_token JWT payload is not valid base64/JSON");
+    }
     if (typeof claims.exp !== "number") {
       throw new Error("codex-auth: JWT payload missing exp claim");
     }
@@ -106,8 +111,9 @@ export function createCodexAuthManager(
 
     if (!response.ok) {
       const text = await response.text().catch(() => "(unreadable)");
+      const safeText = text.slice(0, 200).replace(/Bearer\s+[A-Za-z0-9._\-=]+/gi, "Bearer [REDACTED]");
       throw new Error(
-        `codex-auth: token refresh failed (${response.status}): ${text.slice(0, 200)}`
+        `codex-auth: token refresh failed (${response.status}): ${safeText}`
       );
     }
 
@@ -147,6 +153,7 @@ export function createCodexAuthManager(
 
       const tmpPath = CODEX_AUTH_PATH + ".tmp";
       writeFileSync(tmpPath, JSON.stringify(parsed, null, 2) + "\n", "utf-8");
+      chmodSync(tmpPath, 0o600);
       renameSync(tmpPath, CODEX_AUTH_PATH);
     } catch (err) {
       logger.warn(`codex-auth: failed to write back auth.json: ${err}`);

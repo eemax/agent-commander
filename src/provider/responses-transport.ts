@@ -29,7 +29,7 @@ function redactHeaders(headers: Record<string, string>): Record<string, string> 
   const redacted: Record<string, string> = {};
 
   for (const [name, value] of Object.entries(headers)) {
-    if (/authorization|api[-_]?key/i.test(name)) {
+    if (/authorization|api[-_]?key|chatgpt-account-id/i.test(name)) {
       redacted[name] = "[REDACTED]";
       continue;
     }
