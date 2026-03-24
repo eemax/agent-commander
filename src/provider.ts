@@ -151,6 +151,7 @@ export function createOpenAIProvider(
           model: input.model,
           instructions: input.instructions,
           initialInput: messages,
+          stateless: (input.authMode ?? config.openai.authMode) === "codex",
           thinkingEffort: input.thinkingEffort,
           compactionTokens: input.compactionTokens,
           compactionThreshold: input.compactionThreshold,

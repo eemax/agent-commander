@@ -6,10 +6,12 @@ import type { RuntimeLogger } from "../runtime/contracts.js";
 export type CodexAuthManager = {
   /** Returns a valid access token, refreshing if needed. */
   getAccessToken(): Promise<string>;
-  /** Returns the ChatGPT account ID (static). */
+  /** Returns the ChatGPT account ID. */
   getAccountId(): string;
   /** Force-refresh now (e.g. after a 401). */
   forceRefresh(): Promise<void>;
+  /** Re-read ~/.codex/auth.json from disk, adopting new credentials if changed. */
+  reload(): void;
 };
 
 type CodexAuthState = {
@@ -90,10 +92,26 @@ export function createCodexAuthManager(
     return nowSec() + REFRESH_MARGIN_SEC >= state.expiresAt;
   }
 
-  async function doRefresh(): Promise<void> {
-    if (!state) {
-      state = loadAuthFile();
+  function reloadFromDisk(): void {
+    try {
+      const disk = loadAuthFile();
+      if (
+        !state ||
+        disk.accountId !== state.accountId ||
+        disk.refreshToken !== state.refreshToken
+      ) {
+        logger.info(
+          `codex-auth: credentials changed on disk (account=${disk.accountId}), reloading`
+        );
+        state = disk;
+      }
+    } catch {
+      // File may be mid-write or temporarily invalid; keep using cached state
     }
+  }
+
+  async function doRefresh(): Promise<void> {
+    reloadFromDisk();
 
     logger.info("codex-auth: refreshing access token");
 
@@ -199,6 +217,10 @@ export function createCodexAuthManager(
         });
       }
       await refreshPromise;
+    },
+
+    reload(): void {
+      reloadFromDisk();
     }
   };
 }

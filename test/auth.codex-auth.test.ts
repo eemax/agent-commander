@@ -203,7 +203,12 @@ describe("createCodexAuthManager", () => {
     const newJwt1 = makeJwt(FUTURE_EXP);
     const newJwt2 = makeJwt(FUTURE_EXP + 7200);
 
-    mockReadFileSync.mockReturnValue(makeAuthJson(expiredJwt, "rt_original"));
+    // Track the last written content so reloadFromDisk sees updated tokens
+    let lastWritten = makeAuthJson(expiredJwt, "rt_original");
+    mockReadFileSync.mockImplementation(() => lastWritten);
+    mockWriteFileSync.mockImplementation((_path, content) => {
+      lastWritten = content as string;
+    });
 
     // First refresh: returns a new refresh_token
     const fetchImpl = vi.fn()
@@ -253,5 +258,59 @@ describe("createCodexAuthManager", () => {
     await mgr.getAccessToken();
 
     expect(mockChmodSync).toHaveBeenCalledWith(expect.stringContaining(".tmp"), 0o600);
+  });
+
+  it("picks up changed credentials from disk via reload()", () => {
+    const jwt1 = makeJwt(FUTURE_EXP);
+    const jwt2 = makeJwt(FUTURE_EXP);
+    mockReadFileSync.mockReturnValue(makeAuthJson(jwt1, "rt_old", "acct_old"));
+
+    const logger = makeLogger();
+    const mgr = createCodexAuthManager(logger);
+
+    expect(mgr.getAccountId()).toBe("acct_old");
+
+    // Simulate changing ~/.codex/auth.json to a different account
+    mockReadFileSync.mockReturnValue(makeAuthJson(jwt2, "rt_new", "acct_new"));
+    mgr.reload();
+
+    expect(mgr.getAccountId()).toBe("acct_new");
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("credentials changed on disk (account=acct_new)")
+    );
+  });
+
+  it("reload() tolerates unreadable file and keeps cached state", () => {
+    const jwt = makeJwt(FUTURE_EXP);
+    mockReadFileSync.mockReturnValue(makeAuthJson(jwt, "rt_test", "acct_original"));
+
+    const mgr = createCodexAuthManager(makeLogger());
+    expect(mgr.getAccountId()).toBe("acct_original");
+
+    // Simulate file being temporarily unreadable
+    mockReadFileSync.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    expect(() => mgr.reload()).not.toThrow();
+    expect(mgr.getAccountId()).toBe("acct_original");
+  });
+
+  it("reload() is a no-op when credentials have not changed", () => {
+    const jwt = makeJwt(FUTURE_EXP);
+    mockReadFileSync.mockReturnValue(makeAuthJson(jwt, "rt_same", "acct_same"));
+
+    const logger = makeLogger();
+    const mgr = createCodexAuthManager(logger);
+
+    // Clear the initial load log
+    vi.mocked(logger.info).mockClear();
+
+    mgr.reload();
+
+    // Should not log "credentials changed" since nothing changed
+    expect(logger.info).not.toHaveBeenCalledWith(
+      expect.stringContaining("credentials changed on disk")
+    );
   });
 });

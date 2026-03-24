@@ -72,7 +72,7 @@ export type OpenAIResponsesRequestBody = {
   };
   prompt_cache_key?: string;
   prompt_cache_retention?: "in_memory" | "24h";
-  input: Array<OpenAIInputMessage | OpenAIFunctionCallOutput>;
+  input: Array<OpenAIInputMessage | OpenAIFunctionCallOutput | OpenAIResponsesOutputItem>;
   tools: unknown[];
   context_management?: Array<{ type: "compaction"; compact_threshold: number }>;
 };

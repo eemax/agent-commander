@@ -182,6 +182,7 @@ async function bootstrapAgentRuntime(
     workspace,
     harness,
     observability,
+    codexAuth,
     onCommandCatalogChanged: async () => {
       if (syncCommandsRef) {
         await syncCommandsRef();

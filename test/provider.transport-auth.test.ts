@@ -58,10 +58,10 @@ describe("TransportAuthResolver", () => {
       expect(result.extraBodyFields).toEqual({ store: false });
     });
 
-    it("strips prompt_cache_key and prompt_cache_retention", async () => {
+    it("strips unsupported codex proxy fields", async () => {
       const resolver = createTransportAuthResolver({ apiKey: "sk-test", codexAuth: mockCodexAuth() });
       const result = await resolver.resolve("codex");
-      expect(result.stripBodyFields).toEqual(["prompt_cache_key", "prompt_cache_retention"]);
+      expect(result.stripBodyFields).toEqual(["prompt_cache_key", "prompt_cache_retention", "previous_response_id"]);
     });
 
     it("throws when codexAuth is null", async () => {

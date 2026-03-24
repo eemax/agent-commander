@@ -171,6 +171,7 @@ export async function runOpenAIToolLoop(params: {
   maxSteps: number | null;
   extractAssistantText: (response: OpenAIResponsesResponse) => string;
   trace: TraceContext;
+  stateless?: boolean;
   abortSignal?: AbortSignal;
   steerChannel?: SteerChannel;
   onToolCall?: (event: ToolCallReport) => void | Promise<void>;
@@ -194,7 +195,7 @@ export async function runOpenAIToolLoop(params: {
   const workflowStartedAtMs = Date.now();
 
   let previousResponseId: string | null = null;
-  let input: Array<OpenAIInputMessage | OpenAIFunctionCallOutput> = [...params.initialInput];
+  let input: Array<OpenAIInputMessage | OpenAIFunctionCallOutput | OpenAIResponsesOutputItem> = [...params.initialInput];
   let steps = 0;
   let succeeded = false;
   let terminalError: ToolErrorPayload | null = null;
@@ -299,32 +300,19 @@ export async function runOpenAIToolLoop(params: {
         );
       }
 
-      const body: OpenAIResponsesRequestBody =
-        previousResponseId === null
-          ? {
-              model: params.model,
-              instructions: params.instructions,
-              reasoning: {
-                effort: params.thinkingEffort
-              },
-              prompt_cache_key: params.promptCacheKey,
-              prompt_cache_retention: params.promptCacheRetention,
-              input,
-              tools,
-              ...(contextManagement && { context_management: contextManagement })
-            }
-          : {
-              model: params.model,
-              previous_response_id: previousResponseId,
-              reasoning: {
-                effort: params.thinkingEffort
-              },
-              prompt_cache_key: params.promptCacheKey,
-              prompt_cache_retention: params.promptCacheRetention,
-              input,
-              tools,
-              ...(contextManagement && { context_management: contextManagement })
-            };
+      const body: OpenAIResponsesRequestBody = {
+        model: params.model,
+        instructions: params.instructions,
+        reasoning: { effort: params.thinkingEffort },
+        input,
+        tools,
+        ...(!params.stateless && previousResponseId !== null && { previous_response_id: previousResponseId }),
+        ...(previousResponseId === null && {
+          prompt_cache_key: params.promptCacheKey,
+          prompt_cache_retention: params.promptCacheRetention
+        }),
+        ...(contextManagement && { context_management: contextManagement })
+      };
 
       await reportProgress({
         type: "step",
@@ -515,7 +503,14 @@ export async function runOpenAIToolLoop(params: {
       }
 
       previousResponseId = response.id;
-      input = outputs;
+      if (params.stateless) {
+        // Accumulate full conversation history for proxies that don't support previous_response_id.
+        // Strip `id` from output items — with store:false, IDs aren't persisted and cause 404s.
+        const outputItems = (response.output ?? []).map(({ id, ...rest }) => rest);
+        input = [...input, ...outputItems, ...outputs];
+      } else {
+        input = outputs;
+      }
 
       if (params.steerChannel) {
         const steers = params.steerChannel.drain();

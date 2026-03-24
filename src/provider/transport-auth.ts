@@ -36,7 +36,7 @@ export function createTransportAuthResolver(params: {
             "chatgpt-account-id": params.codexAuth.getAccountId()
           },
           extraBodyFields: { store: false },
-          stripBodyFields: ["prompt_cache_key", "prompt_cache_retention"]
+          stripBodyFields: ["prompt_cache_key", "prompt_cache_retention", "previous_response_id"]
         };
       }
 

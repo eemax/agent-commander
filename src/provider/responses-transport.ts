@@ -42,7 +42,21 @@ async function parseSuccessPayload(params: {
     return parseOpenAIStream(params);
   }
 
+  // Some endpoints (e.g. chatgpt.com codex proxy) return SSE without the
+  // text/event-stream content-type header.  Peek at the first bytes to detect
+  // SSE format and route to the stream parser instead of JSON.parse.
   const responseBody = await params.response.text();
+  if (/^(?:event|data):/.test(responseBody)) {
+    const syntheticResponse = new Response(responseBody, {
+      status: params.response.status,
+      headers: { "content-type": "text/event-stream" }
+    });
+    return parseOpenAIStream({
+      ...params,
+      response: syntheticResponse
+    });
+  }
+
   const payload = JSON.parse(responseBody) as OpenAIResponsesResponse;
   return {
     payload,
