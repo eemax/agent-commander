@@ -1528,7 +1528,11 @@ describe("createMessageRouter", () => {
     expect(result).toEqual({ type: "reply", text: "skill-reply", origin: "assistant" });
 
     const call = vi.mocked(provider.generateReply).mock.calls[0]?.[0];
-    expect(call?.instructions).toContain("One-shot skill invocation: /research");
+    const lastUserMsg = call?.history?.findLast((m: { role: string }) => m.role === "user");
+    const userText = Array.isArray(lastUserMsg?.content)
+      ? lastUserMsg.content.find((p: { type: string }) => p.type === "text")?.text ?? ""
+      : lastUserMsg?.content ?? "";
+    expect(userText).toContain("[Skill Invoked: /Research]");
   });
 
   it("includes observability state in /status output summary", async () => {

@@ -4,7 +4,6 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildConversationBootstrapInstructions,
-  buildSkillInvocationInstructions,
   writeConversationContextSnapshot
 } from "../src/context.js";
 import type { ProviderFunctionTool } from "../src/harness/types.js";
@@ -51,7 +50,6 @@ function makeWorkspace(overrides: Partial<WorkspaceSnapshot> = {}): WorkspaceSna
     skillsDir: "/tmp/workspace/skills",
     skills: [
       {
-        slug: "research",
         name: "Research",
         description: "Find facts & summarize.",
         path: "/tmp/workspace/skills/research/SKILL.md",
@@ -152,22 +150,6 @@ describe("context compilation", () => {
     const soulIdx = instructions.indexOf('kind="behavior_spec"');
     const agentsIdx = instructions.indexOf('kind="agent_spec"');
     expect(soulIdx).toBeLessThan(agentsIdx);
-  });
-
-  it("keeps one-shot skill invocation text-only", () => {
-    const workspace = makeWorkspace();
-    const skill = workspace.skills[0];
-    if (!skill) {
-      throw new Error("Expected test workspace skill");
-    }
-
-    const instructions = buildSkillInvocationInstructions({
-      skill,
-      baseInstructions: "<system>bootstrap</system>"
-    });
-
-    expect(instructions).toContain("One-shot skill invocation: /research");
-    expect(instructions).not.toContain("<skill_invocation>");
   });
 
   it("writes a single Markdown context snapshot with embedded metadata JSON", async () => {

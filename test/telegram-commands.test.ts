@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
-  assertValidCommandSlug,
+  assertValidCommandName,
   buildCommandCatalog,
   parseTelegramCommand,
-  toSkillCommandSlug
+  toTelegramCommand
 } from "../src/telegram/commands.js";
 
 describe("telegram command registry", () => {
   it("builds core + skill command catalog", () => {
     const catalog = buildCommandCatalog([
       {
-        slug: "research",
         name: "Research",
         description: "Research helper",
         path: "/tmp/research/SKILL.md",
@@ -34,8 +33,7 @@ describe("telegram command registry", () => {
     expect(() =>
       buildCommandCatalog([
         {
-          slug: "status",
-          name: "Bad",
+          name: "status",
           description: "conflict",
           path: "/tmp/bad/SKILL.md",
           content: "---"
@@ -77,8 +75,8 @@ describe("telegram command registry", () => {
     expect(parseTelegramCommand("hello")).toBeNull();
   });
 
-  it("normalizes folder names into slugs and validates format", () => {
-    expect(toSkillCommandSlug("test-skill")).toBe("test_skill");
-    expect(() => assertValidCommandSlug("1bad", "/tmp/skill")).toThrow("Invalid skill command slug");
+  it("normalizes names into telegram commands and validates format", () => {
+    expect(toTelegramCommand("test-skill")).toBe("test_skill");
+    expect(() => assertValidCommandName("1bad", "/tmp/skill")).toThrow("Invalid skill command name");
   });
 });

@@ -124,7 +124,7 @@ describe("workspace manager", () => {
       await manager.bootstrap();
       const snapshot = manager.getSnapshot();
 
-      expect(snapshot.skills.map((s) => s.slug)).toEqual(["research"]);
+      expect(snapshot.skills.map((s) => s.name)).toEqual(["Research"]);
       expect(snapshot.commands.map((c) => c.command)).toContain("research");
     });
 
@@ -137,7 +137,7 @@ describe("workspace manager", () => {
       await manager.bootstrap();
       const snapshot = manager.getSnapshot();
 
-      expect(snapshot.skills.map((s) => s.slug)).toEqual(["analyze"]);
+      expect(snapshot.skills.map((s) => s.name)).toEqual(["Analyze"]);
     });
 
     it("merges skills from both directories, workspaceRoot wins on collision", async () => {
@@ -153,10 +153,10 @@ describe("workspace manager", () => {
       await manager.bootstrap();
       const snapshot = manager.getSnapshot();
 
-      const slugs = snapshot.skills.map((s) => s.slug).sort();
-      expect(slugs).toEqual(["cfg_only", "shared", "ws_only"]);
+      const names = snapshot.skills.map((s) => s.name).sort();
+      expect(names).toEqual(["Config Only", "Shared Workspace", "WS Only"]);
 
-      const shared = snapshot.skills.find((s) => s.slug === "shared");
+      const shared = snapshot.skills.find((s) => s.name === "Shared Workspace");
       expect(shared?.name).toBe("Shared Workspace");
       expect(shared?.description).toBe("From workspace");
     });

@@ -119,7 +119,7 @@ function normalizeDescription(raw: string): string {
 }
 
 export function toTelegramCommand(name: string): string {
-  return name.replace(/-/g, "_");
+  return name.toLowerCase().replace(/[\s-]+/g, "_");
 }
 
 export function assertValidCommandName(name: string, sourcePath: string): void {
