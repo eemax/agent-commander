@@ -46,7 +46,7 @@ async function parseSuccessPayload(params: {
   // text/event-stream content-type header.  Peek at the first bytes to detect
   // SSE format and route to the stream parser instead of JSON.parse.
   const responseBody = await params.response.text();
-  if (/^(?:event|data):/.test(responseBody)) {
+  if (/^\s*(?:event|data):/m.test(responseBody)) {
     const syntheticResponse = new Response(responseBody, {
       status: params.response.status,
       headers: { "content-type": "text/event-stream" }

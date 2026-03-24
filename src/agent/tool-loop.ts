@@ -307,7 +307,7 @@ export async function runOpenAIToolLoop(params: {
         input,
         tools,
         ...(!params.stateless && previousResponseId !== null && { previous_response_id: previousResponseId }),
-        ...(previousResponseId === null && {
+        ...(!params.stateless && {
           prompt_cache_key: params.promptCacheKey,
           prompt_cache_retention: params.promptCacheRetention
         }),
@@ -506,8 +506,21 @@ export async function runOpenAIToolLoop(params: {
       if (params.stateless) {
         // Accumulate full conversation history for proxies that don't support previous_response_id.
         // Strip `id` from output items — with store:false, IDs aren't persisted and cause 404s.
-        const outputItems = (response.output ?? []).map(({ id, ...rest }) => rest);
+        const outputItems: OpenAIResponsesOutputItem[] = (response.output ?? []).map(
+          ({ id: _id, ...rest }) => rest
+        );
         input = [...input, ...outputItems, ...outputs];
+
+        // Cap accumulated history to prevent unbounded memory growth.
+        // Keep initial input messages + last MAX_STATELESS_HISTORY_ITEMS items.
+        const MAX_STATELESS_HISTORY_ITEMS = 200;
+        const initialLen = params.initialInput.length;
+        if (input.length > initialLen + MAX_STATELESS_HISTORY_ITEMS) {
+          input = [
+            ...input.slice(0, initialLen),
+            ...input.slice(input.length - MAX_STATELESS_HISTORY_ITEMS)
+          ];
+        }
       } else {
         input = outputs;
       }

@@ -284,7 +284,8 @@ describe("createCodexAuthManager", () => {
     const jwt = makeJwt(FUTURE_EXP);
     mockReadFileSync.mockReturnValue(makeAuthJson(jwt, "rt_test", "acct_original"));
 
-    const mgr = createCodexAuthManager(makeLogger());
+    const logger = makeLogger();
+    const mgr = createCodexAuthManager(logger);
     expect(mgr.getAccountId()).toBe("acct_original");
 
     // Simulate file being temporarily unreadable
@@ -294,6 +295,9 @@ describe("createCodexAuthManager", () => {
 
     expect(() => mgr.reload()).not.toThrow();
     expect(mgr.getAccountId()).toBe("acct_original");
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("failed to reload auth.json from disk")
+    );
   });
 
   it("reload() is a no-op when credentials have not changed", () => {

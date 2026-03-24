@@ -178,7 +178,9 @@ export function createMessageRouter(params: {
       trace?: TraceContext,
       resolvedUserContent?: string | ContentPart[]
     ): Promise<MessageRouteResult> {
-      codexAuth?.reload();
+      if (config.openai.authMode === "codex") {
+        codexAuth?.reload();
+      }
       const inboundTrace = trace ?? createTraceRootContext("routing");
       const routingTrace = createChildTraceContext(inboundTrace, "routing");
       const gatekeepingResult = await runMessageGatekeeping({

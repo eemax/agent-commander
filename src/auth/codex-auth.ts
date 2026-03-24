@@ -93,6 +93,7 @@ export function createCodexAuthManager(
   }
 
   function reloadFromDisk(): void {
+    if (refreshPromise) return; // Don't mutate state during an in-flight refresh
     try {
       const disk = loadAuthFile();
       if (
@@ -105,13 +106,16 @@ export function createCodexAuthManager(
         );
         state = disk;
       }
-    } catch {
-      // File may be mid-write or temporarily invalid; keep using cached state
+    } catch (err) {
+      logger.warn(`codex-auth: failed to reload auth.json from disk: ${err}`);
     }
   }
 
   async function doRefresh(): Promise<void> {
     reloadFromDisk();
+    if (!state) {
+      state = loadAuthFile();
+    }
 
     logger.info("codex-auth: refreshing access token");
 
