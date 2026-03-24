@@ -817,7 +817,7 @@ describe("createMessageRouter", () => {
     expect(listBefore.type).toBe("reply");
     if (listBefore.type === "reply") {
       expect(listBefore.text).toContain("models:");
-      expect(listBefore.text).toContain("* gpt-4.1-mini");
+      expect(listBefore.text).toContain("* gpt-5.4-mini");
       expect(listBefore.text).toContain("- gpt-5.3-codex");
     }
 

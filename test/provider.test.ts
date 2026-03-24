@@ -212,7 +212,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "chat-retry",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
@@ -256,7 +256,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "chat-usage",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
@@ -338,7 +338,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "chat-usage-tool-loop",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
@@ -383,7 +383,7 @@ describe("createOpenAIProvider", () => {
     await provider.generateReply({
       chatId: "chat-compact",
       conversationId: "conv_1",
-      model: "gpt-4.1-mini",
+      model: "gpt-5.4-mini",
       history: [],
       instructions: "x",
       thinkingEffort: "medium",
@@ -417,7 +417,7 @@ describe("createOpenAIProvider", () => {
     await provider.generateReply({
       chatId: "chat-no-compact",
       conversationId: "conv_1",
-      model: "gpt-4.1-mini",
+      model: "gpt-5.4-mini",
       history: [],
       instructions: "x",
       thinkingEffort: "medium",
@@ -460,7 +460,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "chat-stream",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         instructions: "x",
         history: [],
         thinkingEffort: "medium",
@@ -503,7 +503,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "chat-observe",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
@@ -568,7 +568,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "chat-disabled-observe",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         instructions: "x",
         history: [],
         thinkingEffort: "medium",
@@ -614,7 +614,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "chat-retry-after",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
@@ -639,7 +639,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "123",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
@@ -694,7 +694,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "tool-chat",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
@@ -801,7 +801,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "tool-chat",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
@@ -901,7 +901,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "tool-chat",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
@@ -964,7 +964,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "x",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
@@ -992,7 +992,7 @@ describe("createOpenAIProvider", () => {
     const generation = provider.generateReply({
       chatId: "chat-interrupt",
       conversationId: "conv_1",
-      model: "gpt-4.1-mini",
+      model: "gpt-5.4-mini",
       history: [],
       instructions: "x",
       thinkingEffort: "medium",
@@ -1038,7 +1038,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "chat-timeout",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
@@ -1103,7 +1103,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "chat-breaker",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",
@@ -1171,7 +1171,7 @@ describe("createOpenAIProvider", () => {
       provider.generateReply({
         chatId: "chat-heartbeat",
         conversationId: "conv_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         history: [],
         instructions: "x",
         thinkingEffort: "medium",

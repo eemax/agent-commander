@@ -62,7 +62,7 @@ export function createToolHarness(
   const subagentManager = subagentConfig?.enabled === true
     ? new SubagentManager(
         {
-          defaultModel: subagentConfig?.defaultModel ?? "gpt-4.1-mini",
+          defaultModel: subagentConfig?.defaultModel ?? "gpt-5.4-mini",
           maxConcurrentTasks: subagentConfig?.maxConcurrentTasks ?? 10,
           defaultTimeBudgetSec: subagentConfig?.defaultTimeBudgetSec ?? 900,
           defaultMaxTurns: subagentConfig?.defaultMaxTurns ?? 30,

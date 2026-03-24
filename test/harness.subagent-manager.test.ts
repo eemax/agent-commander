@@ -5,7 +5,7 @@ import type { ObservabilitySink, ObservabilityEventV2 } from "../src/observabili
 
 function makeConfig(overrides: Partial<SubagentManagerConfig> = {}): SubagentManagerConfig {
   return {
-    defaultModel: "gpt-4.1-mini",
+    defaultModel: "gpt-5.4-mini",
     maxConcurrentTasks: 10,
     defaultTimeBudgetSec: 900,
     defaultMaxTurns: 30,

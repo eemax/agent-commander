@@ -74,7 +74,7 @@ describe("createResponsesRequestWithRetry", () => {
     });
 
     const deltas: string[] = [];
-    const result = await request({ model: "gpt-4.1-mini", input: [] }, "chat-1", {
+    const result = await request({ model: "gpt-5.4-mini", input: [] }, "chat-1", {
       onTextDelta: (delta) => {
         deltas.push(delta);
       }
@@ -118,7 +118,7 @@ describe("createResponsesRequestWithRetry", () => {
       }
     );
 
-    await expect(request({ model: "gpt-4.1-mini", input: [] }, "chat-2")).resolves.toMatchObject({
+    await expect(request({ model: "gpt-5.4-mini", input: [] }, "chat-2")).resolves.toMatchObject({
       attempt: 2,
       payload: { output_text: "done" }
     });
@@ -166,7 +166,7 @@ describe("createResponsesRequestWithRetry", () => {
 
     const deltas: string[] = [];
     await expect(
-      request({ model: "gpt-4.1-mini", input: [] }, "chat-3", {
+      request({ model: "gpt-5.4-mini", input: [] }, "chat-3", {
         trace: createTraceRootContext("provider"),
         onTextDelta: (delta) => {
           deltas.push(delta);
@@ -229,7 +229,7 @@ describe("createResponsesRequestWithRetry", () => {
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
-    await expect(request({ model: "gpt-4.1-mini", input: [] }, "chat-http-400")).rejects.toMatchObject({
+    await expect(request({ model: "gpt-5.4-mini", input: [] }, "chat-http-400")).rejects.toMatchObject({
       name: "ProviderError",
       kind: "client_error",
       statusCode: 400,
@@ -277,7 +277,7 @@ describe("createResponsesRequestWithRetry", () => {
       }
     );
 
-    await expect(request({ model: "gpt-4.1-mini", input: [] }, "chat-timeout-local")).rejects.toMatchObject({
+    await expect(request({ model: "gpt-5.4-mini", input: [] }, "chat-timeout-local")).rejects.toMatchObject({
       name: "ProviderError",
       kind: "timeout",
       detail: {
@@ -303,7 +303,7 @@ describe("createResponsesRequestWithRetry", () => {
     });
 
     await expect(
-      request({ model: "gpt-4.1-mini", input: [] }, "chat-timeout-upstream", {
+      request({ model: "gpt-5.4-mini", input: [] }, "chat-timeout-upstream", {
         abortSignal: abortController.signal
       })
     ).rejects.toMatchObject({

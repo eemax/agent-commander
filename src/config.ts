@@ -25,10 +25,10 @@ const DEFAULT_CONFIG_TEMPLATE = {
   },
   openai: {
     auth_mode: "api",
-    model: "gpt-4.1-mini",
+    model: "gpt-5.4-mini",
     models: [
       {
-        id: "gpt-4.1-mini",
+        id: "gpt-5.4-mini",
         aliases: ["mini"],
         context_window: null,
         max_output_tokens: null,
@@ -109,7 +109,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
   },
   subagents: {
     enabled: true,
-    default_model: "gpt-4.1-mini",
+    default_model: "gpt-5.4-mini",
     max_concurrent_tasks: 10,
     default_time_budget_sec: 900,
     default_max_turns: 30,

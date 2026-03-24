@@ -32,13 +32,13 @@
     ],
     "timeout_ms": 45000,
     "max_retries": 2,
-    "retry_base_ms": 250,
-    "retry_max_ms": 2000
+    "retry_base_ms": 1500,
+    "retry_max_ms": 2500
   },
   "runtime": {
     "log_level": "info",
     "prompt_history_limit": null,
-    "default_verbose": true,
+    "default_verbose": "count",
     "tool_loop_max_steps": 150,
     "tool_workflow_timeout_ms": 1200000,
     "tool_command_timeout_ms": 60000,

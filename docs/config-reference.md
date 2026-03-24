@@ -29,9 +29,9 @@ This is the canonical `config/config.json` shape.
 
 ### `openai`
 
-- `model`: non-empty string, default `"gpt-4.1-mini"`
+- `model`: non-empty string, default `"gpt-5.4-mini"`
 - `models`: non-empty array of model catalog entries, default includes:
-  - `gpt-4.1-mini` (alias: `mini`, unknown context window)
+  - `gpt-5.4-mini` (alias: `mini`, unknown context window)
   - `gpt-5.3-codex` (aliases: `codex`, `g53c`, context window `400000`)
   - each entry is:
     - `id`: non-empty string

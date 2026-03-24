@@ -41,7 +41,7 @@ Subagents do **not** have access to skills. Skills are a routing-layer feature (
 
 | Setting | Subagent behavior |
 |---------|-------------------|
-| **Model** | Configurable per-task via `task.execution.model`. Defaults to `subagents.default_model` in config (default: `gpt-4.1-mini`). |
+| **Model** | Configurable per-task via `task.execution.model`. Defaults to `subagents.default_model` in config (default: `gpt-5.4-mini`). |
 | **Thinking effort** | Uses the resolved model's `default_thinking` from the model catalog. Does not inherit the supervisor's per-conversation `/thinking` override. |
 | **Cache retention** | Hardcoded to `"in_memory"` for prompt cache. Does not inherit the supervisor's `/cache` override. |
 | **Compaction** | Uses the resolved model's `compaction_tokens` and `compaction_threshold` from the model catalog. |
@@ -134,7 +134,7 @@ Key defaults:
 | `default_time_budget_sec` | `900` | Per-task time limit |
 | `default_max_turns` | `30` | Per-task LLM turn limit |
 | `default_max_total_tokens` | `500000` | Per-task cumulative token limit |
-| `default_model` | `gpt-4.1-mini` | Default model for subagent inference |
+| `default_model` | `gpt-5.4-mini` | Default model for subagent inference |
 
 ## Key Files
 

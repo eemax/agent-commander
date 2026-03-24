@@ -234,7 +234,7 @@ describe("loadAgentConfig", () => {
       webSearchApiKey: null
     });
 
-    expect(config.openai.model).toBe("gpt-4.1-mini");
+    expect(config.openai.model).toBe("gpt-5.4-mini");
     expect(config.telegram.botToken).toBe("tg-coder");
   });
 

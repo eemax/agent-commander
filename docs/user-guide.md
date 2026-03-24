@@ -199,7 +199,7 @@ Required:
 
 Common optional fields:
 
-- `openai.model` (default `gpt-4.1-mini`)
+- `openai.model` (default `gpt-5.4-mini`)
 - `openai.models` (catalog of switchable models with aliases and optional `context_window`, `max_output_tokens`, `default_thinking`, and `cache_retention`)
 - `runtime.log_level` (`debug|info|warn|error`)
 - `runtime.default_verbose` (default `true`, applied to new conversations)

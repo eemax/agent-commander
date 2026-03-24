@@ -101,8 +101,8 @@ describe("loadConfig", () => {
     expect(config.telegram.streamingEnabled).toBe(true);
     expect(config.telegram.streamingMinUpdateMs).toBe(100);
     expect(config.telegram.assistantFormat).toBe("plain_text");
-    expect(config.openai.model).toBe("gpt-4.1-mini");
-    expect(config.openai.models.map((item) => item.id)).toContain("gpt-4.1-mini");
+    expect(config.openai.model).toBe("gpt-5.4-mini");
+    expect(config.openai.models.map((item) => item.id)).toContain("gpt-5.4-mini");
     expect(config.openai.models.find((item) => item.id === "gpt-5.3-codex")?.contextWindow).toBe(400000);
     expect(config.openai.models.find((item) => item.id === "gpt-5.3-codex")?.maxOutputTokens).toBeNull();
     expect(config.openai.models.find((item) => item.id === "gpt-5.3-codex")?.defaultThinking).toBe("medium");
@@ -271,7 +271,7 @@ describe("loadConfig", () => {
         model: "gpt-5.3-codex",
         models: [
           {
-            id: "gpt-4.1-mini",
+            id: "gpt-5.4-mini",
             aliases: ["mini"],
             context_window: null
           }
@@ -289,10 +289,10 @@ describe("loadConfig", () => {
     writeConfig(root, {
       ...minimalPayload(),
       openai: {
-        model: "gpt-4.1-mini",
+        model: "gpt-5.4-mini",
         models: [
           {
-            id: "gpt-4.1-mini",
+            id: "gpt-5.4-mini",
             aliases: ["mini"],
             context_window: null
           },

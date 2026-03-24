@@ -36,10 +36,10 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
     openai: {
       authMode: "api",
       apiKey: "openai-key",
-      model: "gpt-4.1-mini",
+      model: "gpt-5.4-mini",
       models: [
         {
-          id: "gpt-4.1-mini",
+          id: "gpt-5.4-mini",
           aliases: ["mini"],
           contextWindow: null,
           maxOutputTokens: null,
@@ -124,7 +124,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
     },
     subagents: {
       enabled: true,
-      defaultModel: "gpt-4.1-mini",
+      defaultModel: "gpt-5.4-mini",
       maxConcurrentTasks: 10,
       defaultTimeBudgetSec: 900,
       defaultMaxTurns: 30,

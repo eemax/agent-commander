@@ -16,7 +16,7 @@ function createHarness(root: string): ToolHarness {
     maxOutputChars: 200_000,
     subagents: {
       enabled: true,
-      defaultModel: "gpt-4.1-mini",
+      defaultModel: "gpt-5.4-mini",
       maxConcurrentTasks: 5,
       defaultTimeBudgetSec: 60,
       defaultMaxTurns: 10,
@@ -214,7 +214,7 @@ describe("subagents tool (integration)", () => {
       maxOutputChars: 200_000,
       subagents: {
         enabled: false,
-        defaultModel: "gpt-4.1-mini",
+        defaultModel: "gpt-5.4-mini",
         maxConcurrentTasks: 5,
         defaultTimeBudgetSec: 60,
         defaultMaxTurns: 10,

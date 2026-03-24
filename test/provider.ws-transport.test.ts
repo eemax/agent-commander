@@ -102,7 +102,7 @@ describe("createWsTransportManager", () => {
     }));
 
     const promise = manager.sendResponseCreate(
-      { model: "gpt-4.1-mini", input: [], stream: true, background: false },
+      { model: "gpt-5.4-mini", input: [], stream: true, background: false },
       "chat-1"
     );
 
@@ -115,7 +115,7 @@ describe("createWsTransportManager", () => {
 
     const envelope = JSON.parse(ws.sent[0]!) as Record<string, unknown>;
     expect(envelope.type).toBe("response.create");
-    expect(envelope.model).toBe("gpt-4.1-mini");
+    expect(envelope.model).toBe("gpt-5.4-mini");
     expect(envelope).not.toHaveProperty("stream");
     expect(envelope).not.toHaveProperty("background");
 
@@ -140,7 +140,7 @@ describe("createWsTransportManager", () => {
 
     const deltas: string[] = [];
     const promise = manager.sendResponseCreate(
-      { model: "gpt-4.1-mini", input: [] },
+      { model: "gpt-5.4-mini", input: [] },
       "chat-2",
       { onTextDelta: (d) => { deltas.push(d); } }
     );
@@ -175,7 +175,7 @@ describe("createWsTransportManager", () => {
     const deltas: string[] = [];
 
     const promise = manager.sendResponseCreate(
-      { model: "gpt-4.1-mini", input: [] },
+      { model: "gpt-5.4-mini", input: [] },
       "chat-serial",
       {
         onTextDelta: async (d) => {
@@ -219,7 +219,7 @@ describe("createWsTransportManager", () => {
     }));
 
     const promise = manager.sendResponseCreate(
-      { model: "gpt-4.1-mini", input: [] },
+      { model: "gpt-5.4-mini", input: [] },
       "chat-err"
     );
 
@@ -248,7 +248,7 @@ describe("createWsTransportManager", () => {
     }));
 
     const promise = manager.sendResponseCreate(
-      { model: "gpt-4.1-mini", input: [] },
+      { model: "gpt-5.4-mini", input: [] },
       "chat-close"
     );
 
@@ -275,7 +275,7 @@ describe("createWsTransportManager", () => {
 
     await expect(
       manager.sendResponseCreate(
-        { model: "gpt-4.1-mini", input: [] },
+        { model: "gpt-5.4-mini", input: [] },
         "chat-preabort",
         { abortSignal: ac.signal }
       )
@@ -295,7 +295,7 @@ describe("createWsTransportManager", () => {
     }));
 
     // Launch first request and wait for it to be fully wired.
-    const p1 = manager.sendResponseCreate({ model: "gpt-4.1-mini", input: [] }, "chat-A");
+    const p1 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-A");
     await vi.waitFor(() => expect(createdSockets[0]?.sent).toHaveLength(1));
     createdSockets[0]!._receiveMessage({
       type: "response.completed",
@@ -304,7 +304,7 @@ describe("createWsTransportManager", () => {
     await p1;
 
     // Launch second request on different chatId.
-    const p2 = manager.sendResponseCreate({ model: "gpt-4.1-mini", input: [] }, "chat-B");
+    const p2 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-B");
     await vi.waitFor(() => expect(createdSockets[1]?.sent).toHaveLength(1));
     createdSockets[1]!._receiveMessage({
       type: "response.completed",
@@ -325,7 +325,7 @@ describe("createWsTransportManager", () => {
     }));
 
     // First request.
-    const p1 = manager.sendResponseCreate({ model: "gpt-4.1-mini", input: [] }, "chat-reuse");
+    const p1 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-reuse");
     await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
     const ws = createdSockets[0]!;
     await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
@@ -337,7 +337,7 @@ describe("createWsTransportManager", () => {
     await p1;
 
     // Second request should reuse the same socket.
-    const p2 = manager.sendResponseCreate({ model: "gpt-4.1-mini", input: [] }, "chat-reuse");
+    const p2 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-reuse");
     await vi.waitFor(() => expect(ws.sent).toHaveLength(2));
 
     ws._receiveMessage({
