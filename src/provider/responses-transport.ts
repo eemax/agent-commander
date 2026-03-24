@@ -25,21 +25,6 @@ export type ResponsesRequestOptions = {
   authMode?: AuthMode;
 };
 
-function redactHeaders(headers: Record<string, string>): Record<string, string> {
-  const redacted: Record<string, string> = {};
-
-  for (const [name, value] of Object.entries(headers)) {
-    if (/authorization|api[-_]?key|chatgpt-account-id/i.test(name)) {
-      redacted[name] = "[REDACTED]";
-      continue;
-    }
-
-    redacted[name] = value;
-  }
-
-  return redacted;
-}
-
 function readHeaders(headers: Headers): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [name, value] of headers.entries()) {
@@ -134,7 +119,7 @@ export function createResponsesRequestWithRetry(
         maxAttempts,
         url: authParams.url,
         method: "POST",
-        headers: redactHeaders(requestHeaders),
+        headers: requestHeaders,
         body: requestBodyPayload,
         bodyShape: {
           keys: Object.keys(requestBodyPayload)

@@ -10,10 +10,10 @@
 
 ### C1. `chatgpt-account-id` not redacted in observability logs
 
-**Location:** `src/provider/responses-transport.ts:32`
-**Description:** `redactHeaders()` used regex `/authorization|api[-_]?key/i` which does not match the `chatgpt-account-id` header. This header, containing the ChatGPT account identifier, was passed unredacted to observability records at line 137.
+**Location:** `src/provider/responses-transport.ts`, `src/observability.ts`, `config/config.json`
+**Description:** `redactHeaders()` was a hardcoded regex duplicating the config-driven observability redaction system. It did not match the `chatgpt-account-id` header, leaking the account identifier to observability logs.
 **Impact:** Account ID leaks to any configured observability sink in codex mode.
-**Fix applied:** Added `chatgpt-account-id` to the redaction regex.
+**Fix applied:** Removed the redundant `redactHeaders()` function. Added `chatgpt-account-id` to the centralized `redact_keys` config and `DEFAULT_OBSERVABILITY_REDACTION_KEYS`. Headers now flow through the single observability redaction layer.
 
 ### C2. Token refresh error body not sanitized
 
@@ -92,7 +92,9 @@
 
 | File | Change |
 |------|--------|
-| `src/provider/responses-transport.ts` | Added `chatgpt-account-id` to header redaction regex |
+| `src/provider/responses-transport.ts` | Removed redundant `redactHeaders()`, pass raw headers to observability |
+| `src/observability.ts` | Added `chatgpt-account-id` to `DEFAULT_OBSERVABILITY_REDACTION_KEYS` |
+| `config/config.json` | Added `chatgpt-account-id` to `redact_keys` |
 | `src/auth/codex-auth.ts` | Sanitized refresh error body, added `chmodSync(0o600)`, hardened JWT decode |
 | `src/provider/sanitize.ts` | Added `=` to Bearer token regex character class |
 | `test/auth.codex-auth.test.ts` | New — 12 tests for CodexAuthManager |

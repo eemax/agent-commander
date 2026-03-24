@@ -89,6 +89,7 @@
       "redact_keys": [
         "authorization",
         "api_key",
+        "chatgpt-account-id",
         "token",
         "secret",
         "password",

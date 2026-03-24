@@ -30,6 +30,7 @@ export type ObservabilityRedactionConfig = {
 export const DEFAULT_OBSERVABILITY_REDACTION_KEYS = [
   "authorization",
   "api_key",
+  "chatgpt-account-id",
   "token",
   "secret",
   "password",
