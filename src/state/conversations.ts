@@ -14,9 +14,10 @@ import {
   type ProviderUsageSnapshot,
   type ThinkingEffort,
   type CacheRetention,
-  type TransportMode
+  type TransportMode,
+  type AuthMode
 } from "../types.js";
-import { isPlainObject, normalizeNonEmptyString, isThinkingEffort, isCacheRetention, isTransportMode } from "../utils.js";
+import { isPlainObject, normalizeNonEmptyString, isThinkingEffort, isCacheRetention, isTransportMode, isAuthMode } from "../utils.js";
 import {
   type ConversationArchiveEvent,
   type ConversationCreatedEvent,
@@ -33,6 +34,7 @@ type ConversationRuntimeProfile = {
   thinkingEffort: ThinkingEffort;
   cacheRetention: CacheRetention;
   transportMode: TransportMode;
+  authMode: AuthMode;
   activeModelOverride: string | null;
   activeWebSearchModelOverride: string | null;
   latestUsage: ProviderUsageSnapshot | null;
@@ -72,6 +74,7 @@ type ConversationStoreParams = {
   defaultVerboseMode?: boolean;
   defaultThinkingEffort?: ThinkingEffort;
   defaultCacheRetention?: CacheRetention;
+  defaultAuthMode?: AuthMode;
   sessionCacheMaxEntries?: number;
   observability?: ObservabilitySink;
 };
@@ -228,6 +231,7 @@ function createDefaultRuntimeProfile(params: {
   defaultVerboseMode: boolean;
   defaultThinkingEffort: ThinkingEffort;
   defaultCacheRetention: CacheRetention;
+  defaultAuthMode: AuthMode;
 }): ConversationRuntimeProfile {
   return {
     workingDirectory: params.defaultWorkingDirectory,
@@ -235,6 +239,7 @@ function createDefaultRuntimeProfile(params: {
     thinkingEffort: params.defaultThinkingEffort,
     cacheRetention: params.defaultCacheRetention,
     transportMode: "http",
+    authMode: params.defaultAuthMode,
     activeModelOverride: null,
     activeWebSearchModelOverride: null,
     latestUsage: null,
@@ -251,6 +256,7 @@ function cloneRuntimeProfile(profile: ConversationRuntimeProfile): ConversationR
     thinkingEffort: profile.thinkingEffort,
     cacheRetention: profile.cacheRetention,
     transportMode: profile.transportMode,
+    authMode: profile.authMode,
     activeModelOverride: profile.activeModelOverride,
     activeWebSearchModelOverride: profile.activeWebSearchModelOverride,
     latestUsage: profile.latestUsage ? cloneUsageSnapshot(profile.latestUsage) : null,
@@ -267,6 +273,7 @@ function normalizeRuntimeProfile(
     defaultVerboseMode: boolean;
     defaultThinkingEffort: ThinkingEffort;
     defaultCacheRetention: CacheRetention;
+    defaultAuthMode: AuthMode;
   }
 ): ConversationRuntimeProfile | null {
   if (!isPlainObject(value)) {
@@ -291,6 +298,7 @@ function normalizeRuntimeProfile(
     thinkingEffort: isThinkingEffort(value.thinkingEffort) ? value.thinkingEffort : defaults.defaultThinkingEffort,
     cacheRetention: isCacheRetention(value.cacheRetention) ? value.cacheRetention : defaults.defaultCacheRetention,
     transportMode: isTransportMode(value.transportMode) ? value.transportMode : "http",
+    authMode: isAuthMode(value.authMode) ? value.authMode : defaults.defaultAuthMode,
     activeModelOverride,
     activeWebSearchModelOverride,
     latestUsage: isUsageSnapshot(value.latestUsage) ? cloneUsageSnapshot(value.latestUsage) : null,
@@ -309,6 +317,7 @@ function parseCurrentConversationsIndex(
     defaultVerboseMode: boolean;
     defaultThinkingEffort: ThinkingEffort;
     defaultCacheRetention: CacheRetention;
+    defaultAuthMode: AuthMode;
   }
 ): CurrentConversationsIndex {
   const parsed = JSON.parse(raw) as unknown;
@@ -351,6 +360,7 @@ function parseActiveConversationsIndex(
     defaultVerboseMode: boolean;
     defaultThinkingEffort: ThinkingEffort;
     defaultCacheRetention: CacheRetention;
+    defaultAuthMode: AuthMode;
   }
 ): ActiveConversationsIndex {
   const parsed = JSON.parse(raw) as unknown;
@@ -450,8 +460,9 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     defaultWorkingDirectory: params.defaultWorkingDirectory ?? process.cwd(),
     defaultVerboseMode: params.defaultVerboseMode ?? true,
     defaultThinkingEffort: params.defaultThinkingEffort ?? "medium",
-    defaultCacheRetention: params.defaultCacheRetention ?? "in_memory"
-  };
+    defaultCacheRetention: params.defaultCacheRetention ?? "in_memory",
+    defaultAuthMode: params.defaultAuthMode ?? "api"
+  } as const;
 
   let activeConversationsCache: ActiveConversationsIndex | null = null;
   let currentConversationsCache: CurrentConversationsIndex | null = null;
@@ -964,6 +975,44 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       });
     },
 
+    async getAuthMode(chatId): Promise<AuthMode> {
+      return enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
+        return ensured.record.runtime.authMode;
+      });
+    },
+
+    async setAuthMode(chatId, mode: AuthMode, options): Promise<void> {
+      await enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start", options?.trace);
+        if (ensured.record.runtime.authMode === mode) {
+          return;
+        }
+
+        const nextCurrent = {
+          ...ensured.index,
+          [chatId]: {
+            ...ensured.record,
+            runtime: {
+              ...ensured.record.runtime,
+              authMode: mode
+            }
+          }
+        };
+
+        await saveCurrentConversations(nextCurrent);
+        await params.observability?.record({
+          event: "runtime.setting.updated",
+          trace: options?.trace ? createChildTraceContext(options.trace, "state") : createTraceRootContext("state"),
+          stage: "completed",
+          chatId,
+          conversationId: ensured.record.conversationId,
+          setting: "authMode",
+          value: mode
+        });
+      });
+    },
+
     async getActiveModelOverride(chatId): Promise<string | null> {
       return enqueueMutation(async () => {
         const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
@@ -1196,6 +1245,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
         thinkingEffort: ThinkingEffort;
         cacheRetention: CacheRetention;
         transportMode: TransportMode;
+        authMode: AuthMode;
         activeModelOverride: string | null;
         activeWebSearchModelOverride: string | null;
       };
@@ -1263,6 +1313,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
             thinkingEffort: nextCurrent.runtime.thinkingEffort,
             cacheRetention: nextCurrent.runtime.cacheRetention,
             transportMode: nextCurrent.runtime.transportMode,
+            authMode: nextCurrent.runtime.authMode,
             activeModelOverride: nextCurrent.runtime.activeModelOverride,
             activeWebSearchModelOverride: nextCurrent.runtime.activeWebSearchModelOverride
           }
@@ -1280,6 +1331,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
         thinkingEffort: ThinkingEffort;
         cacheRetention: CacheRetention;
         transportMode: TransportMode;
+        authMode: AuthMode;
         activeModelOverride: string | null;
         activeWebSearchModelOverride: string | null;
       };
@@ -1347,6 +1399,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
             thinkingEffort: nextCurrent.runtime.thinkingEffort,
             cacheRetention: nextCurrent.runtime.cacheRetention,
             transportMode: nextCurrent.runtime.transportMode,
+            authMode: nextCurrent.runtime.authMode,
             activeModelOverride: nextCurrent.runtime.activeModelOverride,
             activeWebSearchModelOverride: nextCurrent.runtime.activeWebSearchModelOverride
           }

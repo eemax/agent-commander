@@ -3,7 +3,20 @@ import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createObservabilitySink, createTraceRootContext } from "../src/observability.js";
 import { createResponsesRequestWithRetry } from "../src/provider/responses-transport.js";
+import type { TransportAuthResolver } from "../src/provider/transport-auth.js";
 import { createTempDir, makeConfig } from "./helpers.js";
+
+const mockAuthResolver: TransportAuthResolver = {
+  async resolve() {
+    return {
+      url: "https://api.openai.com/v1/responses",
+      headers: { "content-type": "application/json", authorization: "Bearer test-key" },
+      extraBodyFields: {},
+      stripBodyFields: []
+    };
+  },
+  async on401() {}
+};
 
 function makeLogger() {
   return {
@@ -56,7 +69,7 @@ describe("createResponsesRequestWithRetry", () => {
       ])
     );
 
-    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), {
+    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), mockAuthResolver, {
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
@@ -97,6 +110,7 @@ describe("createResponsesRequestWithRetry", () => {
     const request = createResponsesRequestWithRetry(
       makeConfig({ openai: { maxRetries: 2, retryBaseMs: 100, retryMaxMs: 500 } }),
       makeLogger(),
+      mockAuthResolver,
       {
         fetchImpl: fetchMock as unknown as typeof fetch,
         sleepImpl: sleepMock,
@@ -139,6 +153,7 @@ describe("createResponsesRequestWithRetry", () => {
     const request = createResponsesRequestWithRetry(
       makeConfig({ openai: { maxRetries: 2 }, observability: { enabled: true } }),
       makeLogger(),
+      mockAuthResolver,
       {
         fetchImpl: fetchMock as unknown as typeof fetch,
         sleepImpl: sleepMock,
@@ -210,7 +225,7 @@ describe("createResponsesRequestWithRetry", () => {
       )
     );
 
-    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), {
+    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), mockAuthResolver, {
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
@@ -256,6 +271,7 @@ describe("createResponsesRequestWithRetry", () => {
         }
       }),
       makeLogger(),
+      mockAuthResolver,
       {
         fetchImpl: fetchMock as unknown as typeof fetch
       }
@@ -282,7 +298,7 @@ describe("createResponsesRequestWithRetry", () => {
 
     const abortController = new AbortController();
     abortController.abort();
-    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 2 } }), makeLogger(), {
+    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 2 } }), makeLogger(), mockAuthResolver, {
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 

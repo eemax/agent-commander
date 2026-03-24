@@ -29,6 +29,8 @@ export const CACHE_RETENTION_VALUES = ["in_memory", "24h"] as const;
 export type CacheRetention = (typeof CACHE_RETENTION_VALUES)[number];
 export const TRANSPORT_MODE_VALUES = ["http", "wss"] as const;
 export type TransportMode = (typeof TRANSPORT_MODE_VALUES)[number];
+export const AUTH_MODE_VALUES = ["api", "codex"] as const;
+export type AuthMode = (typeof AUTH_MODE_VALUES)[number];
 
 export type TelegramAttachment = {
   fileId: string;
@@ -82,6 +84,7 @@ export type ProviderRequest = {
   thinkingEffort: ThinkingEffort;
   cacheRetention?: CacheRetention;
   transportMode?: TransportMode;
+  authMode?: AuthMode;
   compactionTokens: number | null;
   compactionThreshold: number;
   trace?: TraceContext;

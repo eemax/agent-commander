@@ -24,6 +24,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
     max_concurrent_downloads: 4
   },
   openai: {
+    auth_mode: "api",
     model: "gpt-4.1-mini",
     models: [
       {
@@ -176,6 +177,7 @@ export const configSchema = z
       .strict(),
     openai: z
       .object({
+        auth_mode: z.enum(["api", "codex"]).default("api"),
         model: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.openai.model),
         models: z.array(openAIModelSchema).min(1).default(DEFAULT_OPENAI_MODELS),
         timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.openai.timeout_ms),
@@ -522,7 +524,10 @@ export function buildConfigFromParsed(
   const telegramKey = defaultSecretKey(agentId, "TELEGRAM_BOT_TOKEN");
   const openaiKey = defaultSecretKey(agentId, "OPENAI_API_KEY");
   const telegramBotToken = requireSecret(secrets.telegramBotToken, telegramKey);
-  const openAIApiKey = requireSecret(secrets.openaiApiKey, openaiKey);
+  const authMode = config.openai.auth_mode;
+  const openAIApiKey = authMode === "api"
+    ? requireSecret(secrets.openaiApiKey, openaiKey)
+    : (normalizeSecretCandidate(secrets.openaiApiKey) ?? "");
   const defaultPerplexityApiKey = normalizeSecretCandidate(secrets.webSearchApiKey);
 
   if (config.openai.retry_max_ms < config.openai.retry_base_ms) {
@@ -569,6 +574,7 @@ export function buildConfigFromParsed(
       maxConcurrentDownloads: config.telegram.max_concurrent_downloads
     },
     openai: {
+      authMode,
       apiKey: openAIApiKey,
       model: config.openai.model,
       models: openAIModels,

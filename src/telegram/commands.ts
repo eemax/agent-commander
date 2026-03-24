@@ -92,6 +92,11 @@ export const CORE_COMMANDS: ReadonlyArray<TelegramCommandDefinition> = [
     command: "transport",
     description: "Set API transport: /transport <http|wss>",
     kind: "core"
+  },
+  {
+    command: "auth",
+    description: "Set auth mode: /auth <api|codex>",
+    kind: "core"
   }
 ] as const;
 

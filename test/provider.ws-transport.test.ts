@@ -1,6 +1,19 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { createWsTransportManager, type WsTransportDeps } from "../src/provider/ws-transport.js";
+import type { TransportAuthResolver } from "../src/provider/transport-auth.js";
 import { makeConfig } from "./helpers.js";
+
+const mockAuthResolver: TransportAuthResolver = {
+  async resolve() {
+    return {
+      url: "https://api.openai.com/v1/responses",
+      headers: { "content-type": "application/json", authorization: "Bearer test-key" },
+      extraBodyFields: {},
+      stripBodyFields: []
+    };
+  },
+  async on401() {}
+};
 
 // ---------------------------------------------------------------------------
 // Minimal mock WebSocket that mirrors the browser/Node 22+ WebSocket API
@@ -84,7 +97,7 @@ afterEach(() => {
 describe("createWsTransportManager", () => {
   it("sends correct response.create envelope without stream/background", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
@@ -121,7 +134,7 @@ describe("createWsTransportManager", () => {
 
   it("delivers text deltas via onTextDelta callback", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
@@ -152,7 +165,7 @@ describe("createWsTransportManager", () => {
 
   it("serializes onmessage processing to prevent concurrent onTextDelta calls", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
@@ -201,7 +214,7 @@ describe("createWsTransportManager", () => {
 
   it("rejects with ProviderError on server error event", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
@@ -230,7 +243,7 @@ describe("createWsTransportManager", () => {
 
   it("rejects when socket closes mid-request", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
@@ -255,7 +268,7 @@ describe("createWsTransportManager", () => {
 
   it("rejects pre-aborted requests immediately", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), makeDeps());
+    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps());
 
     const ac = new AbortController();
     ac.abort();
@@ -277,7 +290,7 @@ describe("createWsTransportManager", () => {
 
   it("uses separate sockets for different chatIds", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
@@ -307,7 +320,7 @@ describe("createWsTransportManager", () => {
 
   it("reuses existing open socket for same chatId", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 

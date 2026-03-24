@@ -11,6 +11,7 @@ import { createTelegramBot } from "../telegram/bot.js";
 import { createWorkspaceManager } from "../workspace.js";
 import { resolveActiveModel } from "../model-catalog.js";
 import { resolveActiveWebSearchModel } from "../web-search-catalog.js";
+import { createCodexAuthManager, type CodexAuthManager } from "../auth/codex-auth.js";
 
 type AgentRuntime = {
   bot: ReturnType<typeof createTelegramBot>["bot"];
@@ -116,6 +117,7 @@ async function bootstrapAgentRuntime(
     defaultVerboseMode: config.runtime.defaultVerbose,
     defaultThinkingEffort: defaultModel.defaultThinking,
     defaultCacheRetention: defaultModel.cacheRetention,
+    defaultAuthMode: config.openai.authMode,
     sessionCacheMaxEntries: config.runtime.sessionCacheMaxEntries,
     observability
   });
@@ -152,11 +154,23 @@ async function bootstrapAgentRuntime(
     }
   );
 
+  // Create CodexAuthManager eagerly so /auth codex works mid-conversation
+  let codexAuth: CodexAuthManager | undefined;
+  try {
+    codexAuth = createCodexAuthManager(logger);
+  } catch (err) {
+    if (config.openai.authMode === "codex") {
+      throw new Error(`auth_mode is "codex" but CodexAuthManager failed to initialize: ${err}`);
+    }
+    logger.info("startup: codex auth not available (no ~/.codex/auth.json), /auth codex will be unavailable");
+  }
+
   const provider = createOpenAIProvider(config, logger, {
     harness,
-    observability
+    observability,
+    codexAuth
   });
-  logger.info(`startup: provider initialized (openai/responses/${config.openai.model})`);
+  logger.info(`startup: provider initialized (openai/responses/${config.openai.model}, auth=${config.openai.authMode})`);
 
   let syncCommandsRef: (() => Promise<void>) | null = null;
 

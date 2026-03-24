@@ -6,6 +6,8 @@ import type { OpenAIResponsesResponse } from "./openai-types.js";
 import { classifyFetchError, classifyHttpStatus, computeRetryDelayMs, type RetryDecision } from "./retry-policy.js";
 import { sanitizeReason } from "./sanitize.js";
 import { parseOpenAIStream, type StreamParseResult } from "./sse-parser.js";
+import type { TransportAuthResolver } from "./transport-auth.js";
+import type { AuthMode } from "../types.js";
 
 export type ProviderTransportDeps = {
   fetchImpl?: typeof fetch;
@@ -20,9 +22,8 @@ export type ResponsesRequestOptions = {
   trace?: TraceContext;
   messageId?: string;
   abortSignal?: AbortSignal;
+  authMode?: AuthMode;
 };
-
-const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 
 function redactHeaders(headers: Record<string, string>): Record<string, string> {
   const redacted: Record<string, string> = {};
@@ -67,6 +68,7 @@ async function parseSuccessPayload(params: {
 export function createResponsesRequestWithRetry(
   config: Config,
   logger: RuntimeLogger,
+  authResolver: TransportAuthResolver,
   deps: ProviderTransportDeps = {}
 ): (
   body: Record<string, unknown>,
@@ -106,14 +108,17 @@ export function createResponsesRequestWithRetry(
       const attemptTrace = options.trace
         ? createChildTraceContext(options.trace, "provider")
         : createTraceRootContext("provider");
-      const requestHeaders = {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.openai.apiKey}`
-      };
-      const requestBodyPayload = {
+      const effectiveAuth = options.authMode ?? "api";
+      const authParams = await authResolver.resolve(effectiveAuth);
+      const requestHeaders = authParams.headers;
+      const requestBodyPayload: Record<string, unknown> = {
         ...body,
-        stream: true
+        stream: true,
+        ...authParams.extraBodyFields
       };
+      for (const key of authParams.stripBodyFields) {
+        delete requestBodyPayload[key];
+      }
       const requestBody = JSON.stringify(requestBodyPayload);
       const startedAtMs = nowMsImpl();
       let streamDeltaCount = 0;
@@ -127,7 +132,7 @@ export function createResponsesRequestWithRetry(
         messageId: options.messageId,
         attempt,
         maxAttempts,
-        url: OPENAI_RESPONSES_URL,
+        url: authParams.url,
         method: "POST",
         headers: redactHeaders(requestHeaders),
         body: requestBodyPayload,
@@ -147,7 +152,7 @@ export function createResponsesRequestWithRetry(
         : timeoutController.signal;
 
       try {
-        const response = await fetchImpl(OPENAI_RESPONSES_URL, {
+        const response = await fetchImpl(authParams.url, {
           method: "POST",
           headers: requestHeaders,
           body: requestBody,
@@ -281,6 +286,17 @@ export function createResponsesRequestWithRetry(
         });
       } finally {
         clearTimeout(timeout);
+      }
+
+      // On 401 in codex mode, attempt token refresh and retry once
+      if (lastFailure.statusCode === 401 && effectiveAuth === "codex") {
+        try {
+          await authResolver.on401(effectiveAuth);
+          lastFailure = { ...lastFailure, retryable: true };
+          logger.info(`provider: 401 in codex mode, refreshed token for retry`);
+        } catch (refreshErr) {
+          logger.warn(`provider: codex token refresh failed: ${refreshErr}`);
+        }
       }
 
       const isFinalAttempt = attempt === maxAttempts;

@@ -34,6 +34,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       maxConcurrentDownloads: 4
     },
     openai: {
+      authMode: "api",
       apiKey: "openai-key",
       model: "gpt-4.1-mini",
       models: [

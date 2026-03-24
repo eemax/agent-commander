@@ -8,6 +8,7 @@
     "max_concurrent_downloads": 4
   },
   "openai": {
+    "auth_mode": "codex",
     "model": "gpt-5.3-codex",
     "models": [
       {

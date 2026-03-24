@@ -7,6 +7,7 @@ import type {
   ThinkingEffort,
   CacheRetention,
   TransportMode,
+  AuthMode,
   SkillDefinition,
   WorkspaceSnapshot
 } from "../types.js";
@@ -31,6 +32,7 @@ export type ConversationSwitchRuntime = {
   thinkingEffort: ThinkingEffort;
   cacheRetention: CacheRetention;
   transportMode: TransportMode;
+  authMode: AuthMode;
   activeModelOverride: string | null;
   activeWebSearchModelOverride: string | null;
 };
@@ -49,6 +51,7 @@ export type Config = {
     maxConcurrentDownloads: number;
   };
   openai: {
+    authMode: AuthMode;
     apiKey: string;
     model: string;
     models: OpenAIModelCatalogEntry[];
@@ -175,6 +178,8 @@ export type StateStore = {
   setCacheRetention(chatId: string, mode: CacheRetention, options?: { trace?: TraceContext }): Promise<void>;
   getTransportMode(chatId: string): Promise<TransportMode>;
   setTransportMode(chatId: string, mode: TransportMode, options?: { trace?: TraceContext }): Promise<void>;
+  getAuthMode(chatId: string): Promise<AuthMode>;
+  setAuthMode(chatId: string, mode: AuthMode, options?: { trace?: TraceContext }): Promise<void>;
   getActiveModelOverride(chatId: string): Promise<string | null>;
   setActiveModelOverride(chatId: string, modelId: string | null, options?: { trace?: TraceContext }): Promise<void>;
   getActiveWebSearchModelOverride(chatId: string): Promise<string | null>;

@@ -9,12 +9,15 @@ import { normalizeHistory } from "./provider/history.js";
 import { extractAssistantText } from "./provider/response-text.js";
 import { createResponsesRequestWithRetry, type ProviderTransportDeps } from "./provider/responses-transport.js";
 import { createWsTransportManager, type WsTransportManager } from "./provider/ws-transport.js";
+import { createTransportAuthResolver } from "./provider/transport-auth.js";
 import { accumulateUsageSnapshot, countCompactionItems, createEmptyUsageSnapshot } from "./provider/usage.js";
 import { createSubagentWorker } from "./harness/subagent-worker.js";
+import type { CodexAuthManager } from "./auth/codex-auth.js";
 
 type ProviderRuntimeDeps = ProviderTransportDeps & {
   harness?: ToolHarness;
   observability?: ObservabilitySink;
+  codexAuth?: CodexAuthManager;
 };
 
 function toSafeReason(reason: string): string {
@@ -61,7 +64,12 @@ export function createOpenAIProvider(
     harness.context.subagentManager.setWorker(worker);
   }
 
-  const requestWithRetry = createResponsesRequestWithRetry(config, logger, {
+  const authResolver = createTransportAuthResolver({
+    apiKey: config.openai.apiKey,
+    codexAuth: deps.codexAuth ?? null
+  });
+
+  const requestWithRetry = createResponsesRequestWithRetry(config, logger, authResolver, {
     fetchImpl: deps.fetchImpl,
     sleepImpl: deps.sleepImpl,
     randomImpl: deps.randomImpl,
@@ -71,7 +79,7 @@ export function createOpenAIProvider(
 
   let wsManager: WsTransportManager | null = null;
   const getWsManager = (): WsTransportManager => {
-    wsManager ??= createWsTransportManager(config, logger, {
+    wsManager ??= createWsTransportManager(config, logger, authResolver, {
       sleepImpl: deps.sleepImpl,
       randomImpl: deps.randomImpl,
       nowMsImpl: deps.nowMsImpl,
@@ -111,13 +119,17 @@ export function createOpenAIProvider(
             }
 
             try {
+              const effectiveAuthMode = input.authMode ?? config.openai.authMode;
+              // WSS unconfirmed on chatgpt.com proxy — force HTTP for codex mode
+              const effectiveTransport = effectiveAuthMode === "codex" ? "http" : (input.transportMode ?? "http");
               const requestOptions = {
                 onTextDelta: input.onTextDelta,
                 trace: providerTrace,
                 messageId: input.messageId,
-                abortSignal: input.abortSignal
+                abortSignal: input.abortSignal,
+                authMode: effectiveAuthMode
               };
-              const result = input.transportMode === "wss"
+              const result = effectiveTransport === "wss"
                 ? await getWsManager().sendResponseCreate(body, input.chatId, requestOptions)
                 : await requestWithRetry(body, input.chatId, requestOptions);
               lastAttempt = result.attempt;

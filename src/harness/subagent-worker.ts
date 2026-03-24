@@ -5,6 +5,7 @@
 import { runOpenAIToolLoop, ToolWorkflowAbortError } from "../agent/tool-loop.js";
 import { extractAssistantText } from "../provider/response-text.js";
 import { createResponsesRequestWithRetry, type ProviderTransportDeps } from "../provider/responses-transport.js";
+import { createTransportAuthResolver } from "../provider/transport-auth.js";
 import { createSteerChannel, type SteerChannel } from "../steer-channel.js";
 import { resolveModelReference } from "../model-catalog.js";
 import { createTraceRootContext, type ObservabilitySink, type TraceContext } from "../observability.js";
@@ -201,7 +202,12 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
   const { config, harness, manager, logger, observability, transportDeps } = deps;
   const activeTasks = new Map<string, TaskRuntime>();
 
-  const requestFactory = createResponsesRequestWithRetry(config, logger, {
+  const authResolver = createTransportAuthResolver({
+    apiKey: config.openai.apiKey,
+    codexAuth: null  // subagents always use API key auth
+  });
+
+  const requestFactory = createResponsesRequestWithRetry(config, logger, authResolver, {
     fetchImpl: transportDeps?.fetchImpl,
     sleepImpl: transportDeps?.sleepImpl,
     randomImpl: transportDeps?.randomImpl,

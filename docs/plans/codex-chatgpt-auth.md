@@ -479,7 +479,6 @@ if (authMode === "api_key") {
 | Risk                                          | Mitigation                                                |
 |-----------------------------------------------|-----------------------------------------------------------|
 | `chatgpt.com/backend-api/codex` is undocumented and may change | This is the same endpoint Codex CLI uses; breakage would affect Codex too. Pin to known behavior, add version user-agent. |
-| WSS may not be supported on the chatgpt proxy | Default to HTTP+SSE for codex_chatgpt mode. Test WSS during implementation; enable if it works. |
 | Refresh token rotation may desync with Codex CLI | Write updated refresh_token back to `auth.json` atomically. Both tools can coexist since they both refresh-then-write. |
 | Model restrictions (only Codex models allowed) | Document the restriction. The models in config.json already use `gpt-5.3-codex`. If a non-Codex model is configured, the proxy will return a clear 400 error. |
 | Rate limits / credit exhaustion               | The proxy returns `usage_limit_reached` with `resets_at` timestamp. Map to existing retry-policy as a non-retryable error with a clear user message. |

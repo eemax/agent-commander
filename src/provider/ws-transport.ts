@@ -6,6 +6,8 @@ import type { OpenAIResponsesResponse } from "./openai-types.js";
 import { parseCompletedPayload } from "./sse-parser.js";
 import { computeRetryDelayMs } from "./retry-policy.js";
 import { sanitizeReason } from "./sanitize.js";
+import type { TransportAuthResolver } from "./transport-auth.js";
+import type { AuthMode } from "../types.js";
 
 const OPENAI_WS_URL = "wss://api.openai.com/v1/responses";
 const WS_ROTATION_MS = 55 * 60 * 1000;
@@ -24,6 +26,7 @@ export type WsTransportRequestOptions = {
   trace?: TraceContext;
   messageId?: string;
   abortSignal?: AbortSignal;
+  authMode?: AuthMode;
 };
 
 type PendingRequest = {
@@ -56,6 +59,7 @@ export type WsTransportManager = {
 export function createWsTransportManager(
   config: Config,
   logger: RuntimeLogger,
+  authResolver: TransportAuthResolver,
   deps: WsTransportDeps = {}
 ): WsTransportManager {
   const WsImpl = deps.WebSocketImpl ?? WebSocket;
@@ -114,14 +118,15 @@ export function createWsTransportManager(
     }, remaining);
   }
 
-  function createConnection(chatId: string, trace?: TraceContext): Promise<WsConnection> {
+  async function createConnection(chatId: string, authMode: AuthMode = "api", trace?: TraceContext): Promise<WsConnection> {
+    const authParams = await authResolver.resolve(authMode);
+    const wsUrl = authParams.url.replace(/^https:\/\//, "wss://");
+
     return new Promise<WsConnection>((resolve, reject) => {
       const eventTrace = trace ? createChildTraceContext(trace, "ws-transport") : createTraceRootContext("ws-transport");
 
-      const ws = new WsImpl(OPENAI_WS_URL, {
-        headers: {
-          authorization: `Bearer ${config.openai.apiKey}`
-        }
+      const ws = new WsImpl(wsUrl, {
+        headers: authParams.headers
       } as unknown as string[]);
 
       const conn: WsConnection = {
@@ -300,7 +305,7 @@ export function createWsTransportManager(
     });
   }
 
-  async function ensureConnected(chatId: string, trace?: TraceContext): Promise<WsConnection> {
+  async function ensureConnected(chatId: string, authMode: AuthMode = "api", trace?: TraceContext): Promise<WsConnection> {
     const existing = connections.get(chatId);
     if (existing && existing.ws.readyState === WsImpl.OPEN) {
       return existing;
@@ -315,7 +320,7 @@ export function createWsTransportManager(
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= maxReconnectAttempts + 1; attempt += 1) {
       try {
-        const conn = await createConnection(chatId, trace);
+        const conn = await createConnection(chatId, authMode, trace);
         conn.reconnectAttempts = attempt > 1 ? attempt - 1 : 0;
         return conn;
       } catch (error) {
@@ -384,16 +389,22 @@ export function createWsTransportManager(
         });
       }
 
-      const conn = await ensureConnected(chatId, requestTrace);
+      const conn = await ensureConnected(chatId, options?.authMode ?? "api", requestTrace);
 
       // The Responses API WebSocket expects a flat message with type "response.create"
       // and all request fields at the top level. The `stream` and `background` fields
       // are transport-specific and must NOT be included in WebSocket messages.
+      const effectiveAuth = options?.authMode ?? "api";
+      const authParams = await authResolver.resolve(effectiveAuth);
       const { stream: _stream, background: _background, ...wsBody } = body as Record<string, unknown> & { stream?: unknown; background?: unknown };
-      const envelope = {
+      const envelope: Record<string, unknown> = {
         type: "response.create",
-        ...wsBody
+        ...wsBody,
+        ...authParams.extraBodyFields
       };
+      for (const key of authParams.stripBodyFields) {
+        delete envelope[key];
+      }
 
       await observability?.record({
         event: "provider.ws.request.started",

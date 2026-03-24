@@ -12,7 +12,7 @@ import {
   type TelegramInlineButton,
   type TelegramInlineKeyboard
 } from "../types.js";
-import { isThinkingEffort, isCacheRetention, isTransportMode } from "../utils.js";
+import { isThinkingEffort, isCacheRetention, isTransportMode, isAuthMode } from "../utils.js";
 import { formatConversationIdForUi, formatConversationIdTail } from "./conversation-id.js";
 import { buildStatusReply, formatBashReply, formatCompactNumber } from "./formatters.js";
 
@@ -250,7 +250,8 @@ function formatConversationDefaults(runtime: ConversationSwitchRuntime, config: 
     `thinking: ${runtime.thinkingEffort}`,
     `cwd: ${runtime.workingDirectory}`,
     `cache: ${runtime.cacheRetention}`,
-    `transport: ${runtime.transportMode}`
+    `transport: ${runtime.transportMode}`,
+    `auth: ${runtime.authMode}`
   ].join("\n");
 }
 
@@ -378,6 +379,7 @@ export function createCoreCommandHandler(params: {
             thinkingEffort,
             cacheRetention,
             transportMode,
+            authMode,
             activeModelOverride,
             webSearchModelOverride,
             latestUsage,
@@ -390,6 +392,7 @@ export function createCoreCommandHandler(params: {
             conversations.getThinkingEffort(message.chatId),
             conversations.getCacheRetention(message.chatId),
             conversations.getTransportMode(message.chatId),
+            conversations.getAuthMode(message.chatId),
             conversations.getActiveModelOverride(message.chatId),
             conversations.getActiveWebSearchModelOverride(message.chatId),
             conversations.getLatestUsageSnapshot(message.chatId),
@@ -460,6 +463,7 @@ export function createCoreCommandHandler(params: {
               toolResultStats,
               cacheRetention,
               transportMode,
+              authMode,
               compactionTokens: activeModel.compactionTokens,
               compactionThreshold: activeModel.compactionThreshold,
               compactionCount,
@@ -742,6 +746,46 @@ export function createCoreCommandHandler(params: {
           return {
             type: "reply",
             text: `transport: ${selection}`
+          };
+        }
+        case "auth": {
+          const selection = args.trim().toLowerCase();
+          const current = await conversations.getAuthMode(message.chatId);
+
+          if (selection.length === 0) {
+            return {
+              type: "reply",
+              text: [
+                "Usage: /auth <api|codex>",
+                `auth mode: ${current}`
+              ].join("\n")
+            };
+          }
+
+          if (!isAuthMode(selection)) {
+            return {
+              type: "reply",
+              text: `Unknown auth mode: ${selection}\nValid: api, codex`
+            };
+          }
+
+          await conversations.setAuthMode(message.chatId, selection, { trace });
+
+          // When switching to codex, force transport to http (WSS unconfirmed on chatgpt proxy)
+          if (selection === "codex") {
+            const currentTransport = await conversations.getTransportMode(message.chatId);
+            if (currentTransport === "wss") {
+              await conversations.setTransportMode(message.chatId, "http", { trace });
+              return {
+                type: "reply",
+                text: `auth mode: codex\ntransport: http (forced, WSS not supported in codex mode)`
+              };
+            }
+          }
+
+          return {
+            type: "reply",
+            text: `auth mode: ${selection}`
           };
         }
         case "search": {

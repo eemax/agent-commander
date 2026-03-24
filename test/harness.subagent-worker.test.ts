@@ -52,6 +52,7 @@ function makeConfig(): Config {
       maxConcurrentDownloads: 4
     },
     openai: {
+      authMode: "api",
       apiKey: "test-key",
       model: "test-model",
       models: [testModelEntry],
