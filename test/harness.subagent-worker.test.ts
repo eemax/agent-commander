@@ -54,6 +54,7 @@ function makeConfig(): Config {
     },
     openai: {
       authMode: "api",
+      defaultTransport: "http" as const,
       apiKey: "test-key",
       model: "test-model",
       models: [testModelEntry],
@@ -1023,7 +1024,7 @@ describe("SubagentWorker", () => {
       expect(fetchCallCount).toBe(1);
 
       // Resume the task
-      await worker.send(task.taskId, { content: "here is the extra info" });
+      await worker.send(task.taskId, { role: "supervisor" as const, content: "here is the extra info" });
 
       // Wait for completion
       await waitFor(() => {

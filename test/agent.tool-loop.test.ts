@@ -82,7 +82,7 @@ function makeParams(overrides: Partial<Parameters<typeof runOpenAIToolLoop>[0]> 
     request: vi.fn().mockResolvedValue(makeResponse()),
     model: "test-model",
     instructions: "test instructions",
-    initialInput: [{ role: "user" as const, content: "hello" }],
+    initialInput: [{ type: "message" as const, role: "user" as const, content: "hello" }],
     thinkingEffort: "medium" as const,
     compactionTokens: null,
     compactionThreshold: 1,

@@ -79,7 +79,7 @@ Startup fails if frontmatter is missing/invalid, slug generation is invalid, or 
 - Current conversation per chat is tracked in `paths.active_conversations_path` (default `.agent-commander/active-conversations.json`).
 - Stashed conversations per chat are tracked in `paths.stashed_conversations_path` (default `.agent-commander/stashed-conversations.json`).
 - Conversation events are JSONL files in `paths.conversations_dir/<chatId>/<conversationId>.jsonl`.
-- Conversation runtime profiles persist `verboseMode`, `thinkingEffort`, `cacheRetention`, `transportMode`, `activeModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, and `lastProviderFailure`.
+- Conversation runtime profiles persist `verboseMode`, `thinkingEffort`, `cacheRetention`, `transportMode`, `authMode`, `activeModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, and `lastProviderFailure`.
 - `/new` immediately creates a fresh conversation (archiving the current one) and displays conversation defaults.
 - `/new from` opens an inline menu to restore a stashed conversation or start fresh.
 - `/stash <name>` stashes current conversation under an alias, then switches to selected stash or a new conversation.
@@ -133,7 +133,7 @@ Menus are single-use; stale callback clicks are rejected and require reopening t
 `/model <id-or-alias>` switches the active model and applies that model's configured defaults to runtime thinking effort and cache retention.
 
 `/cache <in_memory|24h>` switches prompt cache retention mode for the current conversation.
-`/transport <http|wss>` switches the API transport for the current conversation. Default is `http`. See [architecture.md](architecture.md#transport-modes) for details on each mode.
+`/transport <http|wss>` switches the API transport for the current conversation. Default is set by `openai.default_transport` config (falls back to `http`). See [architecture.md](architecture.md#transport-modes) for details on each mode.
 `/cwd <absolute-path>` sets the working directory for the current conversation. New conversations start with the configured default cwd.
 
 `/status` returns the model/runtime emoji summary block (model, latest turn token usage including reasoning tokens, budget context-window pressure summary, prompt-cache hit metrics, runtime thinking/verbose mode, running process count, and active cwd).

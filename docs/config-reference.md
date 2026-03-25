@@ -56,14 +56,14 @@ This is the canonical `config/config.json` shape.
 - `retry_base_ms`: positive integer, default `250` — base delay for exponential backoff (both transports)
 - `retry_max_ms`: positive integer, default `2000`, must be `>= retry_base_ms` — max backoff delay (both transports)
 
-Transport mode (`http` or `wss`) is a per-conversation runtime setting, not a config field. Switch with `/transport http|wss`. See [architecture.md](architecture.md#transport-modes) for details.
+- `default_transport`: `"http" | "wss"`, default `"http"` — sets the transport mode for new conversations and any provider path that omits an explicit transport. Per-conversation override via `/transport http|wss`. See [architecture.md](architecture.md#transport-modes) for details.
 
 ### `runtime`
 
 - `log_level`: `"debug" | "info" | "warn" | "error"`, default `"info"`
 - `prompt_history_limit`: positive integer or `null`, default `20`
   - when set to `null`, the full conversation message history is sent (no count-based truncation)
-- `default_verbose`: boolean, default `true` (applied to newly created conversations)
+- `default_verbose`: `"off" | "summary" | "full"`, default `"full"` (applied to newly created conversations)
 - `tool_loop_max_steps`: positive integer or `null`, default `30`
 - `tool_workflow_timeout_ms`: positive integer, default `120000`
 - `tool_command_timeout_ms`: positive integer, default `15000`

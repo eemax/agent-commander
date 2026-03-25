@@ -512,4 +512,131 @@ describe("createWsTransportManager", () => {
 
     manager.closeAll();
   });
+
+  it("stale socket onclose does not tear down replacement after auth reconnect", async () => {
+    let tokenVersion = "token-A";
+    const refreshableAdapter: AuthModeAdapter = {
+      id: "codex",
+      describe: () => ({
+        label: "Codex",
+        capabilities: { allowedTransports: ["http", "wss"] as const, defaultTransport: "http" as const, statelessToolLoop: true }
+      }),
+      availability: () => ({ ok: true }),
+      async resolveRequest() {
+        return {
+          httpUrl: "https://chatgpt.com/backend-api/codex/responses",
+          wsUrl: "wss://chatgpt.com/backend-api/codex/responses",
+          headers: { "content-type": "application/json", authorization: `Bearer ${tokenVersion}` },
+          extraBodyFields: { store: false },
+          stripBodyFields: ["prompt_cache_key", "prompt_cache_retention", "previous_response_id"]
+        };
+      }
+    };
+
+    const config = makeConfig({ openai: { timeoutMs: 5_000 } });
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+      WebSocketImpl: trackingSockets()
+    }));
+
+    // First request with token-A.
+    const p1 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-race", { authModeAdapter: refreshableAdapter });
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
+    const ws1 = createdSockets[0]!;
+    await vi.waitFor(() => expect(ws1.sent).toHaveLength(1));
+
+    ws1._receiveMessage({
+      type: "response.completed",
+      response: { id: "resp_r1", output_text: "first", output: [] }
+    });
+    await p1;
+
+    // Capture the old onclose handler before token refresh triggers reconnect.
+    const oldOnclose = ws1.onclose!;
+
+    // Simulate credential refresh.
+    tokenVersion = "token-B";
+
+    // Second request — triggers auth reconnect, tears down old socket, opens new one.
+    const p2 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-race", { authModeAdapter: refreshableAdapter });
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(2));
+    const ws2 = createdSockets[1]!;
+    await vi.waitFor(() => expect(ws2.sent).toHaveLength(1));
+
+    // Old socket was torn down.
+    expect(ws1.closed).toBe(true);
+
+    // Now simulate the stale socket's onclose firing AFTER the replacement is stored.
+    // Without the fix, this would tear down ws2.
+    oldOnclose({ code: 1000, reason: "client-close" });
+
+    // The replacement socket should still be alive and usable.
+    expect(ws2.closed).toBe(false);
+
+    // Complete the second request to prove the new socket works.
+    ws2._receiveMessage({
+      type: "response.completed",
+      response: { id: "resp_r2", output_text: "second", output: [] }
+    });
+    const result = await p2;
+    expect(result.payload.output_text).toBe("second");
+
+    manager.closeAll();
+  });
+
+  it("reconnects when only chatgpt-account-id changes", async () => {
+    let accountId = "account-A";
+    const accountAdapter: AuthModeAdapter = {
+      id: "codex",
+      describe: () => ({
+        label: "Codex",
+        capabilities: { allowedTransports: ["http", "wss"] as const, defaultTransport: "http" as const, statelessToolLoop: true }
+      }),
+      availability: () => ({ ok: true }),
+      async resolveRequest() {
+        return {
+          httpUrl: "https://chatgpt.com/backend-api/codex/responses",
+          wsUrl: "wss://chatgpt.com/backend-api/codex/responses",
+          headers: { "content-type": "application/json", authorization: "Bearer same-token", "chatgpt-account-id": accountId },
+          extraBodyFields: { store: false },
+          stripBodyFields: ["prompt_cache_key", "prompt_cache_retention", "previous_response_id"]
+        };
+      }
+    };
+
+    const config = makeConfig({ openai: { timeoutMs: 5_000 } });
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+      WebSocketImpl: trackingSockets()
+    }));
+
+    // First request with account-A.
+    const p1 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-acct", { authModeAdapter: accountAdapter });
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
+    const ws1 = createdSockets[0]!;
+    await vi.waitFor(() => expect(ws1.sent).toHaveLength(1));
+
+    ws1._receiveMessage({
+      type: "response.completed",
+      response: { id: "resp_a1", output_text: "first", output: [] }
+    });
+    await p1;
+
+    // Switch account — same token, different account-id.
+    accountId = "account-B";
+
+    // Second request should open new socket because account-id changed.
+    const p2 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-acct", { authModeAdapter: accountAdapter });
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(2));
+    const ws2 = createdSockets[1]!;
+    await vi.waitFor(() => expect(ws2.sent).toHaveLength(1));
+
+    expect(ws1.closed).toBe(true);
+
+    ws2._receiveMessage({
+      type: "response.completed",
+      response: { id: "resp_a2", output_text: "second", output: [] }
+    });
+    await p2;
+
+    manager.closeAll();
+  });
 });

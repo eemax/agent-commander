@@ -144,7 +144,7 @@ Conversation events are decoded/encoded through the typed event codec in `src/st
 
 The provider supports two transport modes for communicating with the OpenAI Responses API. Both use the same request body, tool loop, and streaming callbacks — the difference is purely at the network layer.
 
-### HTTP+SSE (default)
+### HTTP+SSE (default unless `openai.default_transport` is `"wss"`)
 
 - Each tool-loop turn is an independent `POST https://api.openai.com/v1/responses` with `stream: true`.
 - Server streams back SSE events (`response.output_text.delta`, `response.completed`, `error`).
@@ -171,7 +171,8 @@ The provider supports two transport modes for communicating with the OpenAI Resp
 ### Switching
 
 - Per-conversation: `/transport http` or `/transport wss` (stored in `ConversationRuntimeProfile.transportMode`).
-- Default is `http`. Resets to `http` on `/new` or `/stash` (new conversation = fresh runtime profile).
+- Default is `openai.default_transport` (falls back to `http`). Resets to the configured default on `/new` or `/stash` (new conversation = fresh runtime profile).
+- Auth-triggered reconnect: when the auth mode or credentials change mid-conversation, the WebSocket transport detects the change via a full-header fingerprint and opens a new socket. The fingerprint covers all auth headers (including `chatgpt-account-id`), so account switches also trigger reconnection.
 - Visible in `/status` output on the settings line.
 - The WS transport manager is lazily created on first WS request — zero overhead for HTTP-only usage.
 

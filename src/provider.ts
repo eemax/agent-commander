@@ -57,7 +57,7 @@ export function createOpenAIProvider(
   if (harness.context.subagentManager) {
     const defaultProviderSettings: OwnerProviderSettings = {
       authMode: config.openai.authMode,
-      transportMode: "http"
+      transportMode: config.openai.defaultTransport
     };
     const worker = createSubagentWorker({
       config,
@@ -135,7 +135,7 @@ export function createOpenAIProvider(
                 trace: providerTrace,
                 abortSignal: input.abortSignal,
                 authMode: effectiveAuthMode,
-                transportMode: input.transportMode ?? "http",
+                transportMode: input.transportMode ?? config.openai.defaultTransport,
                 onTextDelta: input.onTextDelta
               });
               lastAttempt = result.attempt;

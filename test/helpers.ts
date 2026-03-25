@@ -35,6 +35,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
     },
     openai: {
       authMode: "api",
+      defaultTransport: "http" as const,
       apiKey: "openai-key",
       model: "gpt-5.4-mini",
       models: [

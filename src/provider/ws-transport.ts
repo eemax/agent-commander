@@ -68,6 +68,11 @@ export function createWsTransportManager(
   const observability = deps.observability;
   const maxReconnectAttempts = config.openai.maxRetries;
 
+  function computeAuthFingerprint(adapterId: string, wsUrl: string, headers: Record<string, string>): string {
+    const sorted = Object.entries(headers).sort(([a], [b]) => a.localeCompare(b));
+    return `${adapterId}:${wsUrl}:${sorted.map(([k, v]) => `${k}=${v}`).join("&")}`;
+  }
+
   const connections = new Map<string, WsConnection>();
 
   function teardownConnection(conn: WsConnection): void {
@@ -120,7 +125,7 @@ export function createWsTransportManager(
   async function createConnection(chatId: string, adapter: AuthModeAdapter, trace?: TraceContext): Promise<WsConnection> {
     const authParams = await adapter.resolveRequest();
     const wsUrl = authParams.wsUrl;
-    const authFingerprint = `${adapter.id}:${wsUrl}:${authParams.headers.authorization ?? ""}`;
+    const authFingerprint = computeAuthFingerprint(adapter.id, wsUrl, authParams.headers);
 
     return new Promise<WsConnection>((resolve, reject) => {
       const eventTrace = trace ? createChildTraceContext(trace, "ws-transport") : createTraceRootContext("ws-transport");
@@ -167,9 +172,11 @@ export function createWsTransportManager(
       };
 
       ws.onclose = (event) => {
-        const closedConn = connections.get(chatId);
-        if (closedConn && closedConn.pendingRequest) {
-          closedConn.pendingRequest.reject(new ProviderError({
+        // Use the captured `conn` object directly — not connections.get(chatId) —
+        // to prevent a stale socket's onclose from tearing down a replacement
+        // connection that was stored in the map after an auth-triggered reconnect.
+        if (conn.pendingRequest) {
+          conn.pendingRequest.reject(new ProviderError({
             message: `WebSocket closed mid-request: code=${event.code} reason=${event.reason || "none"}`,
             kind: "network",
             attempts: 1,
@@ -184,10 +191,11 @@ export function createWsTransportManager(
               timedOutBy: null
             }
           }));
-          closedConn.pendingRequest = null;
+          conn.pendingRequest = null;
         }
-        if (closedConn) {
-          teardownConnection(closedConn);
+        // Only tear down if this conn is still the active one for this chatId.
+        if (connections.get(chatId) === conn) {
+          teardownConnection(conn);
         }
         observability?.record({
           event: "provider.ws.disconnected",
@@ -312,7 +320,7 @@ export function createWsTransportManager(
       // Verify auth identity still matches — mode switches or credential refreshes
       // require a new socket since headers are set at connection time.
       const authParams = await adapter.resolveRequest();
-      const currentFingerprint = `${adapter.id}:${authParams.wsUrl}:${authParams.headers.authorization ?? ""}`;
+      const currentFingerprint = computeAuthFingerprint(adapter.id, authParams.wsUrl, authParams.headers);
       if (existing.authFingerprint === currentFingerprint) {
         return existing;
       }
