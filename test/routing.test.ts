@@ -242,11 +242,11 @@ describe("createMessageRouter", () => {
     if (result.type !== "reply") {
       return;
     }
-    expect(result.text).toContain("started new conversation");
-    expect(result.text).toContain("conversation: conv...");
-    expect(result.text).toContain("archived: conv...");
-    expect(result.text).toContain("model:");
-    expect(result.text).toContain("transport:");
+    expect(result.text).toContain("✨ Started new conversation");
+    expect(result.text).toContain("🗂️ conversation: conv...");
+    expect(result.text).toContain("📦 archived: conv...");
+    expect(result.text).toContain("🧠");
+    expect(result.text).toContain("🔗 transport:");
 
     const secondConversation = await conversations.getActiveConversation("chat-1");
     expect(secondConversation).not.toBe(firstConversation);
@@ -300,9 +300,9 @@ describe("createMessageRouter", () => {
     );
     expect(callbackResult.type).toBe("reply");
     if (callbackResult.type === "reply") {
-      expect(callbackResult.text).toContain("conversation: conv...");
-      expect(callbackResult.text).toContain("archived: conv...");
-      expect(callbackResult.text).toContain("model:");
+      expect(callbackResult.text).toContain("🗂️ conversation: conv...");
+      expect(callbackResult.text).toContain("📦 archived: conv...");
+      expect(callbackResult.text).toContain("🧠");
     }
 
     const secondConversation = await conversations.getActiveConversation("chat-1");
@@ -789,7 +789,7 @@ describe("createMessageRouter", () => {
     const status = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-3", text: "/status" }));
     expect(status.type).toBe("reply");
     if (status.type === "reply") {
-      expect(status.text).toContain("⚙️ Think: xhigh");
+      expect(status.text).toContain("t: xhigh");
       expect(status.text).not.toContain("conversation:");
     }
   });
@@ -931,7 +931,7 @@ describe("createMessageRouter", () => {
     if (result.type === "reply") {
       expect(result.text).toContain("🧮 Tokens: n/a");
       expect(result.text).toContain("📚 Context: n/a");
-      expect(result.text).toContain("🗄️ Cache: n/a · last: never");
+      expect(result.text).toContain("🗄️ Cache: n/a · never");
     }
   });
 

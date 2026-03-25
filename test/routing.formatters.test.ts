@@ -67,7 +67,7 @@ describe("buildStatusReply", () => {
 
     expect(text).toContain("🧮 Tokens: n/a");
     expect(text).toContain("📚 Context: n/a");
-    expect(text).toContain("🗄️ Cache: n/a · last: never");
+    expect(text).toContain("🗄️ Cache: n/a · never");
   });
 
   it("shows budget context summary and cache details when usage is available", () => {
@@ -90,7 +90,7 @@ describe("buildStatusReply", () => {
     expect(text).toContain("🧮 Tokens: 8.7k in / 138 out · 42 reasoning");
     expect(text).toContain("📚 Context: 8.7k / 392k (2%)");
     expect(text).toContain("🗄️ Cache: 95% hit");
-    expect(text).toContain("⚙️ Think: high · cache: in_memory · transport: http · auth: api · processes: 0 running");
+    expect(text).toContain("🧠 gpt-5.3-codex · think: high · api:http");
     expect(text).toContain("📁 `/tmp/workspace`");
     expect(text).not.toContain("verbose: on");
     expect(text).not.toContain("observability: off");
@@ -196,7 +196,7 @@ describe("buildStatusReply", () => {
     expect(text).toContain("📁 `/tmp/workspace`");
     expect(text).not.toContain("workspace.manifest_hash:");
     expect(text).not.toContain("workspace.snapshot_signature:");
-    expect(text).not.toContain("model: ");
+    expect(text).not.toContain("model: gpt");
     expect(text).not.toContain("workspace: ");
     expect(text).not.toContain("full_observability:");
   });
@@ -280,8 +280,8 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("📚 Context: 8.7k / 392k (2%) · compact at: 160k");
-    expect(text).not.toContain("hits");
+    expect(text).toContain("📚 Context: 8.7k / 392k (2%) · ♻️ 160k");
+    expect(text).not.toContain("x)");
   });
 
   it("shows compaction hit count when compactions have occurred", () => {
@@ -301,7 +301,7 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("📚 Context: 8.7k / 392k (2%) · compact at: 160k (3 hits)");
+    expect(text).toContain("📚 Context: 8.7k / 392k (2%) · ♻️ 160k (3x)");
   });
 
   it("shows singular hit label for single compaction", () => {
@@ -321,7 +321,7 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("· compact at: 200k (1 hit)");
+    expect(text).toContain("· ♻️ 200k (1x)");
   });
 
   it("shows last cache hit relative time on cache row", () => {
@@ -341,7 +341,7 @@ describe("buildStatusReply", () => {
       }
     });
 
-    expect(text).toContain("🗄️ Cache: 95% hit · 8.3k cached · 400 new · last: 2m ago");
+    expect(text).toContain("🗄️ Cache: 95% hit · 8.3k cached · 400 new · 2m ago");
   });
 
   it("places context budget before tokens in row order", () => {

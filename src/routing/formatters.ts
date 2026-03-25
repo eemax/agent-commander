@@ -1,5 +1,13 @@
+import * as os from "node:os";
 import type { ProviderUsageSnapshot, ThinkingEffort, CacheRetention, TransportMode, AuthMode, VerboseMode, ToolCallReport, ToolProgressEvent } from "../types.js";
 import { formatConversationIdForUi } from "./conversation-id.js";
+
+function collapseTilde(p: string): string {
+  const home = os.homedir();
+  if (p === home) return "~";
+  if (p.startsWith(home + "/")) return "~" + p.slice(home.length);
+  return p;
+}
 
 const BASH_MAX_OUTPUT_CHARS = 3_000;
 const TOOL_ERROR_MAX_CHARS = 200;
@@ -120,7 +128,7 @@ function formatRelativeTime(deltaMs: number): string {
 
 function formatCacheSummary(usage: ProviderUsageSnapshot | null, nowMs?: number): string {
   if (!usage || usage.inputTokens === null || usage.cachedTokens === null || usage.inputTokens <= 0) {
-    return "🗄️ Cache: n/a · last: never";
+    return "🗄️ Cache: n/a · never";
   }
 
   const cachedTokens = Math.min(usage.cachedTokens, usage.inputTokens);
@@ -131,9 +139,9 @@ function formatCacheSummary(usage: ProviderUsageSnapshot | null, nowMs?: number)
   const lastHitAt = usage.lastCacheHitAt;
   if (lastHitAt != null && lastHitAt > 0) {
     const now = nowMs ?? Date.now();
-    line += ` · last: ${formatRelativeTime(now - lastHitAt)}`;
+    line += ` · ${formatRelativeTime(now - lastHitAt)}`;
   } else {
-    line += " · last: never";
+    line += " · never";
   }
 
   return line;
@@ -205,9 +213,9 @@ function formatContextSummary(
 
   if (compactionTokens !== null) {
     const compactThreshold = Math.floor(compactionTokens * compactionThreshold);
-    line += ` · compact at: ${formatCompactNumber(compactThreshold)}`;
+    line += ` · ♻️ ${formatCompactNumber(compactThreshold)}`;
     if (compactionCount > 0) {
-      line += ` (${compactionCount} ${compactionCount === 1 ? "hit" : "hits"})`;
+      line += ` (${compactionCount}x)`;
     }
   }
 
@@ -648,14 +656,13 @@ export function buildStatusReply(params: {
   nowMs?: number;
 }): string {
   const includeDiagnostics = params.includeDiagnostics ?? false;
+  const modelLine = `🧠 ${params.model} · think: ${params.thinkingEffort} · ${params.authMode}:${params.transportMode}`;
   const summaryLines = [
-    `🧠 ${params.model}`,
-    ...(params.webSearchModel ? [`🔎 ${params.webSearchModel}`] : []),
+    modelLine,
     formatContextSummary(params.modelContextWindow, params.modelMaxOutputTokens, params.latestUsage, params.compactionTokens, params.compactionThreshold, params.compactionCount),
     formatTokenSummary(params.latestUsage),
     formatCacheSummary(params.latestUsage, params.nowMs),
-    `⚙️ Think: ${params.thinkingEffort} · cache: ${params.cacheRetention} · transport: ${params.transportMode} · auth: ${params.authMode} · processes: ${params.sessions.length} running`,
-    `📁 \`${params.cwd}\``
+    `📁 \`${collapseTilde(params.cwd)}\``
   ];
 
   if (!includeDiagnostics) {
@@ -673,6 +680,9 @@ export function buildStatusReply(params: {
   const lines = [
     ...summaryLines,
     "",
+    `search_model: ${params.webSearchModel ?? "none"}`,
+    `cache_retention: ${params.cacheRetention}`,
+    `processes_running: ${params.sessions.length}`,
     `verbose: ${params.verboseMode}`,
     `observability: ${params.fullObservabilityEnabled ? "on" : "off"}`,
     `provider.last_failure_kind: ${params.lastProviderFailure?.kind ?? "none"}`,

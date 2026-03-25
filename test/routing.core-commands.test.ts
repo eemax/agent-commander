@@ -271,7 +271,7 @@ describe("core-commands – handleCallbackQuery", () => {
     const result = await handler.handleCallbackQuery(
       makeCallbackQuery({ data: newButton!.callbackData })
     );
-    expect(result?.text).toContain("started new conversation");
+    expect(result?.text).toContain("✨ Started new conversation");
     expect(conversations.completeNewSelection).toHaveBeenCalled();
   });
 

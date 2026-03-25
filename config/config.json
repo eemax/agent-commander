@@ -9,8 +9,18 @@
   },
   "openai": {
     "auth_mode": "codex",
-    "model": "gpt-5.3-codex",
+    "default_transport": "wss",
+    "model": "gpt-5.4",
     "models": [
+      {
+        "id": "gpt-5.4",
+        "context_window": 400000,
+        "max_output_tokens": 128000,
+        "default_thinking": "medium",
+        "compaction_tokens": 272000,
+        "compaction_threshold": 0.95,
+        "aliases": [ "codex", "54" ]
+      },
       {
         "id": "gpt-5.3-codex",
         "context_window": 400000,
@@ -18,7 +28,7 @@
         "default_thinking": "medium",
         "compaction_tokens": 272000,
         "compaction_threshold": 0.95,
-        "aliases": [ "codex" ]
+        "aliases": [ "53" ]
       },
       {
         "id": "gpt-5.4-mini",
