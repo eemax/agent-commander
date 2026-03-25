@@ -125,6 +125,8 @@ describe("createWsTransportManager", () => {
     expect(envelope.model).toBe("gpt-5.4-mini");
     expect(envelope).not.toHaveProperty("stream");
     expect(envelope).not.toHaveProperty("background");
+    expect(envelope).not.toHaveProperty("prompt_cache_key");
+    expect(envelope).not.toHaveProperty("prompt_cache_retention");
 
     // Complete the request.
     ws._receiveMessage({
@@ -358,6 +360,42 @@ describe("createWsTransportManager", () => {
 
     // Only one socket was ever created.
     expect(createdSockets).toHaveLength(1);
+
+    manager.closeAll();
+  });
+
+  it("strips prompt_cache_key and prompt_cache_retention from WSS envelope", async () => {
+    const config = makeConfig({ openai: { timeoutMs: 5_000 } });
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+      WebSocketImpl: trackingSockets()
+    }));
+
+    const promise = manager.sendResponseCreate(
+      {
+        model: "gpt-5.4-mini",
+        input: [],
+        prompt_cache_key: "acmd:123:conv_1",
+        prompt_cache_retention: "in_memory"
+      },
+      "chat-cache",
+      { authModeAdapter: mockAdapter }
+    );
+
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
+    const ws = createdSockets[0]!;
+    await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
+
+    const envelope = JSON.parse(ws.sent[0]!) as Record<string, unknown>;
+    expect(envelope.type).toBe("response.create");
+    expect(envelope.model).toBe("gpt-5.4-mini");
+    expect(envelope).not.toHaveProperty("prompt_cache_key");
+    expect(envelope).not.toHaveProperty("prompt_cache_retention");
+
+    ws._receiveMessage({
+      type: "response.completed",
+      response: { id: "resp_c", output_text: "ok", output: [] }
+    });
+    await promise;
 
     manager.closeAll();
   });

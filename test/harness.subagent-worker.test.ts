@@ -776,4 +776,139 @@ describe("SubagentWorker", () => {
       expect(Array.isArray(snapshot.capabilities.tools)).toBe(true);
     });
   });
+
+  describe("auth mode inheritance", () => {
+    it("calls resolveOwnerProviderSettings with the task ownerId", async () => {
+      const completionResp = makeCompletionResponse("done [TASK_COMPLETE]");
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify(completionResp), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+
+      const resolveSettings = vi.fn().mockResolvedValue({
+        authMode: "api" as const,
+        transportMode: "http" as const
+      });
+
+      const worker = createWorker({ resolveOwnerProviderSettings: resolveSettings });
+      const task = buildTask();
+
+      await worker.start(task);
+      await waitFor(() => {
+        const recv = manager.recv("owner-1", { [task.taskId]: "" });
+        return recv.events.some((e) => e.kind === "result");
+      });
+
+      expect(resolveSettings).toHaveBeenCalledWith("owner-1");
+    });
+
+    it("sends requests to codex endpoint when supervisor uses codex mode", async () => {
+      const codexAuth = {
+        getAccessToken: vi.fn().mockResolvedValue("codex-token"),
+        getAccountId: vi.fn().mockReturnValue("acct-99"),
+        forceRefresh: vi.fn().mockResolvedValue(undefined),
+        reload: vi.fn()
+      };
+
+      const completionResp = makeCompletionResponse("done [TASK_COMPLETE]");
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify(completionResp), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+
+      const worker = createWorker({
+        authModeRegistry: createAuthModeRegistry({ apiKey: "test-key", codexAuth }),
+        resolveOwnerProviderSettings: async () => ({
+          authMode: "codex" as const,
+          transportMode: "http" as const
+        })
+      });
+      const task = buildTask();
+
+      await worker.start(task);
+      await waitFor(() => {
+        const recv = manager.recv("owner-1", { [task.taskId]: "" });
+        return recv.events.some((e) => e.kind === "result");
+      });
+
+      // Verify the fetch was called with the codex URL
+      expect(mockFetch).toHaveBeenCalled();
+      const [url] = mockFetch.mock.calls[0] as [string, ...unknown[]];
+      expect(url).toBe("https://chatgpt.com/backend-api/codex/responses");
+    });
+
+    it("includes codex-specific headers and body fields when inheriting codex mode", async () => {
+      const codexAuth = {
+        getAccessToken: vi.fn().mockResolvedValue("codex-token"),
+        getAccountId: vi.fn().mockReturnValue("acct-99"),
+        forceRefresh: vi.fn().mockResolvedValue(undefined),
+        reload: vi.fn()
+      };
+
+      const completionResp = makeCompletionResponse("done [TASK_COMPLETE]");
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify(completionResp), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+
+      const worker = createWorker({
+        authModeRegistry: createAuthModeRegistry({ apiKey: "test-key", codexAuth }),
+        resolveOwnerProviderSettings: async () => ({
+          authMode: "codex" as const,
+          transportMode: "http" as const
+        })
+      });
+      const task = buildTask();
+
+      await worker.start(task);
+      await waitFor(() => {
+        const recv = manager.recv("owner-1", { [task.taskId]: "" });
+        return recv.events.some((e) => e.kind === "result");
+      });
+
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const headers = init.headers as Record<string, string>;
+      expect(headers["authorization"]).toBe("Bearer codex-token");
+      expect(headers["chatgpt-account-id"]).toBe("acct-99");
+
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      expect(body.store).toBe(false);
+      // Codex adapter strips prompt cache fields
+      expect(body.prompt_cache_key).toBeUndefined();
+      expect(body.prompt_cache_retention).toBeUndefined();
+    });
+
+    it("uses api endpoint when supervisor uses api mode", async () => {
+      const completionResp = makeCompletionResponse("done [TASK_COMPLETE]");
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify(completionResp), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+
+      const worker = createWorker({
+        resolveOwnerProviderSettings: async () => ({
+          authMode: "api" as const,
+          transportMode: "http" as const
+        })
+      });
+      const task = buildTask();
+
+      await worker.start(task);
+      await waitFor(() => {
+        const recv = manager.recv("owner-1", { [task.taskId]: "" });
+        return recv.events.some((e) => e.kind === "result");
+      });
+
+      const [url] = mockFetch.mock.calls[0] as [string, ...unknown[]];
+      expect(url).toBe("https://api.openai.com/v1/responses");
+    });
+  });
 });
