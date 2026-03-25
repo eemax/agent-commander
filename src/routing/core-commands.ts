@@ -257,7 +257,8 @@ function formatConversationDefaults(runtime: ConversationSwitchRuntime, config: 
     `🧠${model.id}`,
     `🔎${searchModel.id}`,
     `💭thinking: ${runtime.thinkingEffort}`,
-    `🔗transport: ${runtime.transportMode} · auth: ${runtime.authMode}`,
+    `🚘transport: ${runtime.transportMode}`,
+    `🔑auth: ${runtime.authMode}`,
     `📁\`${collapseTilde(runtime.workingDirectory)}\``
   ].join("\n");
 }

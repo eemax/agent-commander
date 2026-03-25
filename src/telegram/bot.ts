@@ -139,7 +139,7 @@ export function prepareTelegramReply(params: {
     return { text: params.text };
   }
 
-  if (!params.meta.isExtra && params.meta.origin === "assistant") {
+  if (!params.meta.isExtra) {
     return tryFormat(params, params.markdownToHtml ?? renderMarkdownToTelegramHtml);
   }
 
@@ -307,6 +307,7 @@ export async function dispatchTelegramTextMessage(params: {
   const stream: MessageStreamingSink | undefined = params.sendDraft
     ? {
         onTextDelta: async (delta) => {
+          await ensureTypingStarted();
           stopTypingIndicator();
 
           if (!textStreamingStarted) {
@@ -324,6 +325,7 @@ export async function dispatchTelegramTextMessage(params: {
           await flushDraft(false);
         },
         onToolCallNotice: async (notice) => {
+          await ensureTypingStarted();
           stopTypingIndicator();
 
           if (typeof notice !== "string" || notice.length === 0) {
@@ -409,7 +411,12 @@ export async function dispatchTelegramTextMessage(params: {
     typingTimer = setInterval(sendFrame, draftMinUpdateMs);
   };
 
-  if (params.sendDraft && !draftDisabled) {
+  let initialTypingStarted = false;
+  const ensureTypingStarted = async (): Promise<void> => {
+    if (initialTypingStarted || draftDisabled || !params.sendDraft) {
+      return;
+    }
+    initialTypingStarted = true;
     try {
       await params.sendDraft(TYPING_FRAMES[0]!);
       typingFrameIndex = 1;
@@ -428,7 +435,7 @@ export async function dispatchTelegramTextMessage(params: {
     } catch (error) {
       await disableDraft(error);
     }
-  }
+  };
 
   const result = await params.handleMessage(params.message, stream, messageTrace, params.userContent);
   stopTypingIndicator();

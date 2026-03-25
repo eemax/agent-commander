@@ -246,7 +246,7 @@ describe("createMessageRouter", () => {
     expect(result.text).toContain("🗂️conversation: conv...");
     expect(result.text).toContain("📦archived: conv...");
     expect(result.text).toContain("🧠");
-    expect(result.text).toContain("🔗transport:");
+    expect(result.text).toContain("🚘transport:");
 
     const secondConversation = await conversations.getActiveConversation("chat-1");
     expect(secondConversation).not.toBe(firstConversation);

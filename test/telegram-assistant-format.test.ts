@@ -204,7 +204,7 @@ describe("prepareTelegramReply", () => {
     );
   });
 
-  it("keeps system-origin non-extra replies plain even when result type is reply", () => {
+  it("formats system-origin non-extra replies as markdown HTML", () => {
     const result = prepareTelegramReply({
       text: "**status**",
       meta: { resultType: "reply", isExtra: false, origin: "system" },
@@ -214,7 +214,7 @@ describe("prepareTelegramReply", () => {
       logger
     });
 
-    expect(result).toEqual({ text: "**status**" });
+    expect(result).toEqual({ text: "<strong>status</strong>", parseMode: "HTML" });
   });
 
   it("falls back to plain text when extra reply formatting fails", () => {
