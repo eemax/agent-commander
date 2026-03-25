@@ -242,11 +242,11 @@ describe("createMessageRouter", () => {
     if (result.type !== "reply") {
       return;
     }
-    expect(result.text).toContain("✨ Started new conversation");
-    expect(result.text).toContain("🗂️ conversation: conv...");
-    expect(result.text).toContain("📦 archived: conv...");
+    expect(result.text).toContain("✨Started new conversation");
+    expect(result.text).toContain("🗂️conversation: conv...");
+    expect(result.text).toContain("📦archived: conv...");
     expect(result.text).toContain("🧠");
-    expect(result.text).toContain("🔗 transport:");
+    expect(result.text).toContain("🔗transport:");
 
     const secondConversation = await conversations.getActiveConversation("chat-1");
     expect(secondConversation).not.toBe(firstConversation);
@@ -300,8 +300,8 @@ describe("createMessageRouter", () => {
     );
     expect(callbackResult.type).toBe("reply");
     if (callbackResult.type === "reply") {
-      expect(callbackResult.text).toContain("🗂️ conversation: conv...");
-      expect(callbackResult.text).toContain("📦 archived: conv...");
+      expect(callbackResult.text).toContain("🗂️conversation: conv...");
+      expect(callbackResult.text).toContain("📦archived: conv...");
       expect(callbackResult.text).toContain("🧠");
     }
 
@@ -658,7 +658,7 @@ describe("createMessageRouter", () => {
     const status = await router.handleIncomingMessage(sampleIncoming({ text: "/status", messageId: "msg-4" }));
     expect(status.type).toBe("reply");
     if (status.type === "reply") {
-      expect(status.text).toContain(`📁 \`${resolvedProjectDir}\``);
+      expect(status.text).toContain(`📁\`${resolvedProjectDir}\``);
     }
 
     await router.handleIncomingMessage(sampleIncoming({ text: "/bash pwd", messageId: "msg-5" }));
@@ -824,7 +824,7 @@ describe("createMessageRouter", () => {
     const switched = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "/model codex" }));
     expect(switched).toEqual({
       type: "reply",
-      text: "model: gpt-5.3-codex\nthinking effort: high (model default)\ncache retention: 24h (model default)"
+      text: "model: gpt-5.3-codex\nthinking effort: high (model default)\ncache retention: 24h (model default, api:http only)"
     });
     expect(await conversations.getActiveModelOverride("chat-1")).toBe("gpt-5.3-codex");
     expect(await conversations.getThinkingEffort("chat-1")).toBe("high");
@@ -929,9 +929,9 @@ describe("createMessageRouter", () => {
     const result = await router.handleIncomingMessage(sampleIncoming({ text: "/status" }));
     expect(result.type).toBe("reply");
     if (result.type === "reply") {
-      expect(result.text).toContain("🧮 Tokens: n/a");
-      expect(result.text).toContain("📚 Context: n/a");
-      expect(result.text).toContain("🗄️ Cache: n/a · never");
+      expect(result.text).toContain("🧮Tokens: n/a");
+      expect(result.text).toContain("📚Context: n/a");
+      expect(result.text).toContain("🗄️Cache: n/a · never");
     }
   });
 
@@ -995,10 +995,10 @@ describe("createMessageRouter", () => {
     const result = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "/status" }));
     expect(result.type).toBe("reply");
     if (result.type === "reply") {
-      expect(result.text).toContain("🧠 gpt-5.3-codex");
-      expect(result.text).toContain("🧮 Tokens: 8.7k in / 138 out · 42 reasoning");
-      expect(result.text).toContain("📚 Context: 8.7k / 392k (2%)");
-      expect(result.text).toContain("🗄️ Cache: 95% hit");
+      expect(result.text).toContain("🧠gpt-5.3-codex");
+      expect(result.text).toContain("🧮Tokens: 8.7k in / 138 out · 42 reasoning");
+      expect(result.text).toContain("📚Context: 8.7k / 392k (2%)");
+      expect(result.text).toContain("🗄️Cache: 8.3k hit (95%)");
       expect(result.text).not.toContain("conversation:");
     }
   });
@@ -1052,9 +1052,9 @@ describe("createMessageRouter", () => {
     const status = await secondRouter.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "/status" }));
     expect(status.type).toBe("reply");
     if (status.type === "reply") {
-      expect(status.text).toContain("🧮 Tokens: 1.2k in / 160 out · 25 reasoning");
-      expect(status.text).toContain("📚 Context: 1.2k / 392k (0%)");
-      expect(status.text).toContain("🗄️ Cache: 75% hit");
+      expect(status.text).toContain("🧮Tokens: 1.2k in / 160 out · 25 reasoning");
+      expect(status.text).toContain("📚Context: 1.2k / 392k (0%)");
+      expect(status.text).toContain("🗄️Cache: 900 hit (75%)");
     }
   });
 

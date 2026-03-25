@@ -254,10 +254,11 @@ function formatConversationDefaults(runtime: ConversationSwitchRuntime, config: 
   };
 
   return [
-    `🧠 ${model.id} · 🔎 ${searchModel.id}`,
-    `💭 thinking: ${runtime.thinkingEffort}`,
-    `🔗 transport: ${runtime.transportMode} · auth: ${runtime.authMode}`,
-    `📁 \`${collapseTilde(runtime.workingDirectory)}\``
+    `🧠${model.id}`,
+    `🔎${searchModel.id}`,
+    `💭thinking: ${runtime.thinkingEffort}`,
+    `🔗transport: ${runtime.transportMode} · auth: ${runtime.authMode}`,
+    `📁\`${collapseTilde(runtime.workingDirectory)}\``
   ].join("\n");
 }
 
@@ -334,9 +335,9 @@ export function createCoreCommandHandler(params: {
           return {
             type: "reply",
             text: [
-              "✨ Started new conversation",
-              `🗂️ conversation: ${formatConversationIdForUi(result.conversationId)}`,
-              `📦 archived: ${archived}`,
+              "✨Started new conversation",
+              `🗂️conversation: ${formatConversationIdForUi(result.conversationId)}`,
+              `📦archived: ${archived}`,
               defaults
             ].join("\n")
           };
@@ -644,7 +645,7 @@ export function createCoreCommandHandler(params: {
             text: [
               `model: ${resolved.id}`,
               `thinking effort: ${resolved.defaultThinking} (model default)`,
-              `cache retention: ${resolved.cacheRetention} (model default)`
+              `cache retention: ${resolved.cacheRetention} (model default, api:http only)`
             ].join("\n")
           };
         }
@@ -904,10 +905,10 @@ export function createCoreCommandHandler(params: {
           return {
             type: "reply",
             text: [
-              target.type === "new" ? "✨ Started new conversation" : "🔄 Switched to stashed conversation",
-              `🗂️ conversation: ${formatConversationIdForUi(result.conversationId)}`,
+              target.type === "new" ? "✨Started new conversation" : "🔄Switched to stashed conversation",
+              `🗂️conversation: ${formatConversationIdForUi(result.conversationId)}`,
               `🏷️ alias: ${result.alias ?? "none"}`,
-              `📦 archived: ${archived}`,
+              `📦archived: ${archived}`,
               defaults
             ].join("\n")
           };
@@ -936,8 +937,8 @@ export function createCoreCommandHandler(params: {
           type: "reply",
           text: [
             `📥 stashed: ${formatConversationIdForUi(result.stashedConversationId)} as ${result.stashedAlias}`,
-            target.type === "new" ? "✨ Started new conversation" : "🔄 Switched to stashed conversation",
-            `🗂️ conversation: ${formatConversationIdForUi(result.conversationId)}`,
+            target.type === "new" ? "✨Started new conversation" : "🔄Switched to stashed conversation",
+            `🗂️conversation: ${formatConversationIdForUi(result.conversationId)}`,
             `🏷️ alias: ${result.alias ?? "none"}`,
             defaults
           ].join("\n")

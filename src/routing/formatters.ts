@@ -128,13 +128,13 @@ function formatRelativeTime(deltaMs: number): string {
 
 function formatCacheSummary(usage: ProviderUsageSnapshot | null, nowMs?: number): string {
   if (!usage || usage.inputTokens === null || usage.cachedTokens === null || usage.inputTokens <= 0) {
-    return "🗄️ Cache: n/a · never";
+    return "🗄️Cache: n/a · never";
   }
 
   const cachedTokens = Math.min(usage.cachedTokens, usage.inputTokens);
   const newTokens = Math.max(usage.inputTokens - cachedTokens, 0);
   const cacheHitPercent = Math.round((cachedTokens / usage.inputTokens) * 100);
-  let line = `🗄️ Cache: ${cacheHitPercent}% hit · ${formatCompactNumber(cachedTokens)} cached · ${formatCompactNumber(newTokens)} new`;
+  let line = `🗄️Cache: ${formatCompactNumber(cachedTokens)} hit (${cacheHitPercent}%) · ${formatCompactNumber(newTokens)} new`;
 
   const lastHitAt = usage.lastCacheHitAt;
   if (lastHitAt != null && lastHitAt > 0) {
@@ -196,7 +196,7 @@ function formatContextSummary(
   compactionCount: number
 ): string {
   if (!usage) {
-    return "📚 Context: n/a";
+    return "📚Context: n/a";
   }
 
   const invalidBudgetWindow =
@@ -206,16 +206,16 @@ function formatContextSummary(
     ? null
     : resolveBudgetContextWindow(contextWindow, modelMaxOutputTokens);
   if (budgetTokens === null) {
-    return "📚 Context: n/a";
+    return "📚Context: n/a";
   }
 
-  let line = `📚 Context: ${formatContextRatio(budgetTokens, budgetContextWindow)}`;
+  let line = `📚Context: ${formatContextRatio(budgetTokens, budgetContextWindow)}`;
 
   if (compactionTokens !== null) {
     const compactThreshold = Math.floor(compactionTokens * compactionThreshold);
-    line += ` · ♻️ ${formatCompactNumber(compactThreshold)}`;
+    line += ` · ♻️${formatCompactNumber(compactThreshold)}`;
     if (compactionCount > 0) {
-      line += ` (${compactionCount}x)`;
+      line += `(${compactionCount}x)`;
     }
   }
 
@@ -224,10 +224,10 @@ function formatContextSummary(
 
 function formatTokenSummary(usage: ProviderUsageSnapshot | null): string {
   if (!usage || usage.inputTokens === null || usage.outputTokens === null) {
-    return "🧮 Tokens: n/a";
+    return "🧮Tokens: n/a";
   }
 
-  const line = `🧮 Tokens: ${formatCompactNumber(usage.inputTokens)} in / ${formatCompactNumber(usage.outputTokens)} out`;
+  const line = `🧮Tokens: ${formatCompactNumber(usage.inputTokens)} in / ${formatCompactNumber(usage.outputTokens)} out`;
   if (usage.reasoningTokens === null || usage.reasoningTokens === undefined) {
     return line;
   }
@@ -656,13 +656,13 @@ export function buildStatusReply(params: {
   nowMs?: number;
 }): string {
   const includeDiagnostics = params.includeDiagnostics ?? false;
-  const modelLine = `🧠 ${params.model} · think: ${params.thinkingEffort} · ${params.authMode}:${params.transportMode}`;
+  const modelLine = `🧠${params.model} · t: ${params.thinkingEffort} · ${params.authMode}:${params.transportMode}`;
   const summaryLines = [
     modelLine,
     formatContextSummary(params.modelContextWindow, params.modelMaxOutputTokens, params.latestUsage, params.compactionTokens, params.compactionThreshold, params.compactionCount),
     formatTokenSummary(params.latestUsage),
     formatCacheSummary(params.latestUsage, params.nowMs),
-    `📁 \`${collapseTilde(params.cwd)}\``
+    `📁\`${collapseTilde(params.cwd)}\``
   ];
 
   if (!includeDiagnostics) {
@@ -680,20 +680,12 @@ export function buildStatusReply(params: {
   const lines = [
     ...summaryLines,
     "",
-    `search_model: ${params.webSearchModel ?? "none"}`,
-    `cache_retention: ${params.cacheRetention}`,
-    `processes_running: ${params.sessions.length}`,
-    `verbose: ${params.verboseMode}`,
-    `observability: ${params.fullObservabilityEnabled ? "on" : "off"}`,
-    `provider.last_failure_kind: ${params.lastProviderFailure?.kind ?? "none"}`,
-    `provider.last_failure_status: ${params.lastProviderFailure?.statusCode ?? "none"}`,
-    `provider.last_failure_attempts: ${params.lastProviderFailure?.attempts ?? "none"}`,
-    `provider.last_failure_at: ${params.lastProviderFailure?.at ?? "none"}`,
-    `provider.last_failure_reason: ${
-      params.lastProviderFailure ? formatProviderFailureReason(params.lastProviderFailure.reason) : "none"
-    }`,
     `conversation: ${formatConversationIdForUi(params.conversationId)}`,
     `skills: ${params.skillsCount}`,
+    `search_model: ${params.webSearchModel ?? "none"}`,
+    `cache_retention: ${params.cacheRetention}`,
+    `verbose: ${params.verboseMode}`,
+    `observability: ${params.fullObservabilityEnabled ? "on" : "off"}`,
     `tool.success_count: ${params.toolRuntime.toolSuccessCount}`,
     `tool.failure_count: ${params.toolRuntime.toolFailureCount}`,
     toolErrorCodesLine,
@@ -728,6 +720,15 @@ export function buildStatusReply(params: {
   lines.push(`process.truncated_combined_chars: ${params.processHealth.truncatedCombinedChars}`);
   lines.push(`process.truncated_stdout_chars: ${params.processHealth.truncatedStdoutChars}`);
   lines.push(`process.truncated_stderr_chars: ${params.processHealth.truncatedStderrChars}`);
+  lines.push(`provider.last_failure_kind: ${params.lastProviderFailure?.kind ?? "none"}`);
+  lines.push(`provider.last_failure_status: ${params.lastProviderFailure?.statusCode ?? "none"}`);
+  lines.push(`provider.last_failure_attempts: ${params.lastProviderFailure?.attempts ?? "none"}`);
+  lines.push(`provider.last_failure_at: ${params.lastProviderFailure?.at ?? "none"}`);
+  lines.push(
+    `provider.last_failure_reason: ${
+      params.lastProviderFailure ? formatProviderFailureReason(params.lastProviderFailure.reason) : "none"
+    }`
+  );
 
   return lines.join("\n");
 }
