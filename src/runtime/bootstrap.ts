@@ -119,6 +119,7 @@ async function bootstrapAgentRuntime(
     defaultThinkingEffort: defaultModel.defaultThinking,
     defaultCacheRetention: defaultModel.cacheRetention,
     defaultAuthMode: config.openai.authMode,
+    defaultTransportMode: config.openai.defaultTransport,
     sessionCacheMaxEntries: config.runtime.sessionCacheMaxEntries,
     observability
   });

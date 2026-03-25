@@ -53,6 +53,7 @@ export type Config = {
   };
   openai: {
     authMode: AuthMode;
+    defaultTransport: TransportMode;
     apiKey: string;
     model: string;
     models: OpenAIModelCatalogEntry[];

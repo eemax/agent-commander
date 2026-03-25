@@ -6,7 +6,7 @@ import type { EnvSecrets } from "./env.js";
 import type { Config, LogLevel, TelegramAssistantFormat } from "./runtime/contracts.js";
 import type { WebSearchModelCatalogEntry } from "./web-search-catalog.js";
 import { DEFAULT_OBSERVABILITY_REDACTION } from "./observability.js";
-import { THINKING_EFFORT_VALUES, CACHE_RETENTION_VALUES, VERBOSE_MODE_VALUES, type ThinkingEffort, type CacheRetention } from "./types.js";
+import { THINKING_EFFORT_VALUES, CACHE_RETENTION_VALUES, VERBOSE_MODE_VALUES, type ThinkingEffort, type CacheRetention, type TransportMode } from "./types.js";
 
 const LOG_LEVEL_VALUES = ["debug", "info", "warn", "error"] as const;
 const TELEGRAM_ASSISTANT_FORMAT_VALUES = ["plain_text", "markdown_to_html"] as const;
@@ -25,6 +25,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
   },
   openai: {
     auth_mode: "api",
+    default_transport: "http",
     model: "gpt-5.4-mini",
     models: [
       {
@@ -178,6 +179,7 @@ export const configSchema = z
     openai: z
       .object({
         auth_mode: z.enum(["api", "codex"]).default("api"),
+        default_transport: z.enum(["http", "wss"]).default("http"),
         model: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.openai.model),
         models: z.array(openAIModelSchema).min(1).default(DEFAULT_OPENAI_MODELS),
         timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.openai.timeout_ms),
@@ -578,6 +580,7 @@ export function buildConfigFromParsed(
     },
     openai: {
       authMode,
+      defaultTransport: config.openai.default_transport as TransportMode,
       apiKey: openAIApiKey,
       model: config.openai.model,
       models: openAIModels,

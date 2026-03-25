@@ -161,7 +161,7 @@ export async function runOpenAIToolLoop(params: {
   request: (body: OpenAIResponsesRequestBody) => Promise<OpenAIResponsesResponse>;
   model: string;
   instructions: string;
-  initialInput: OpenAIInputMessage[];
+  initialInput: Array<OpenAIInputMessage | OpenAIFunctionCallOutput | OpenAIResponsesOutputItem>;
   thinkingEffort: ThinkingEffort;
   compactionTokens: number | null;
   compactionThreshold: number;
@@ -190,6 +190,7 @@ export async function runOpenAIToolLoop(params: {
 }): Promise<{
   reply: string;
   finalResponse: OpenAIResponsesResponse;
+  accumulatedInput?: Array<OpenAIInputMessage | OpenAIFunctionCallOutput | OpenAIResponsesOutputItem>;
 }> {
   const tools = params.harness.exportProviderTools();
   const workflowStartedAtMs = Date.now();
@@ -336,9 +337,14 @@ export async function runOpenAIToolLoop(params: {
         params.harness.metrics.workflowsSucceeded += 1;
         await transitionState("SUCCEEDED", "tool workflow completed successfully");
         succeeded = true;
+        // Include response output in accumulated input so stateless resume has full context.
+        const finalInput = params.stateless && response.output
+          ? [...input, ...(response.output ?? []).map(({ id: _id, ...rest }) => rest)]
+          : input;
         return {
           reply: params.extractAssistantText(response),
-          finalResponse: response
+          finalResponse: response,
+          ...(params.stateless && { accumulatedInput: [...finalInput] }),
         };
       }
 

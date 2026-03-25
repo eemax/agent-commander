@@ -910,5 +910,142 @@ describe("SubagentWorker", () => {
       const [url] = mockFetch.mock.calls[0] as [string, ...unknown[]];
       expect(url).toBe("https://api.openai.com/v1/responses");
     });
+
+    it("accumulates conversation history across tool-loop steps in codex mode", async () => {
+      const codexAuth = {
+        getAccessToken: vi.fn().mockResolvedValue("codex-token"),
+        getAccountId: vi.fn().mockReturnValue("acct-99"),
+        forceRefresh: vi.fn().mockResolvedValue(undefined),
+        reload: vi.fn()
+      };
+
+      // First response: model makes a function call
+      const toolCallResponse: OpenAIResponsesResponse = {
+        id: "resp_step1",
+        output_text: "",
+        output: [
+          {
+            type: "function_call",
+            id: "call_1",
+            call_id: "call_1",
+            name: "bash",
+            arguments: '{"command":"echo hello"}'
+          }
+        ],
+        usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 }
+      };
+
+      // Second response: model completes
+      const completionResp = makeCompletionResponse("done [TASK_COMPLETE]");
+
+      let fetchCallCount = 0;
+      mockFetch.mockImplementation(async () => {
+        fetchCallCount += 1;
+        const body = fetchCallCount === 1 ? toolCallResponse : completionResp;
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      });
+
+      const worker = createWorker({
+        authModeRegistry: createAuthModeRegistry({ apiKey: "test-key", codexAuth }),
+        resolveOwnerProviderSettings: async () => ({
+          authMode: "codex" as const,
+          transportMode: "http" as const
+        })
+      });
+      const task = buildTask();
+
+      await worker.start(task);
+      await waitFor(() => {
+        const recv = manager.recv("owner-1", { [task.taskId]: "" });
+        return recv.events.some((e) => e.kind === "result");
+      });
+
+      // Should have made 2 fetch calls (tool call + completion)
+      expect(fetchCallCount).toBe(2);
+
+      // Second request should contain accumulated history, not just tool outputs
+      const [, secondInit] = mockFetch.mock.calls[1] as [string, RequestInit];
+      const secondBody = JSON.parse(String(secondInit.body)) as Record<string, unknown>;
+
+      // Codex adapter strips previous_response_id
+      expect(secondBody.previous_response_id).toBeUndefined();
+
+      // Input should contain accumulated items (initial message + prior output + tool result)
+      const input = secondBody.input as Array<Record<string, unknown>>;
+      expect(input.length).toBeGreaterThan(1);
+      // Should contain the function_call_output from the tool execution
+      expect(input.some((item) => item.type === "function_call_output")).toBe(true);
+    });
+
+    it("preserves accumulated input across pause/resume in codex mode", async () => {
+      const codexAuth = {
+        getAccessToken: vi.fn().mockResolvedValue("codex-token"),
+        getAccountId: vi.fn().mockReturnValue("acct-99"),
+        forceRefresh: vi.fn().mockResolvedValue(undefined),
+        reload: vi.fn()
+      };
+
+      // First response: model pauses with NEEDS_INPUT
+      const pauseResp = makeCompletionResponse("I need more info [NEEDS_INPUT]");
+      // Second response: model completes after resume
+      const completionResp = makeCompletionResponse("all done [TASK_COMPLETE]");
+
+      let fetchCallCount = 0;
+      mockFetch.mockImplementation(async () => {
+        fetchCallCount += 1;
+        const body = fetchCallCount === 1 ? pauseResp : completionResp;
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      });
+
+      const worker = createWorker({
+        authModeRegistry: createAuthModeRegistry({ apiKey: "test-key", codexAuth }),
+        resolveOwnerProviderSettings: async () => ({
+          authMode: "codex" as const,
+          transportMode: "http" as const
+        })
+      });
+      const task = buildTask();
+
+      await worker.start(task);
+
+      // Wait for pause (question event)
+      await waitFor(() => {
+        const recv = manager.recv("owner-1", { [task.taskId]: "" });
+        return recv.events.some((e) => e.kind === "question");
+      });
+
+      expect(fetchCallCount).toBe(1);
+
+      // Resume the task
+      await worker.send(task.taskId, { content: "here is the extra info" });
+
+      // Wait for completion
+      await waitFor(() => {
+        const recv = manager.recv("owner-1", { [task.taskId]: "" });
+        return recv.events.some((e) => e.kind === "result");
+      });
+
+      expect(fetchCallCount).toBe(2);
+
+      // Resume request should NOT use previous_response_id (codex strips it)
+      const [, resumeInit] = mockFetch.mock.calls[1] as [string, RequestInit];
+      const resumeBody = JSON.parse(String(resumeInit.body)) as Record<string, unknown>;
+      expect(resumeBody.previous_response_id).toBeUndefined();
+
+      // Resume input should contain accumulated context from the first run
+      const input = resumeBody.input as Array<Record<string, unknown>>;
+      // Should have: initial user message + model output from first run + resume message
+      expect(input.length).toBeGreaterThanOrEqual(3);
+      // Last item should be the resume message
+      const lastItem = input[input.length - 1] as Record<string, unknown>;
+      expect(lastItem.role).toBe("user");
+      expect(lastItem.content).toBe("here is the extra info");
+    });
   });
 });

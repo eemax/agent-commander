@@ -399,4 +399,117 @@ describe("createWsTransportManager", () => {
 
     manager.closeAll();
   });
+
+  it("opens new socket when auth mode changes for the same chatId", async () => {
+    const codexAdapter: AuthModeAdapter = {
+      id: "codex",
+      describe: () => ({
+        label: "Codex",
+        capabilities: { allowedTransports: ["http", "wss"] as const, defaultTransport: "http" as const, statelessToolLoop: true }
+      }),
+      availability: () => ({ ok: true }),
+      async resolveRequest() {
+        return {
+          httpUrl: "https://chatgpt.com/backend-api/codex/responses",
+          wsUrl: "wss://chatgpt.com/backend-api/codex/responses",
+          headers: { "content-type": "application/json", authorization: "Bearer codex-token" },
+          extraBodyFields: { store: false },
+          stripBodyFields: ["prompt_cache_key", "prompt_cache_retention", "previous_response_id"]
+        };
+      }
+    };
+
+    const config = makeConfig({ openai: { timeoutMs: 5_000 } });
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+      WebSocketImpl: trackingSockets()
+    }));
+
+    // First request with api adapter.
+    const p1 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-switch", { authModeAdapter: mockAdapter });
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
+    const ws1 = createdSockets[0]!;
+    await vi.waitFor(() => expect(ws1.sent).toHaveLength(1));
+
+    ws1._receiveMessage({
+      type: "response.completed",
+      response: { id: "resp_s1", output_text: "first", output: [] }
+    });
+    await p1;
+
+    // Second request with codex adapter on same chatId — should open new socket.
+    const p2 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-switch", { authModeAdapter: codexAdapter });
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(2));
+    const ws2 = createdSockets[1]!;
+    await vi.waitFor(() => expect(ws2.sent).toHaveLength(1));
+
+    // Old socket was torn down.
+    expect(ws1.closed).toBe(true);
+    // New socket connects to codex URL.
+    expect(ws2.url).toBe("wss://chatgpt.com/backend-api/codex/responses");
+
+    ws2._receiveMessage({
+      type: "response.completed",
+      response: { id: "resp_s2", output_text: "second", output: [] }
+    });
+    await p2;
+
+    manager.closeAll();
+  });
+
+  it("opens new socket when credentials refresh for the same adapter", async () => {
+    let tokenVersion = "token-A";
+    const refreshableAdapter: AuthModeAdapter = {
+      id: "codex",
+      describe: () => ({
+        label: "Codex",
+        capabilities: { allowedTransports: ["http", "wss"] as const, defaultTransport: "http" as const, statelessToolLoop: true }
+      }),
+      availability: () => ({ ok: true }),
+      async resolveRequest() {
+        return {
+          httpUrl: "https://chatgpt.com/backend-api/codex/responses",
+          wsUrl: "wss://chatgpt.com/backend-api/codex/responses",
+          headers: { "content-type": "application/json", authorization: `Bearer ${tokenVersion}` },
+          extraBodyFields: { store: false },
+          stripBodyFields: ["prompt_cache_key", "prompt_cache_retention", "previous_response_id"]
+        };
+      }
+    };
+
+    const config = makeConfig({ openai: { timeoutMs: 5_000 } });
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+      WebSocketImpl: trackingSockets()
+    }));
+
+    // First request with token-A.
+    const p1 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-cred", { authModeAdapter: refreshableAdapter });
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
+    const ws1 = createdSockets[0]!;
+    await vi.waitFor(() => expect(ws1.sent).toHaveLength(1));
+
+    ws1._receiveMessage({
+      type: "response.completed",
+      response: { id: "resp_c1", output_text: "first", output: [] }
+    });
+    await p1;
+
+    // Simulate credential refresh.
+    tokenVersion = "token-B";
+
+    // Second request — same adapter but new credentials should open new socket.
+    const p2 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-cred", { authModeAdapter: refreshableAdapter });
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(2));
+    const ws2 = createdSockets[1]!;
+    await vi.waitFor(() => expect(ws2.sent).toHaveLength(1));
+
+    expect(ws1.closed).toBe(true);
+
+    ws2._receiveMessage({
+      type: "response.completed",
+      response: { id: "resp_c2", output_text: "second", output: [] }
+    });
+    await p2;
+
+    manager.closeAll();
+  });
 });

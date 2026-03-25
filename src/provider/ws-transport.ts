@@ -38,6 +38,7 @@ type PendingRequest = {
 type WsConnection = {
   ws: WebSocket;
   chatId: string;
+  authFingerprint: string;
   createdAtMs: number;
   pendingRequest: PendingRequest | null;
   rotationTimer: ReturnType<typeof setTimeout> | null;
@@ -119,6 +120,7 @@ export function createWsTransportManager(
   async function createConnection(chatId: string, adapter: AuthModeAdapter, trace?: TraceContext): Promise<WsConnection> {
     const authParams = await adapter.resolveRequest();
     const wsUrl = authParams.wsUrl;
+    const authFingerprint = `${adapter.id}:${wsUrl}:${authParams.headers.authorization ?? ""}`;
 
     return new Promise<WsConnection>((resolve, reject) => {
       const eventTrace = trace ? createChildTraceContext(trace, "ws-transport") : createTraceRootContext("ws-transport");
@@ -130,6 +132,7 @@ export function createWsTransportManager(
       const conn: WsConnection = {
         ws,
         chatId,
+        authFingerprint,
         createdAtMs: nowMsImpl(),
         pendingRequest: null,
         rotationTimer: null,
@@ -306,11 +309,16 @@ export function createWsTransportManager(
   async function ensureConnected(chatId: string, adapter: AuthModeAdapter, trace?: TraceContext): Promise<WsConnection> {
     const existing = connections.get(chatId);
     if (existing && existing.ws.readyState === WsImpl.OPEN) {
-      return existing;
-    }
-
-    // Clean up stale connection if any.
-    if (existing) {
+      // Verify auth identity still matches — mode switches or credential refreshes
+      // require a new socket since headers are set at connection time.
+      const authParams = await adapter.resolveRequest();
+      const currentFingerprint = `${adapter.id}:${authParams.wsUrl}:${authParams.headers.authorization ?? ""}`;
+      if (existing.authFingerprint === currentFingerprint) {
+        return existing;
+      }
+      teardownConnection(existing);
+    } else if (existing) {
+      // Clean up stale (non-open) connection.
       teardownConnection(existing);
     }
 

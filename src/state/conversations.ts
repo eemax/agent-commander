@@ -76,6 +76,7 @@ type ConversationStoreParams = {
   defaultThinkingEffort?: ThinkingEffort;
   defaultCacheRetention?: CacheRetention;
   defaultAuthMode?: AuthMode;
+  defaultTransportMode?: TransportMode;
   sessionCacheMaxEntries?: number;
   observability?: ObservabilitySink;
 };
@@ -233,13 +234,14 @@ function createDefaultRuntimeProfile(params: {
   defaultThinkingEffort: ThinkingEffort;
   defaultCacheRetention: CacheRetention;
   defaultAuthMode: AuthMode;
+  defaultTransportMode: TransportMode;
 }): ConversationRuntimeProfile {
   return {
     workingDirectory: params.defaultWorkingDirectory,
     verboseMode: params.defaultVerboseMode,
     thinkingEffort: params.defaultThinkingEffort,
     cacheRetention: params.defaultCacheRetention,
-    transportMode: "http",
+    transportMode: params.defaultTransportMode,
     authMode: params.defaultAuthMode,
     activeModelOverride: null,
     activeWebSearchModelOverride: null,
@@ -275,6 +277,7 @@ function normalizeRuntimeProfile(
     defaultThinkingEffort: ThinkingEffort;
     defaultCacheRetention: CacheRetention;
     defaultAuthMode: AuthMode;
+    defaultTransportMode: TransportMode;
   }
 ): ConversationRuntimeProfile | null {
   if (!isPlainObject(value)) {
@@ -302,7 +305,7 @@ function normalizeRuntimeProfile(
       : defaults.defaultVerboseMode,
     thinkingEffort: isThinkingEffort(value.thinkingEffort) ? value.thinkingEffort : defaults.defaultThinkingEffort,
     cacheRetention: isCacheRetention(value.cacheRetention) ? value.cacheRetention : defaults.defaultCacheRetention,
-    transportMode: isTransportMode(value.transportMode) ? value.transportMode : "http",
+    transportMode: isTransportMode(value.transportMode) ? value.transportMode : defaults.defaultTransportMode,
     authMode: isAuthMode(value.authMode) ? value.authMode : defaults.defaultAuthMode,
     activeModelOverride,
     activeWebSearchModelOverride,
@@ -323,6 +326,7 @@ function parseCurrentConversationsIndex(
     defaultThinkingEffort: ThinkingEffort;
     defaultCacheRetention: CacheRetention;
     defaultAuthMode: AuthMode;
+    defaultTransportMode: TransportMode;
   }
 ): CurrentConversationsIndex {
   const parsed = JSON.parse(raw) as unknown;
@@ -366,6 +370,7 @@ function parseActiveConversationsIndex(
     defaultThinkingEffort: ThinkingEffort;
     defaultCacheRetention: CacheRetention;
     defaultAuthMode: AuthMode;
+    defaultTransportMode: TransportMode;
   }
 ): ActiveConversationsIndex {
   const parsed = JSON.parse(raw) as unknown;
@@ -466,7 +471,8 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     defaultVerboseMode: params.defaultVerboseMode ?? "full",
     defaultThinkingEffort: params.defaultThinkingEffort ?? "medium",
     defaultCacheRetention: params.defaultCacheRetention ?? "in_memory",
-    defaultAuthMode: params.defaultAuthMode ?? "api"
+    defaultAuthMode: params.defaultAuthMode ?? "api",
+    defaultTransportMode: params.defaultTransportMode ?? "http"
   } as const;
 
   let activeConversationsCache: ActiveConversationsIndex | null = null;

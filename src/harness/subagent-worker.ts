@@ -24,7 +24,7 @@ import type {
   TaskResult
 } from "./subagent-types.js";
 import type { ProviderFunctionTool, ToolContext } from "./types.js";
-import type { OpenAIInputMessage } from "../provider/openai-types.js";
+import type { OpenAIInputMessage, OpenAIFunctionCallOutput, OpenAIResponsesOutputItem } from "../provider/openai-types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,6 +49,7 @@ type TaskRuntime = {
   steerChannel: SteerChannel;
   loopPromise: Promise<void>;
   pausedResponseId: string | null;
+  pausedAccumulatedInput: Array<OpenAIInputMessage | OpenAIFunctionCallOutput | OpenAIResponsesOutputItem> | null;
   // Preserved across pause/resume
   task: SubagentTask;
   model: OpenAIModelCatalogEntry;
@@ -317,7 +318,13 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
   }
 
   /** Handle a tool loop result — classify and push appropriate event. Returns true if paused. */
-  function handleReply(taskId: string, reply: string, responseId: string | undefined, runtime: TaskRuntime): boolean {
+  function handleReply(
+    taskId: string,
+    reply: string,
+    responseId: string | undefined,
+    runtime: TaskRuntime,
+    accumulatedInput?: Array<OpenAIInputMessage | OpenAIFunctionCallOutput | OpenAIResponsesOutputItem>
+  ): boolean {
     const classification = classifyReply(reply);
     const cleanReply = stripMarker(reply);
 
@@ -332,8 +339,9 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
         // Task may already be terminal
         return false;
       }
-      // Store response ID for resume — do NOT remove from activeTasks
+      // Store response ID and accumulated input for resume — do NOT remove from activeTasks
       runtime.pausedResponseId = responseId ?? null;
+      runtime.pausedAccumulatedInput = accumulatedInput ?? null;
       return true; // paused
     }
 
@@ -386,7 +394,7 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
 
   async function executeLoop(
     runtime: TaskRuntime,
-    initialInput: OpenAIInputMessage[],
+    initialInput: Array<OpenAIInputMessage | OpenAIFunctionCallOutput | OpenAIResponsesOutputItem>,
     previousResponseId: string | null
   ): Promise<void> {
     const { task, model, scopedHarness, trace, abortController, steerChannel } = runtime;
@@ -407,11 +415,15 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
           }
         : requestFn;
 
-      const { reply, finalResponse } = await runOpenAIToolLoop({
+      const adapter = deps.authModeRegistry.get(runtime.providerSettings.authMode);
+      const stateless = adapter.describe().capabilities.statelessToolLoop;
+
+      const { reply, finalResponse, accumulatedInput } = await runOpenAIToolLoop({
         request: wrappedRequest,
         model: model.id,
         instructions,
         initialInput,
+        stateless,
         thinkingEffort: model.defaultThinking,
         compactionTokens: model.compactionTokens,
         compactionThreshold: model.compactionThreshold,
@@ -428,7 +440,7 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
         limits: buildToolLoopLimits(task)
       });
 
-      const paused = handleReply(taskId, reply, finalResponse.id, runtime);
+      const paused = handleReply(taskId, reply, finalResponse.id, runtime, accumulatedInput);
       if (!paused) {
         activeTasks.delete(taskId);
       }
@@ -462,6 +474,7 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
       steerChannel,
       loopPromise: Promise.resolve(),
       pausedResponseId: null,
+      pausedAccumulatedInput: null,
       task,
       model,
       scopedHarness,
@@ -479,12 +492,18 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
 
   async function resumeTask(taskId: string, runtime: TaskRuntime, supervisorMessage: string): Promise<void> {
     const previousResponseId = runtime.pausedResponseId;
+    const savedInput = runtime.pausedAccumulatedInput;
     runtime.pausedResponseId = null;
+    runtime.pausedAccumulatedInput = null;
+
+    const resumeInput: Array<OpenAIInputMessage | OpenAIFunctionCallOutput | OpenAIResponsesOutputItem> = savedInput
+      ? [...savedInput, { type: "message", role: "user", content: supervisorMessage }]
+      : [{ type: "message", role: "user", content: supervisorMessage }];
 
     await executeLoop(
       runtime,
-      [{ type: "message", role: "user", content: supervisorMessage }],
-      previousResponseId
+      resumeInput,
+      savedInput ? null : previousResponseId
     );
   }
 
