@@ -114,14 +114,17 @@ Core commands:
 - `/cwd <absolute-path>`
 - `/stop`
 - `/bash <command>`
-- `/verbose <on|off>`
+- `/verbose <full|count|off>`
 - `/thinking <none|minimal|low|medium|high|xhigh>`
 - `/cache <in_memory|24h>`
 - `/model <id-or-alias>`
 - `/models`
 - `/search <id-or-alias>`
 - `/transport <http|wss>`
+- `/auth <api|codex>`
 - `/steer <message>`
+
+`/auth <api|codex>` switches the authentication mode for the current conversation. `api` uses a standard OpenAI API key; `codex` uses ChatGPT OAuth tokens from `~/.codex/auth.json`. Fails immediately if the selected mode's credentials are unavailable. Persisted in the conversation runtime profile.
 
 `/steer <message>` injects guidance into an active tool loop without aborting the turn. The steer text is added as a user message before the model's next tool-loop iteration. When verbose mode is on, steer events appear in Telegram chat as `🎯 Steer: <message>`. If no turn is active, `/steer` returns an error.
 
@@ -202,7 +205,9 @@ Common optional fields:
 - `openai.model` (default `gpt-5.4-mini`)
 - `openai.models` (catalog of switchable models with aliases and optional `context_window`, `max_output_tokens`, `default_thinking`, and `cache_retention`)
 - `runtime.log_level` (`debug|info|warn|error`)
-- `runtime.default_verbose` (default `true`, applied to new conversations)
+- `openai.auth_mode` (`api|codex`, default `api`)
+- `openai.default_transport` (`http|wss`, default `http`)
+- `runtime.default_verbose` (default `"full"`, applied to new conversations)
 - `telegram.streaming_enabled` (default `true`)
 - `telegram.streaming_min_update_ms` (default `100`)
 - `telegram.assistant_format` (`plain_text` by default, `markdown_to_html` to enable Markdown->HTML formatting for final assistant replies)

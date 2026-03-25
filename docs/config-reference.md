@@ -26,9 +26,13 @@ This is the canonical `config/config.json` shape.
 - `streaming_enabled`: boolean, default `true`
 - `streaming_min_update_ms`: positive integer, default `100`
 - `assistant_format`: `"plain_text" | "markdown_to_html"`, default `"plain_text"`
+- `max_file_size_mb`: positive float, default `10` — attachment size limit
+- `file_download_timeout_ms`: positive integer, default `30000` — timeout for Telegram file downloads
+- `max_concurrent_downloads`: positive integer, default `4` — concurrent attachment download limit
 
 ### `openai`
 
+- `auth_mode`: `"api" | "codex"`, default `"api"` — controls authentication mode. `api` uses a standard OpenAI API key (`DEFAULT_OPENAI_API_KEY`). `codex` reads ChatGPT OAuth tokens from `~/.codex/auth.json` and routes requests through `chatgpt.com/backend-api/codex/responses`; the API key is not required in codex mode. Per-conversation override via `/auth api|codex`.
 - `model`: non-empty string, default `"gpt-5.4-mini"`
 - `models`: non-empty array of model catalog entries, default includes:
   - `gpt-5.4-mini` (alias: `mini`, unknown context window)
@@ -63,7 +67,7 @@ This is the canonical `config/config.json` shape.
 - `log_level`: `"debug" | "info" | "warn" | "error"`, default `"info"`
 - `prompt_history_limit`: positive integer or `null`, default `20`
   - when set to `null`, the full conversation message history is sent (no count-based truncation)
-- `default_verbose`: `"off" | "summary" | "full"`, default `"full"` (applied to newly created conversations)
+- `default_verbose`: `"off" | "count" | "full"`, default `"full"` (applied to newly created conversations)
 - `tool_loop_max_steps`: positive integer or `null`, default `30`
 - `tool_workflow_timeout_ms`: positive integer, default `120000`
 - `tool_command_timeout_ms`: positive integer, default `15000`
@@ -126,6 +130,7 @@ No automatic migration is performed from the previous filename layout. If you ne
 ### `subagents`
 
 - `enabled`: boolean, default `true` — register the subagents tool
+- `default_model`: non-empty string, default `"gpt-5.4-mini"` — model used for subagent inference when not overridden per-task
 - `max_concurrent_tasks`: positive integer, default `10` — cap on simultaneous non-terminal tasks
 - `default_time_budget_sec`: positive integer, default `900` — per-task time limit
 - `default_max_turns`: positive integer, default `30` — per-task turn limit

@@ -22,4 +22,4 @@
 
 | Document | What it covers |
 |----------|---------------|
-| [changelog.md](changelog.md) | Project status, release history, and architectural decision log |
+| [status.md](status.md) | Non-obvious gotchas, external constraints, operational notes |

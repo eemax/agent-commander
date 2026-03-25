@@ -45,7 +45,8 @@ Subagents do **not** have access to skills. Skills are a routing-layer feature (
 | **Thinking effort** | Uses the resolved model's `default_thinking` from the model catalog. Does not inherit the supervisor's per-conversation `/thinking` override. |
 | **Cache retention** | Hardcoded to `"in_memory"` for prompt cache. Does not inherit the supervisor's `/cache` override. |
 | **Compaction** | Uses the resolved model's `compaction_tokens` and `compaction_threshold` from the model catalog. |
-| **Transport** | Always HTTP. Subagents do not use WebSocket transport regardless of the supervisor's `/transport` setting. |
+| **Auth mode** | Inherits the supervisor's per-conversation auth mode at spawn time (snapshot). If the supervisor is using codex mode, the subagent runs its tool loop in stateless mode (accumulating full history instead of using `previous_response_id`). |
+| **Transport** | Inherits the supervisor's per-conversation transport mode at spawn time (snapshot). Does not change if the supervisor switches transport mid-task. |
 | **Web search model** | Uses the global default preset (`tools.web_search.default_preset`). Does not inherit the supervisor's per-conversation `/search` override. |
 
 ## System Message
@@ -85,7 +86,12 @@ queued → starting → running ──→ completed
 
 ## Pause and Resume
 
-When a subagent sends `[NEEDS_INPUT]`, the LLM tool loop pauses and the `previous_response_id` is stored. When the supervisor replies via `send`, a new tool loop iteration starts with the supervisor's message as a user turn and `previous_response_id` injected for conversation continuity. This preserves the subagent's full conversation context across pause/resume cycles.
+When a subagent sends `[NEEDS_INPUT]`, the LLM tool loop pauses. Resume behavior depends on the auth mode:
+
+- **API mode (stateful):** The `previous_response_id` is stored. On resume, a new tool loop iteration starts with the supervisor's message as a user turn and `previous_response_id` injected for conversation continuity.
+- **Codex mode (stateless):** The `accumulatedInput` (full conversation history) is persisted instead. On resume, the tool loop reconstructs the full stateless input and continues without `previous_response_id`.
+
+Both modes preserve the subagent's full conversation context across pause/resume cycles.
 
 If the subagent is still running (hasn't paused), `send` injects the message via the steer channel instead — the same mechanism as `/steer` for the supervisor.
 

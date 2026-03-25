@@ -42,11 +42,16 @@ npm run dev
 | `/status full` | Extended diagnostics (tool stats, cache metrics) |
 | `/stop` | Graceful shutdown |
 | `/bash <cmd>` | Execute shell command in workspace |
-| `/verbose <on\|off>` | Toggle tool-call trace messages |
+| `/cwd <path>` | Set working directory for this conversation |
+| `/verbose <full\|count\|off>` | Set tool-call trace verbosity |
 | `/thinking <level>` | Set reasoning effort (`none\|minimal\|low\|medium\|high\|xhigh`) |
 | `/cache <in_memory\|24h>` | Set prompt cache retention mode |
 | `/model <id-or-alias>` | Switch active model |
 | `/models` | List configured models |
+| `/search <id-or-alias>` | Switch web search preset |
+| `/transport <http\|wss>` | Switch API transport mode |
+| `/auth <api\|codex>` | Switch authentication mode |
+| `/steer <message>` | Inject guidance into active tool loop |
 | `/<skill_slug>` | One-shot skill invocation |
 
 ## Development
@@ -73,9 +78,7 @@ npm test             # vitest run
 | [docs/tools.md](docs/tools.md) | Developers | Tool harness reference |
 | [docs/user-guide.md](docs/user-guide.md) | Users | Setup, commands, observability, troubleshooting |
 | [docs/contributing.md](docs/contributing.md) | Contributors | Coding standards and scope guardrails |
-| [docs/changelog.md](docs/changelog.md) | Maintainers | Release history and architectural decisions |
-| [docs/status.md](docs/status.md) | Maintainers | Current stability and next tasks |
-
+| [docs/status.md](docs/status.md) | Maintainers | Non-obvious gotchas, external constraints, operational notes |
 ## License
 
 MIT

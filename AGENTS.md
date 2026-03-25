@@ -21,7 +21,14 @@ src/config.ts                   Zod-validated config loading
 src/routing.ts                  Message router entry point
 src/routing/turn-manager.ts     Per-chat turn lifecycle + message queues
 src/provider.ts                 OpenAI provider + tool-loop integration
+src/provider/request-executor.ts  Composes auth registry + HTTP/WSS transports
+src/provider/auth-mode-contracts.ts  AuthModeAdapter interface + request types
+src/provider/auth-mode-registry.ts   Static registry mapping auth modes to adapters
+src/provider/auth-modes/            Per-mode adapters (api.ts, codex.ts)
 src/provider/sanitize.ts        Shared provider failure reason sanitization
+src/auth/codex-auth.ts          Codex ChatGPT OAuth token lifecycle
+src/steer-channel.ts            Mid-turn instruction injection channel
+src/message-queue.ts            Per-chat message queue semantics
 src/utils.ts                    Shared utilities (isPlainObject, asRecord, type guards)
 src/catalog-utils.ts            Generic catalog resolver factory
 src/agent/tool-loop.ts          Provider-agnostic tool execution loop
@@ -71,7 +78,7 @@ Telegram update → normalize → gatekeep (sender allowlist) → route (command
 - `docs/tools.md` — tool harness reference (all tool schemas and behaviors)
 - `docs/user-guide.md` — setup, commands, and operational guide
 - `docs/contributing.md` — coding standards and scope guardrails
-- `docs/changelog.md` — project status, release history, and architectural decisions
+- `docs/status.md` — non-obvious gotchas, external constraints, operational notes
 
 ## Key patterns
 

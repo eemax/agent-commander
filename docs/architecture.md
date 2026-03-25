@@ -61,6 +61,18 @@ Agent Commander is intentionally small:
   SSE event parser for the HTTP transport. Exports `parseCompletedPayload()` which is reused by the WS transport.
 - `src/provider/sanitize.ts`
   Shared `sanitizeReason()` for whitespace normalization, Bearer/API-key redaction, and length truncation of provider failure reasons.
+- `src/provider/auth-mode-contracts.ts`
+  `AuthModeAdapter` interface defining per-mode policy: capabilities (allowed transports, stateless flag), availability checks, request resolution (URL, headers, body rules), and 401 recovery hooks. Also exports `buildResolvedRequestBody()` for applying adapter body rules.
+- `src/provider/auth-mode-registry.ts`
+  Static registry mapping `AuthMode → AuthModeAdapter`. Provides `normalizeTransport()` to validate requested transport against mode capabilities.
+- `src/provider/auth-modes/api.ts`
+  API key adapter: standard `api.openai.com/v1/responses` endpoint, `Bearer` auth header, stateful tool loop (`previous_response_id` chaining).
+- `src/provider/auth-modes/codex.ts`
+  Codex ChatGPT adapter: `chatgpt.com/backend-api/codex/responses` endpoint, OAuth token + `ChatGPT-Account-Id` headers, stateless tool loop (accumulates full history), strips cache/response-id fields, adds `store: false`. Reloads credentials from `~/.codex/auth.json` on each turn.
+- `src/provider/request-executor.ts`
+  Composes the auth mode registry with HTTP and WebSocket transports. Handles `onTurnStart` credential reload, transport normalization, and 401 recovery delegation.
+- `src/auth/codex-auth.ts`
+  Token lifecycle manager for Codex ChatGPT OAuth. Reads `~/.codex/auth.json`, proactively refreshes tokens (1-hour margin), serializes concurrent refreshes, and writes updated tokens back to disk atomically.
 - `src/provider/*`
   Remaining provider internals: history normalization, response text extraction, retry policy, and canonical OpenAI type models.
 
@@ -91,7 +103,7 @@ Agent Commander is intentionally small:
 ### Telegram
 
 - `src/telegram/commands.ts`
-  Typed command registry + parsing (`/start`, `/new`, `/new from`, `/stash`, `/status` with optional `full` flag, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`, `/transport`, dynamic skill commands).
+  Typed command registry + parsing (`/start`, `/new`, `/new from`, `/stash`, `/status` with optional `full` flag, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`, `/search`, `/transport`, `/auth`, `/steer`, dynamic skill commands).
 - `src/telegram/bot.ts`
   Telegram wiring, command registration sync (`setMyCommands`), text message + callback query dispatch (including inline keyboards and extra verbose replies), and safe error replies.
 
@@ -102,7 +114,7 @@ Agent Commander is intentionally small:
 3. Bot syncs command catalog at startup and on workspace catalog changes.
 4. Router checks sender allowlist (`config/agents.json` → `telegram_allowlist` for the active agent).
 5. Router handles command or normal turn:
-- Core command (`/new`, `/new from`, `/stash`, `/status`, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`) handled directly.
+- Core command (`/new`, `/new from`, `/stash`, `/status`, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`, `/search`, `/transport`, `/auth`, `/steer`) handled directly.
 - Conversation-menu callbacks are validated and handled via single-use menu tokens.
 - Skill command (`/<skill_slug>`) triggers one-shot skill invocation.
 - Normal text uses an atomic append+prompt-context read from conversation store and requests provider reply.
@@ -122,7 +134,7 @@ Agent Commander is intentionally small:
 
 - JSON object mapping `chatId -> current conversation record`.
 - Each record contains `conversationId`, optional `alias`, and a conversation runtime profile.
-- Runtime profile fields: `workingDirectory`, `verboseMode`, `thinkingEffort`, `cacheRetention`, `transportMode`, `activeModelOverride`, `activeWebSearchModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, `lastProviderFailure`.
+- Runtime profile fields: `workingDirectory`, `verboseMode`, `thinkingEffort`, `cacheRetention`, `transportMode`, `authMode`, `activeModelOverride`, `activeWebSearchModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, `lastProviderFailure`.
 - Default filenames are `.agent-commander/stashed-conversations.json` and `.agent-commander/active-conversations.json`.
 - No automatic migration is performed from the previous filename layout.
 
@@ -139,6 +151,30 @@ Conversation events are decoded/encoded through the typed event codec in `src/st
 
 - Markdown file stores the compiled first-turn context (`<system>`, `<operating_contracts>` with SOUL and AGENTS contracts, `<available_skills>`) as raw markdown inside XML wrapper tags.
 - Metadata JSON is embedded at EOF in a marker-delimited fenced block (`<!-- acmd:snapshot-metadata:start -->` ... `<!-- acmd:snapshot-metadata:end -->`) and includes SYSTEM/AGENTS/SOUL hashes, tool/skill metadata, compiled snapshot path, and instruction hash.
+
+## Auth Modes
+
+The provider supports two authentication modes, selected via `openai.auth_mode` config or per-conversation via `/auth`. Each mode is a self-contained adapter implementing `AuthModeAdapter` (defined in `src/provider/auth-mode-contracts.ts`), registered in a static registry (`src/provider/auth-mode-registry.ts`).
+
+### API mode (`api`, default)
+
+- Endpoint: `https://api.openai.com/v1/responses` (HTTP), `wss://api.openai.com/v1/responses` (WSS)
+- Auth: `Authorization: Bearer <API_KEY>`
+- Stateful tool loop: uses `previous_response_id` to chain turns
+- Supports both HTTP and WebSocket transports
+
+### Codex mode (`codex`)
+
+- Endpoint: `https://chatgpt.com/backend-api/codex/responses` (HTTP and WSS)
+- Auth: `Authorization: Bearer <oauth_access_token>` + `ChatGPT-Account-Id: <account_id>`
+- Credentials: read from `~/.codex/auth.json` (Codex CLI format), reloaded on each turn
+- Token refresh: proactive (1-hour margin) via `https://auth.openai.com/oauth/token`, serialized, atomic write-back
+- Stateless tool loop: accumulates full conversation history (no `previous_response_id`), strips cache fields, adds `store: false`
+- Supports both HTTP and WebSocket transports
+
+### Request execution
+
+`src/provider/request-executor.ts` composes the auth registry with both transports. On each turn: calls `adapter.onTurnStart()` (credential reload for codex), normalizes the requested transport against the adapter's capabilities, then dispatches to HTTP or WebSocket.
 
 ## Transport Modes
 
