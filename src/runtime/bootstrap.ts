@@ -12,6 +12,7 @@ import { createWorkspaceManager } from "../workspace.js";
 import { resolveActiveModel } from "../model-catalog.js";
 import { resolveActiveWebSearchModel } from "../web-search-catalog.js";
 import { createCodexAuthManager, type CodexAuthManager } from "../auth/codex-auth.js";
+import { createAuthModeRegistry } from "../provider/auth-mode-registry.js";
 
 type AgentRuntime = {
   bot: ReturnType<typeof createTelegramBot>["bot"];
@@ -159,16 +160,28 @@ async function bootstrapAgentRuntime(
   try {
     codexAuth = createCodexAuthManager(logger);
   } catch (err) {
-    if (config.openai.authMode === "codex") {
-      throw new Error(`auth_mode is "codex" but CodexAuthManager failed to initialize: ${err}`);
-    }
     logger.info("startup: codex auth not available (no ~/.codex/auth.json), /auth codex will be unavailable");
+  }
+
+  const authModeRegistry = createAuthModeRegistry({
+    apiKey: config.openai.apiKey,
+    codexAuth: codexAuth ?? null
+  });
+
+  // Fail fast if the configured default auth mode is unavailable
+  const defaultAuthAvail = authModeRegistry.get(config.openai.authMode).availability();
+  if (!defaultAuthAvail.ok) {
+    throw new Error(`auth_mode is "${config.openai.authMode}" but it is not available: ${defaultAuthAvail.reason}`);
   }
 
   const provider = createOpenAIProvider(config, logger, {
     harness,
     observability,
-    codexAuth
+    authModeRegistry,
+    resolveOwnerProviderSettings: async (ownerId: string) => ({
+      authMode: await conversations.getAuthMode(ownerId),
+      transportMode: await conversations.getTransportMode(ownerId)
+    })
   });
   logger.info(`startup: provider initialized (openai/responses/${config.openai.model}, auth=${config.openai.authMode})`);
 
@@ -182,7 +195,7 @@ async function bootstrapAgentRuntime(
     workspace,
     harness,
     observability,
-    codexAuth,
+    authModeRegistry,
     onCommandCatalogChanged: async () => {
       if (syncCommandsRef) {
         await syncCommandsRef();

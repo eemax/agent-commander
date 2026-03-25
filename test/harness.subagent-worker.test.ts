@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createSubagentWorker, classifyReply, type SubagentWorkerDeps } from "../src/harness/subagent-worker.js";
+import { createAuthModeRegistry } from "../src/provider/auth-mode-registry.js";
 import { SubagentManager } from "../src/harness/subagent-manager.js";
 import type { SubagentManagerConfig, SubagentTask, SubagentWorker, SpawnTaskParams } from "../src/harness/subagent-types.js";
 import type { ToolHarness } from "../src/harness/index.js";
@@ -287,6 +288,8 @@ describe("SubagentWorker", () => {
       transportDeps: {
         fetchImpl: mockFetch as unknown as typeof fetch
       },
+      authModeRegistry: createAuthModeRegistry({ apiKey: "test-key", codexAuth: null }),
+      resolveOwnerProviderSettings: async () => ({ authMode: "api" as const, transportMode: "http" as const }),
       ...overrides
     });
     manager.setWorker(w);

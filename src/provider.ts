@@ -9,15 +9,17 @@ import { normalizeHistory } from "./provider/history.js";
 import { extractAssistantText } from "./provider/response-text.js";
 import { createResponsesRequestWithRetry, type ProviderTransportDeps } from "./provider/responses-transport.js";
 import { createWsTransportManager, type WsTransportManager } from "./provider/ws-transport.js";
-import { createTransportAuthResolver } from "./provider/transport-auth.js";
 import { accumulateUsageSnapshot, countCompactionItems, createEmptyUsageSnapshot } from "./provider/usage.js";
 import { createSubagentWorker } from "./harness/subagent-worker.js";
-import type { CodexAuthManager } from "./auth/codex-auth.js";
+import type { AuthModeRegistry } from "./provider/auth-mode-contracts.js";
+import type { OwnerProviderSettings } from "./harness/subagent-worker.js";
+import { createRequestExecutor } from "./provider/request-executor.js";
 
 type ProviderRuntimeDeps = ProviderTransportDeps & {
   harness?: ToolHarness;
   observability?: ObservabilitySink;
-  codexAuth?: CodexAuthManager;
+  authModeRegistry: AuthModeRegistry;
+  resolveOwnerProviderSettings?: (ownerId: string) => Promise<OwnerProviderSettings>;
 };
 
 function toSafeReason(reason: string): string {
@@ -31,7 +33,7 @@ function toSafeReason(reason: string): string {
 export function createOpenAIProvider(
   config: Config,
   logger: RuntimeLogger,
-  deps: ProviderRuntimeDeps = {}
+  deps: ProviderRuntimeDeps
 ): Provider {
   const harness =
     deps.harness ??
@@ -53,23 +55,25 @@ export function createOpenAIProvider(
 
   // Wire real subagent worker if the manager is available
   if (harness.context.subagentManager) {
+    const defaultProviderSettings: OwnerProviderSettings = {
+      authMode: config.openai.authMode,
+      transportMode: "http"
+    };
     const worker = createSubagentWorker({
       config,
       harness,
       manager: harness.context.subagentManager,
       logger,
       observability: deps.observability,
-      transportDeps: deps
+      transportDeps: deps,
+      authModeRegistry: deps.authModeRegistry,
+      resolveOwnerProviderSettings: deps.resolveOwnerProviderSettings
+        ?? (async () => defaultProviderSettings)
     });
     harness.context.subagentManager.setWorker(worker);
   }
 
-  const authResolver = createTransportAuthResolver({
-    apiKey: config.openai.apiKey,
-    codexAuth: deps.codexAuth ?? null
-  });
-
-  const requestWithRetry = createResponsesRequestWithRetry(config, logger, authResolver, {
+  const requestWithRetry = createResponsesRequestWithRetry(config, logger, {
     fetchImpl: deps.fetchImpl,
     sleepImpl: deps.sleepImpl,
     randomImpl: deps.randomImpl,
@@ -79,7 +83,7 @@ export function createOpenAIProvider(
 
   let wsManager: WsTransportManager | null = null;
   const getWsManager = (): WsTransportManager => {
-    wsManager ??= createWsTransportManager(config, logger, authResolver, {
+    wsManager ??= createWsTransportManager(config, logger, {
       sleepImpl: deps.sleepImpl,
       randomImpl: deps.randomImpl,
       nowMsImpl: deps.nowMsImpl,
@@ -87,6 +91,11 @@ export function createOpenAIProvider(
     });
     return wsManager;
   };
+
+  const requestExecutor = createRequestExecutor(deps.authModeRegistry, {
+    http: requestWithRetry,
+    getWsManager
+  });
 
   const buildPromptCacheKey = (request: ProviderRequest): string => {
     return `acmd:${request.chatId}:${request.conversationId}`;
@@ -120,18 +129,15 @@ export function createOpenAIProvider(
 
             try {
               const effectiveAuthMode = input.authMode ?? config.openai.authMode;
-              // WSS unconfirmed on chatgpt.com proxy — force HTTP for codex mode
-              const effectiveTransport = effectiveAuthMode === "codex" ? "http" : (input.transportMode ?? "http");
-              const requestOptions = {
-                onTextDelta: input.onTextDelta,
-                trace: providerTrace,
+              const result = await requestExecutor.execute(body, {
+                chatId: input.chatId,
                 messageId: input.messageId,
+                trace: providerTrace,
                 abortSignal: input.abortSignal,
-                authMode: effectiveAuthMode
-              };
-              const result = effectiveTransport === "wss"
-                ? await getWsManager().sendResponseCreate(body, input.chatId, requestOptions)
-                : await requestWithRetry(body, input.chatId, requestOptions);
+                authMode: effectiveAuthMode,
+                transportMode: input.transportMode ?? "http",
+                onTextDelta: input.onTextDelta
+              });
               lastAttempt = result.attempt;
               return result.payload;
             } catch (error) {
@@ -151,7 +157,7 @@ export function createOpenAIProvider(
           model: input.model,
           instructions: input.instructions,
           initialInput: messages,
-          stateless: (input.authMode ?? config.openai.authMode) === "codex",
+          stateless: deps.authModeRegistry.get(input.authMode ?? config.openai.authMode).describe().capabilities.statelessToolLoop,
           thinkingEffort: input.thinkingEffort,
           compactionTokens: input.compactionTokens,
           compactionThreshold: input.compactionThreshold,

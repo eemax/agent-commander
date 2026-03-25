@@ -6,8 +6,8 @@ import type { OpenAIResponsesResponse } from "./openai-types.js";
 import { classifyFetchError, classifyHttpStatus, computeRetryDelayMs, type RetryDecision } from "./retry-policy.js";
 import { sanitizeReason } from "./sanitize.js";
 import { parseOpenAIStream, type StreamParseResult } from "./sse-parser.js";
-import type { TransportAuthResolver } from "./transport-auth.js";
-import type { AuthMode } from "../types.js";
+import type { AuthModeAdapter, ResolvedAuthRequest } from "./auth-mode-contracts.js";
+import { buildResolvedRequestBody } from "./auth-mode-contracts.js";
 
 export type ProviderTransportDeps = {
   fetchImpl?: typeof fetch;
@@ -22,7 +22,7 @@ export type ResponsesRequestOptions = {
   trace?: TraceContext;
   messageId?: string;
   abortSignal?: AbortSignal;
-  authMode?: AuthMode;
+  authModeAdapter: AuthModeAdapter;
 };
 
 function readHeaders(headers: Headers): Record<string, string> {
@@ -67,12 +67,11 @@ async function parseSuccessPayload(params: {
 export function createResponsesRequestWithRetry(
   config: Config,
   logger: RuntimeLogger,
-  authResolver: TransportAuthResolver,
   deps: ProviderTransportDeps = {}
 ): (
   body: Record<string, unknown>,
   chatId: string,
-  options?: ResponsesRequestOptions
+  options: ResponsesRequestOptions
 ) => Promise<{ payload: OpenAIResponsesResponse; attempt: number }> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const sleepImpl = deps.sleepImpl ?? sleep;
@@ -83,7 +82,7 @@ export function createResponsesRequestWithRetry(
   return async (
     body: Record<string, unknown>,
     chatId: string,
-    options: ResponsesRequestOptions = {}
+    options: ResponsesRequestOptions
   ): Promise<{ payload: OpenAIResponsesResponse; attempt: number }> => {
     const maxAttempts = 1 + config.openai.maxRetries;
     let lastFailure: RetryDecision = {
@@ -107,17 +106,10 @@ export function createResponsesRequestWithRetry(
       const attemptTrace = options.trace
         ? createChildTraceContext(options.trace, "provider")
         : createTraceRootContext("provider");
-      const effectiveAuth = options.authMode ?? "api";
-      const authParams = await authResolver.resolve(effectiveAuth);
+      const adapter = options.authModeAdapter;
+      const authParams = await adapter.resolveRequest();
       const requestHeaders = authParams.headers;
-      const requestBodyPayload: Record<string, unknown> = {
-        ...body,
-        stream: true,
-        ...authParams.extraBodyFields
-      };
-      for (const key of authParams.stripBodyFields) {
-        delete requestBodyPayload[key];
-      }
+      const requestBodyPayload = buildResolvedRequestBody(body, authParams, { includeStream: true });
       const requestBody = JSON.stringify(requestBodyPayload);
       const startedAtMs = nowMsImpl();
       let streamDeltaCount = 0;
@@ -131,7 +123,7 @@ export function createResponsesRequestWithRetry(
         messageId: options.messageId,
         attempt,
         maxAttempts,
-        url: authParams.url,
+        url: authParams.httpUrl,
         method: "POST",
         headers: requestHeaders,
         body: requestBodyPayload,
@@ -151,7 +143,7 @@ export function createResponsesRequestWithRetry(
         : timeoutController.signal;
 
       try {
-        const response = await fetchImpl(authParams.url, {
+        const response = await fetchImpl(authParams.httpUrl, {
           method: "POST",
           headers: requestHeaders,
           body: requestBody,
@@ -287,14 +279,14 @@ export function createResponsesRequestWithRetry(
         clearTimeout(timeout);
       }
 
-      // On 401 in codex mode, attempt token refresh and retry once
-      if (lastFailure.statusCode === 401 && effectiveAuth === "codex") {
+      // On 401, attempt token recovery via adapter (e.g. codex token refresh)
+      if (lastFailure.statusCode === 401 && adapter.onUnauthorized) {
         try {
-          await authResolver.on401(effectiveAuth);
+          await adapter.onUnauthorized();
           lastFailure = { ...lastFailure, retryable: true };
-          logger.info(`provider: 401 in codex mode, refreshed token for retry`);
+          logger.info(`provider: 401 in ${adapter.id} mode, refreshed token for retry`);
         } catch (refreshErr) {
-          logger.warn(`provider: codex token refresh failed: ${refreshErr}`);
+          logger.warn(`provider: ${adapter.id} token refresh failed: ${refreshErr}`);
         }
       }
 

@@ -11,7 +11,7 @@ import type {
   TelegramCommandDefinition,
   ContentPart
 } from "./types.js";
-import type { CodexAuthManager } from "./auth/codex-auth.js";
+import type { AuthModeRegistry } from "./provider/auth-mode-contracts.js";
 import { createAssistantTurnHandler } from "./routing/assistant-turn.js";
 import { createCoreCommandHandler } from "./routing/core-commands.js";
 import { runMessageGatekeeping } from "./routing/gatekeeping.js";
@@ -35,10 +35,10 @@ export function createMessageRouter(params: {
   workspace: WorkspaceCatalog;
   harness: ToolHarness;
   observability?: ObservabilitySink;
-  codexAuth?: CodexAuthManager;
+  authModeRegistry?: AuthModeRegistry;
   onCommandCatalogChanged?: (commands: TelegramCommandDefinition[]) => Promise<void>;
 }): MessageRouter {
-  const { logger, provider, config, conversations, workspace, harness, observability, codexAuth, onCommandCatalogChanged } =
+  const { logger, provider, config, conversations, workspace, harness, observability, authModeRegistry, onCommandCatalogChanged } =
     params;
   const turns = new TurnManager();
 
@@ -168,7 +168,8 @@ export function createMessageRouter(params: {
     config,
     conversations,
     workspace,
-    harness
+    harness,
+    authModeRegistry
   });
 
   return {
@@ -178,9 +179,6 @@ export function createMessageRouter(params: {
       trace?: TraceContext,
       resolvedUserContent?: string | ContentPart[]
     ): Promise<MessageRouteResult> {
-      if (config.openai.authMode === "codex") {
-        codexAuth?.reload();
-      }
       const inboundTrace = trace ?? createTraceRootContext("routing");
       const routingTrace = createChildTraceContext(inboundTrace, "routing");
       const gatekeepingResult = await runMessageGatekeeping({

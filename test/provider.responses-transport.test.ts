@@ -3,19 +3,25 @@ import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createObservabilitySink, createTraceRootContext } from "../src/observability.js";
 import { createResponsesRequestWithRetry } from "../src/provider/responses-transport.js";
-import type { TransportAuthResolver } from "../src/provider/transport-auth.js";
+import type { AuthModeAdapter } from "../src/provider/auth-mode-contracts.js";
 import { createTempDir, makeConfig } from "./helpers.js";
 
-const mockAuthResolver: TransportAuthResolver = {
-  async resolve() {
+const mockAdapter: AuthModeAdapter = {
+  id: "api",
+  describe: () => ({
+    label: "API",
+    capabilities: { allowedTransports: ["http", "wss"] as const, defaultTransport: "http" as const, statelessToolLoop: false }
+  }),
+  availability: () => ({ ok: true }),
+  async resolveRequest() {
     return {
-      url: "https://api.openai.com/v1/responses",
+      httpUrl: "https://api.openai.com/v1/responses",
+      wsUrl: "wss://api.openai.com/v1/responses",
       headers: { "content-type": "application/json", authorization: "Bearer test-key" },
       extraBodyFields: {},
       stripBodyFields: []
     };
-  },
-  async on401() {}
+  }
 };
 
 function makeLogger() {
@@ -69,12 +75,13 @@ describe("createResponsesRequestWithRetry", () => {
       ])
     );
 
-    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), mockAuthResolver, {
+    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), {
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
     const deltas: string[] = [];
     const result = await request({ model: "gpt-5.4-mini", input: [] }, "chat-1", {
+      authModeAdapter: mockAdapter,
       onTextDelta: (delta) => {
         deltas.push(delta);
       }
@@ -110,7 +117,6 @@ describe("createResponsesRequestWithRetry", () => {
     const request = createResponsesRequestWithRetry(
       makeConfig({ openai: { maxRetries: 2, retryBaseMs: 100, retryMaxMs: 500 } }),
       makeLogger(),
-      mockAuthResolver,
       {
         fetchImpl: fetchMock as unknown as typeof fetch,
         sleepImpl: sleepMock,
@@ -118,7 +124,7 @@ describe("createResponsesRequestWithRetry", () => {
       }
     );
 
-    await expect(request({ model: "gpt-5.4-mini", input: [] }, "chat-2")).resolves.toMatchObject({
+    await expect(request({ model: "gpt-5.4-mini", input: [] }, "chat-2", { authModeAdapter: mockAdapter })).resolves.toMatchObject({
       attempt: 2,
       payload: { output_text: "done" }
     });
@@ -153,7 +159,6 @@ describe("createResponsesRequestWithRetry", () => {
     const request = createResponsesRequestWithRetry(
       makeConfig({ openai: { maxRetries: 2 }, observability: { enabled: true } }),
       makeLogger(),
-      mockAuthResolver,
       {
         fetchImpl: fetchMock as unknown as typeof fetch,
         sleepImpl: sleepMock,
@@ -167,6 +172,7 @@ describe("createResponsesRequestWithRetry", () => {
     const deltas: string[] = [];
     await expect(
       request({ model: "gpt-5.4-mini", input: [] }, "chat-3", {
+        authModeAdapter: mockAdapter,
         trace: createTraceRootContext("provider"),
         onTextDelta: (delta) => {
           deltas.push(delta);
@@ -225,11 +231,11 @@ describe("createResponsesRequestWithRetry", () => {
       )
     );
 
-    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), mockAuthResolver, {
+    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), {
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
-    await expect(request({ model: "gpt-5.4-mini", input: [] }, "chat-http-400")).rejects.toMatchObject({
+    await expect(request({ model: "gpt-5.4-mini", input: [] }, "chat-http-400", { authModeAdapter: mockAdapter })).rejects.toMatchObject({
       name: "ProviderError",
       kind: "client_error",
       statusCode: 400,
@@ -271,13 +277,12 @@ describe("createResponsesRequestWithRetry", () => {
         }
       }),
       makeLogger(),
-      mockAuthResolver,
       {
         fetchImpl: fetchMock as unknown as typeof fetch
       }
     );
 
-    await expect(request({ model: "gpt-5.4-mini", input: [] }, "chat-timeout-local")).rejects.toMatchObject({
+    await expect(request({ model: "gpt-5.4-mini", input: [] }, "chat-timeout-local", { authModeAdapter: mockAdapter })).rejects.toMatchObject({
       name: "ProviderError",
       kind: "timeout",
       detail: {
@@ -298,12 +303,13 @@ describe("createResponsesRequestWithRetry", () => {
 
     const abortController = new AbortController();
     abortController.abort();
-    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 2 } }), makeLogger(), mockAuthResolver, {
+    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 2 } }), makeLogger(), {
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
     await expect(
       request({ model: "gpt-5.4-mini", input: [] }, "chat-timeout-upstream", {
+        authModeAdapter: mockAdapter,
         abortSignal: abortController.signal
       })
     ).rejects.toMatchObject({

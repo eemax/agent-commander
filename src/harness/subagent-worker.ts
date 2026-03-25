@@ -4,8 +4,12 @@
 
 import { runOpenAIToolLoop, ToolWorkflowAbortError } from "../agent/tool-loop.js";
 import { extractAssistantText } from "../provider/response-text.js";
-import { createResponsesRequestWithRetry, type ProviderTransportDeps } from "../provider/responses-transport.js";
-import { createTransportAuthResolver } from "../provider/transport-auth.js";
+import type { ProviderTransportDeps } from "../provider/responses-transport.js";
+import type { AuthModeRegistry } from "../provider/auth-mode-contracts.js";
+import { createRequestExecutor, type OpenAIRequestExecutor, type RequestExecutorTransports } from "../provider/request-executor.js";
+import { createResponsesRequestWithRetry } from "../provider/responses-transport.js";
+import { createWsTransportManager, type WsTransportManager } from "../provider/ws-transport.js";
+import type { AuthMode, TransportMode } from "../types.js";
 import { createSteerChannel, type SteerChannel } from "../steer-channel.js";
 import { resolveModelReference } from "../model-catalog.js";
 import { createTraceRootContext, type ObservabilitySink, type TraceContext } from "../observability.js";
@@ -24,6 +28,11 @@ import type { OpenAIInputMessage } from "../provider/openai-types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export type OwnerProviderSettings = {
+  authMode: AuthMode;
+  transportMode: TransportMode;
+};
+
 export type SubagentWorkerDeps = {
   config: Config;
   harness: ToolHarness;
@@ -31,6 +40,8 @@ export type SubagentWorkerDeps = {
   logger: RuntimeLogger;
   observability?: ObservabilitySink;
   transportDeps?: ProviderTransportDeps;
+  authModeRegistry: AuthModeRegistry;
+  resolveOwnerProviderSettings: (ownerId: string) => Promise<OwnerProviderSettings>;
 };
 
 type TaskRuntime = {
@@ -43,6 +54,8 @@ type TaskRuntime = {
   model: OpenAIModelCatalogEntry;
   scopedHarness: ToolHarness;
   trace: TraceContext;
+  /** Supervisor's auth/transport snapshot, stable for the task lifetime. */
+  providerSettings: OwnerProviderSettings;
 };
 
 // ── Completion protocol markers ──────────────────────────────────────────────
@@ -199,20 +212,31 @@ function buildSuccessResult(reply: string): TaskResult {
 // ── Factory ──────────────────────────────────────────────────────────────────
 
 export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
-  const { config, harness, manager, logger, observability, transportDeps } = deps;
+  const { config, harness, manager, logger, observability, transportDeps, authModeRegistry, resolveOwnerProviderSettings } = deps;
   const activeTasks = new Map<string, TaskRuntime>();
 
-  const authResolver = createTransportAuthResolver({
-    apiKey: config.openai.apiKey,
-    codexAuth: null  // subagents always use API key auth
-  });
-
-  const requestFactory = createResponsesRequestWithRetry(config, logger, authResolver, {
+  const httpTransport = createResponsesRequestWithRetry(config, logger, {
     fetchImpl: transportDeps?.fetchImpl,
     sleepImpl: transportDeps?.sleepImpl,
     randomImpl: transportDeps?.randomImpl,
     nowMsImpl: transportDeps?.nowMsImpl,
     observability
+  });
+
+  let wsManager: WsTransportManager | null = null;
+  const getWsManager = (): WsTransportManager => {
+    wsManager ??= createWsTransportManager(config, logger, {
+      sleepImpl: transportDeps?.sleepImpl,
+      randomImpl: transportDeps?.randomImpl,
+      nowMsImpl: transportDeps?.nowMsImpl,
+      observability
+    });
+    return wsManager;
+  };
+
+  const requestExecutor: OpenAIRequestExecutor = createRequestExecutor(authModeRegistry, {
+    http: httpTransport,
+    getWsManager
   });
 
   function resolveModel(modelRef: string): OpenAIModelCatalogEntry {
@@ -251,14 +275,13 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
       if (runtime.abortController.signal.aborted) {
         throw new Error("Subagent task was cancelled");
       }
-      const result = await requestFactory(
-        body,
-        runtime.task.taskId,
-        {
-          trace: runtime.trace,
-          abortSignal: runtime.abortController.signal
-        }
-      );
+      const result = await requestExecutor.execute(body, {
+        chatId: runtime.task.taskId,
+        trace: runtime.trace,
+        abortSignal: runtime.abortController.signal,
+        authMode: runtime.providerSettings.authMode,
+        transportMode: runtime.providerSettings.transportMode
+      });
       return result.payload;
     };
   }
@@ -427,6 +450,9 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
     const scopedHarness = createScopedHarness(harness, taskId, supervisorCwd);
     const trace = createTraceRootContext("subagent");
 
+    // Snapshot supervisor's auth/transport settings so they're stable for this task
+    const providerSettings = await resolveOwnerProviderSettings(task.ownerId);
+
     // Register available tools on the task
     const toolNames = scopedHarness.exportProviderTools().map((t) => t.name);
     try { manager.setTaskTools(taskId, toolNames); } catch { /* ignore if not supported */ }
@@ -439,7 +465,8 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
       task,
       model,
       scopedHarness,
-      trace
+      trace,
+      providerSettings
     };
     activeTasks.set(taskId, runtime);
 

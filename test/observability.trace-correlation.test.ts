@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createToolHarness } from "../src/harness/index.js";
 import { createObservabilitySink } from "../src/observability.js";
 import { createOpenAIProvider } from "../src/provider.js";
+import { createAuthModeRegistry } from "../src/provider/auth-mode-registry.js";
 import { createMessageRouter } from "../src/routing.js";
 import { createConversationStore } from "../src/state/conversations.js";
 import { dispatchTelegramTextMessage } from "../src/telegram/bot.js";
@@ -78,6 +79,7 @@ describe("observability trace correlation", () => {
       );
 
     const provider = createOpenAIProvider(config, logger, {
+      authModeRegistry: createAuthModeRegistry({ apiKey: "sk-test", codexAuth: null }),
       harness,
       observability,
       fetchImpl: fetchMock as unknown as typeof fetch

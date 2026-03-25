@@ -1,18 +1,24 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { createWsTransportManager, type WsTransportDeps } from "../src/provider/ws-transport.js";
-import type { TransportAuthResolver } from "../src/provider/transport-auth.js";
+import type { AuthModeAdapter } from "../src/provider/auth-mode-contracts.js";
 import { makeConfig } from "./helpers.js";
 
-const mockAuthResolver: TransportAuthResolver = {
-  async resolve() {
+const mockAdapter: AuthModeAdapter = {
+  id: "api",
+  describe: () => ({
+    label: "API",
+    capabilities: { allowedTransports: ["http", "wss"] as const, defaultTransport: "http" as const, statelessToolLoop: false }
+  }),
+  availability: () => ({ ok: true }),
+  async resolveRequest() {
     return {
-      url: "https://api.openai.com/v1/responses",
+      httpUrl: "https://api.openai.com/v1/responses",
+      wsUrl: "wss://api.openai.com/v1/responses",
       headers: { "content-type": "application/json", authorization: "Bearer test-key" },
       extraBodyFields: {},
       stripBodyFields: []
     };
-  },
-  async on401() {}
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -97,13 +103,14 @@ afterEach(() => {
 describe("createWsTransportManager", () => {
   it("sends correct response.create envelope without stream/background", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
     const promise = manager.sendResponseCreate(
       { model: "gpt-5.4-mini", input: [], stream: true, background: false },
-      "chat-1"
+      "chat-1",
+      { authModeAdapter: mockAdapter }
     );
 
     // Wait for socket creation.
@@ -134,7 +141,7 @@ describe("createWsTransportManager", () => {
 
   it("delivers text deltas via onTextDelta callback", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
@@ -142,7 +149,7 @@ describe("createWsTransportManager", () => {
     const promise = manager.sendResponseCreate(
       { model: "gpt-5.4-mini", input: [] },
       "chat-2",
-      { onTextDelta: (d) => { deltas.push(d); } }
+      { authModeAdapter: mockAdapter, onTextDelta: (d) => { deltas.push(d); } }
     );
 
     await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
@@ -165,7 +172,7 @@ describe("createWsTransportManager", () => {
 
   it("serializes onmessage processing to prevent concurrent onTextDelta calls", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
@@ -178,6 +185,7 @@ describe("createWsTransportManager", () => {
       { model: "gpt-5.4-mini", input: [] },
       "chat-serial",
       {
+        authModeAdapter: mockAdapter,
         onTextDelta: async (d) => {
           concurrentCount += 1;
           maxConcurrent = Math.max(maxConcurrent, concurrentCount);
@@ -214,13 +222,14 @@ describe("createWsTransportManager", () => {
 
   it("rejects with ProviderError on server error event", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
     const promise = manager.sendResponseCreate(
       { model: "gpt-5.4-mini", input: [] },
-      "chat-err"
+      "chat-err",
+      { authModeAdapter: mockAdapter }
     );
 
     await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
@@ -243,13 +252,14 @@ describe("createWsTransportManager", () => {
 
   it("rejects when socket closes mid-request", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
     const promise = manager.sendResponseCreate(
       { model: "gpt-5.4-mini", input: [] },
-      "chat-close"
+      "chat-close",
+      { authModeAdapter: mockAdapter }
     );
 
     await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
@@ -268,7 +278,7 @@ describe("createWsTransportManager", () => {
 
   it("rejects pre-aborted requests immediately", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps());
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps());
 
     const ac = new AbortController();
     ac.abort();
@@ -277,7 +287,7 @@ describe("createWsTransportManager", () => {
       manager.sendResponseCreate(
         { model: "gpt-5.4-mini", input: [] },
         "chat-preabort",
-        { abortSignal: ac.signal }
+        { authModeAdapter: mockAdapter, abortSignal: ac.signal }
       )
     ).rejects.toMatchObject({
       name: "ProviderError",
@@ -290,12 +300,12 @@ describe("createWsTransportManager", () => {
 
   it("uses separate sockets for different chatIds", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
     // Launch first request and wait for it to be fully wired.
-    const p1 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-A");
+    const p1 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-A", { authModeAdapter: mockAdapter });
     await vi.waitFor(() => expect(createdSockets[0]?.sent).toHaveLength(1));
     createdSockets[0]!._receiveMessage({
       type: "response.completed",
@@ -304,7 +314,7 @@ describe("createWsTransportManager", () => {
     await p1;
 
     // Launch second request on different chatId.
-    const p2 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-B");
+    const p2 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-B", { authModeAdapter: mockAdapter });
     await vi.waitFor(() => expect(createdSockets[1]?.sent).toHaveLength(1));
     createdSockets[1]!._receiveMessage({
       type: "response.completed",
@@ -320,12 +330,12 @@ describe("createWsTransportManager", () => {
 
   it("reuses existing open socket for same chatId", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
-    const manager = createWsTransportManager(config, makeLogger(), mockAuthResolver, makeDeps({
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
       WebSocketImpl: trackingSockets()
     }));
 
     // First request.
-    const p1 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-reuse");
+    const p1 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-reuse", { authModeAdapter: mockAdapter });
     await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
     const ws = createdSockets[0]!;
     await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
@@ -337,7 +347,7 @@ describe("createWsTransportManager", () => {
     await p1;
 
     // Second request should reuse the same socket.
-    const p2 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-reuse");
+    const p2 = manager.sendResponseCreate({ model: "gpt-5.4-mini", input: [] }, "chat-reuse", { authModeAdapter: mockAdapter });
     await vi.waitFor(() => expect(ws.sent).toHaveLength(2));
 
     ws._receiveMessage({

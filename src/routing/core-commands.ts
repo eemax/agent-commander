@@ -12,6 +12,7 @@ import {
   type TelegramInlineButton,
   type TelegramInlineKeyboard
 } from "../types.js";
+import type { AuthModeRegistry } from "../provider/auth-mode-contracts.js";
 import { isThinkingEffort, isCacheRetention, isTransportMode, isAuthMode, isVerboseMode } from "../utils.js";
 import { formatConversationIdForUi, formatConversationIdTail } from "./conversation-id.js";
 import { buildStatusReply, formatBashReply, formatCompactNumber } from "./formatters.js";
@@ -260,8 +261,9 @@ export function createCoreCommandHandler(params: {
   conversations: StateStore;
   workspace: WorkspaceCatalog;
   harness: ToolHarness;
+  authModeRegistry?: AuthModeRegistry;
 }): CoreCommandHandler {
-  const { config, conversations, workspace, harness } = params;
+  const { config, conversations, workspace, harness, authModeRegistry } = params;
   const pendingMenus = new Map<string, PendingConversationMenu>();
 
   const createMenuReply = (menu: PendingConversationMenu): MessageRouteResult => ({
@@ -731,6 +733,18 @@ export function createCoreCommandHandler(params: {
             };
           }
 
+          // Validate against current auth mode's allowed transports
+          if (authModeRegistry) {
+            const currentAuth = await conversations.getAuthMode(message.chatId);
+            const { changed, reason } = authModeRegistry.normalizeTransport(currentAuth, selection);
+            if (changed && reason) {
+              return {
+                type: "reply",
+                text: reason
+              };
+            }
+          }
+
           await conversations.setTransportMode(message.chatId, selection, { trace });
           return {
             type: "reply",
@@ -758,19 +772,19 @@ export function createCoreCommandHandler(params: {
             };
           }
 
-          await conversations.setAuthMode(message.chatId, selection, { trace });
-
-          // When switching to codex, force transport to http (WSS unconfirmed on chatgpt proxy)
-          if (selection === "codex") {
-            const currentTransport = await conversations.getTransportMode(message.chatId);
-            if (currentTransport === "wss") {
-              await conversations.setTransportMode(message.chatId, "http", { trace });
+          // Check availability via adapter registry
+          if (authModeRegistry) {
+            const adapter = authModeRegistry.get(selection);
+            const avail = adapter.availability();
+            if (!avail.ok) {
               return {
                 type: "reply",
-                text: `auth mode: codex\ntransport: http (forced, WSS not supported in codex mode)`
+                text: `auth mode ${selection} is not available: ${avail.reason}`
               };
             }
           }
+
+          await conversations.setAuthMode(message.chatId, selection, { trace });
 
           return {
             type: "reply",

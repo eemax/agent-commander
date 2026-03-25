@@ -7,7 +7,12 @@ import type { ToolHarness } from "../src/harness/index.js";
 import { createObservabilitySink } from "../src/observability.js";
 import { ProviderError } from "../src/provider-error.js";
 import { createOpenAIProvider } from "../src/provider.js";
+import { createAuthModeRegistry } from "../src/provider/auth-mode-registry.js";
 import { makeConfig } from "./helpers.js";
+
+function makeRegistry() {
+  return createAuthModeRegistry({ apiKey: "sk-test", codexAuth: null });
+}
 
 function makeLogger() {
   return {
@@ -106,6 +111,7 @@ describe("createOpenAIProvider", () => {
     );
 
     const provider = createOpenAIProvider(makeConfig(), logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
@@ -202,6 +208,7 @@ describe("createOpenAIProvider", () => {
       makeConfig({ openai: { maxRetries: 2, retryBaseMs: 100, retryMaxMs: 500 } }),
       logger,
       {
+        authModeRegistry: makeRegistry(),
         fetchImpl: fetchMock as unknown as typeof fetch,
         sleepImpl: sleepMock,
         randomImpl: () => 0.5
@@ -249,6 +256,7 @@ describe("createOpenAIProvider", () => {
     const onUsage = vi.fn();
 
     const provider = createOpenAIProvider(makeConfig(), logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
@@ -330,6 +338,7 @@ describe("createOpenAIProvider", () => {
 
     const onUsage = vi.fn();
     const provider = createOpenAIProvider(makeConfig(), logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch,
       harness: makeHarnessMock()
     });
@@ -377,6 +386,7 @@ describe("createOpenAIProvider", () => {
     const onCompaction = vi.fn();
 
     const provider = createOpenAIProvider(makeConfig(), logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
@@ -411,6 +421,7 @@ describe("createOpenAIProvider", () => {
     const onCompaction = vi.fn();
 
     const provider = createOpenAIProvider(makeConfig(), logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
@@ -453,6 +464,7 @@ describe("createOpenAIProvider", () => {
 
     const onTextDelta = vi.fn();
     const provider = createOpenAIProvider(makeConfig(), logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
@@ -493,6 +505,7 @@ describe("createOpenAIProvider", () => {
       );
 
     const provider = createOpenAIProvider(config, logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch,
       sleepImpl: sleepMock,
       randomImpl: () => 0.5,
@@ -560,6 +573,7 @@ describe("createOpenAIProvider", () => {
     );
 
     const provider = createOpenAIProvider(config, logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch,
       observability
     });
@@ -604,6 +618,7 @@ describe("createOpenAIProvider", () => {
       makeConfig({ openai: { maxRetries: 2, retryBaseMs: 100, retryMaxMs: 5_000 } }),
       logger,
       {
+        authModeRegistry: makeRegistry(),
         fetchImpl: fetchMock as unknown as typeof fetch,
         sleepImpl: sleepMock,
         randomImpl: () => 0
@@ -632,6 +647,7 @@ describe("createOpenAIProvider", () => {
     const logger = makeLogger();
     const fetchMock = vi.fn(async () => new Response("bad request", { status: 400 }));
     const provider = createOpenAIProvider(makeConfig(), logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
@@ -686,6 +702,7 @@ describe("createOpenAIProvider", () => {
     const harness = makeHarnessMock();
     const onToolCall = vi.fn();
     const provider = createOpenAIProvider(makeConfig(), logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch,
       harness
     });
@@ -793,6 +810,7 @@ describe("createOpenAIProvider", () => {
     const onToolCall = vi.fn();
 
     const provider = createOpenAIProvider(makeConfig(), logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch,
       harness
     });
@@ -893,6 +911,7 @@ describe("createOpenAIProvider", () => {
     const onToolCall = vi.fn();
 
     const provider = createOpenAIProvider(makeConfig(), logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch,
       harness
     });
@@ -957,6 +976,7 @@ describe("createOpenAIProvider", () => {
     });
 
     const provider = createOpenAIProvider(makeConfig({ openai: { maxRetries: 0 } }), logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
@@ -985,6 +1005,7 @@ describe("createOpenAIProvider", () => {
       });
     });
     const provider = createOpenAIProvider(makeConfig({ openai: { maxRetries: 0 } }), logger, {
+      authModeRegistry: makeRegistry(),
       fetchImpl: fetchMock as unknown as typeof fetch
     });
 
@@ -1030,6 +1051,7 @@ describe("createOpenAIProvider", () => {
       }),
       logger,
       {
+        authModeRegistry: makeRegistry(),
         fetchImpl: fetchMock as unknown as typeof fetch
       }
     );
@@ -1094,6 +1116,7 @@ describe("createOpenAIProvider", () => {
       }),
       logger,
       {
+        authModeRegistry: makeRegistry(),
         fetchImpl: fetchMock as unknown as typeof fetch,
         harness
       }
@@ -1162,6 +1185,7 @@ describe("createOpenAIProvider", () => {
       }),
       logger,
       {
+        authModeRegistry: makeRegistry(),
         fetchImpl: fetchMock as unknown as typeof fetch,
         harness
       }

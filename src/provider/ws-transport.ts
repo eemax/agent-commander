@@ -6,10 +6,9 @@ import type { OpenAIResponsesResponse } from "./openai-types.js";
 import { parseCompletedPayload } from "./sse-parser.js";
 import { computeRetryDelayMs } from "./retry-policy.js";
 import { sanitizeReason } from "./sanitize.js";
-import type { TransportAuthResolver } from "./transport-auth.js";
-import type { AuthMode } from "../types.js";
+import type { AuthModeAdapter } from "./auth-mode-contracts.js";
+import { buildResolvedRequestBody } from "./auth-mode-contracts.js";
 
-const OPENAI_WS_URL = "wss://api.openai.com/v1/responses";
 const WS_ROTATION_MS = 55 * 60 * 1000;
 const WS_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -26,7 +25,7 @@ export type WsTransportRequestOptions = {
   trace?: TraceContext;
   messageId?: string;
   abortSignal?: AbortSignal;
-  authMode?: AuthMode;
+  authModeAdapter: AuthModeAdapter;
 };
 
 type PendingRequest = {
@@ -59,7 +58,6 @@ export type WsTransportManager = {
 export function createWsTransportManager(
   config: Config,
   logger: RuntimeLogger,
-  authResolver: TransportAuthResolver,
   deps: WsTransportDeps = {}
 ): WsTransportManager {
   const WsImpl = deps.WebSocketImpl ?? WebSocket;
@@ -118,9 +116,9 @@ export function createWsTransportManager(
     }, remaining);
   }
 
-  async function createConnection(chatId: string, authMode: AuthMode = "api", trace?: TraceContext): Promise<WsConnection> {
-    const authParams = await authResolver.resolve(authMode);
-    const wsUrl = authParams.url.replace(/^https:\/\//, "wss://");
+  async function createConnection(chatId: string, adapter: AuthModeAdapter, trace?: TraceContext): Promise<WsConnection> {
+    const authParams = await adapter.resolveRequest();
+    const wsUrl = authParams.wsUrl;
 
     return new Promise<WsConnection>((resolve, reject) => {
       const eventTrace = trace ? createChildTraceContext(trace, "ws-transport") : createTraceRootContext("ws-transport");
@@ -305,7 +303,7 @@ export function createWsTransportManager(
     });
   }
 
-  async function ensureConnected(chatId: string, authMode: AuthMode = "api", trace?: TraceContext): Promise<WsConnection> {
+  async function ensureConnected(chatId: string, adapter: AuthModeAdapter, trace?: TraceContext): Promise<WsConnection> {
     const existing = connections.get(chatId);
     if (existing && existing.ws.readyState === WsImpl.OPEN) {
       return existing;
@@ -320,7 +318,7 @@ export function createWsTransportManager(
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= maxReconnectAttempts + 1; attempt += 1) {
       try {
-        const conn = await createConnection(chatId, authMode, trace);
+        const conn = await createConnection(chatId, adapter, trace);
         conn.reconnectAttempts = attempt > 1 ? attempt - 1 : 0;
         return conn;
       } catch (error) {
@@ -389,22 +387,25 @@ export function createWsTransportManager(
         });
       }
 
-      const conn = await ensureConnected(chatId, options?.authMode ?? "api", requestTrace);
+      const adapter = options!.authModeAdapter;
+      const conn = await ensureConnected(chatId, adapter, requestTrace);
 
       // The Responses API WebSocket expects a flat message with type "response.create"
-      // and all request fields at the top level. The `stream` and `background` fields
-      // are transport-specific and must NOT be included in WebSocket messages.
-      const effectiveAuth = options?.authMode ?? "api";
-      const authParams = await authResolver.resolve(effectiveAuth);
-      const { stream: _stream, background: _background, ...wsBody } = body as Record<string, unknown> & { stream?: unknown; background?: unknown };
+      // and all request fields at the top level. The `stream`, `background`, and prompt
+      // cache fields are not supported over WebSocket and must be stripped.
+      const authParams = await adapter.resolveRequest();
+      const {
+        stream: _stream,
+        background: _background,
+        prompt_cache_key: _cacheKey,
+        prompt_cache_retention: _cacheRetention,
+        ...wsBody
+      } = body as Record<string, unknown> & { stream?: unknown; background?: unknown; prompt_cache_key?: unknown; prompt_cache_retention?: unknown };
+      const resolvedBody = buildResolvedRequestBody(wsBody, authParams, { includeStream: false });
       const envelope: Record<string, unknown> = {
         type: "response.create",
-        ...wsBody,
-        ...authParams.extraBodyFields
+        ...resolvedBody
       };
-      for (const key of authParams.stripBodyFields) {
-        delete envelope[key];
-      }
 
       await observability?.record({
         event: "provider.ws.request.started",
