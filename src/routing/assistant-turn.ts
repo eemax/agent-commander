@@ -107,12 +107,11 @@ export function createAssistantTurnHandler(params: {
     const workspaceSnapshot = workspace.getSnapshot();
     const providerTools = harness.exportProviderTools();
 
-    let instructions = "";
-    if (promptContext.promptCountBeforeAppend === 0) {
-      instructions = buildConversationBootstrapInstructions({
-        workspace: workspaceSnapshot
-      });
+    const instructions = buildConversationBootstrapInstructions({
+      workspace: workspaceSnapshot
+    });
 
+    if (promptContext.promptCountBeforeAppend === 0) {
       await writeConversationContextSnapshot({
         contextSnapshotsDir: config.paths.contextSnapshotsDir,
         chatId: input.message.chatId,
