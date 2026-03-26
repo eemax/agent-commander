@@ -134,13 +134,18 @@ export function createResponsesRequestWithRetry(
 
       const timeoutController = new AbortController();
       let localTimeoutFired = false;
-      const timeout = setTimeout(() => {
-        localTimeoutFired = true;
-        timeoutController.abort();
-      }, config.openai.timeoutMs);
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      if (config.openai.timeoutMs !== null) {
+        timeout = setTimeout(() => {
+          localTimeoutFired = true;
+          timeoutController.abort();
+        }, config.openai.timeoutMs);
+      }
       const signal = options.abortSignal
-        ? AbortSignal.any([timeoutController.signal, options.abortSignal])
-        : timeoutController.signal;
+        ? (config.openai.timeoutMs !== null
+            ? AbortSignal.any([timeoutController.signal, options.abortSignal])
+            : options.abortSignal)
+        : (config.openai.timeoutMs !== null ? timeoutController.signal : undefined);
 
       try {
         const response = await fetchImpl(authParams.httpUrl, {
@@ -276,7 +281,7 @@ export function createResponsesRequestWithRetry(
           }
         });
       } finally {
-        clearTimeout(timeout);
+        if (timeout !== null) clearTimeout(timeout);
       }
 
       // On 401, attempt token recovery via adapter (e.g. codex token refresh)

@@ -136,9 +136,13 @@ function buildFunctionCallOutput(result: unknown): string {
 
 async function withTimeout<T>(
   promise: Promise<T>,
-  timeoutMs: number,
+  timeoutMs: number | null,
   onTimeout: () => Error
 ): Promise<T> {
+  if (timeoutMs === null) {
+    return promise;
+  }
+
   let timeout: NodeJS.Timeout | null = null;
 
   try {
@@ -178,8 +182,8 @@ export async function runOpenAIToolLoop(params: {
   onToolProgress?: (event: ToolProgressEvent) => void | Promise<void>;
   onResponse?: (response: OpenAIResponsesResponse) => void | Promise<void>;
   limits: {
-    workflowTimeoutMs: number;
-    commandTimeoutMs: number;
+    workflowTimeoutMs: number | null;
+    commandTimeoutMs: number | null;
     pollIntervalMs: number;
     pollMaxAttempts: number;
     idleOutputThresholdMs: number;
@@ -265,7 +269,7 @@ export async function runOpenAIToolLoop(params: {
       );
     }
 
-    if (elapsedMs() > params.limits.workflowTimeoutMs) {
+    if (params.limits.workflowTimeoutMs !== null && elapsedMs() > params.limits.workflowTimeoutMs) {
       throw createWorkflowAbortError(
         "WORKFLOW_TIMEOUT",
         `Tool workflow timed out after ${params.limits.workflowTimeoutMs}ms`,

@@ -57,7 +57,7 @@ export type Config = {
     apiKey: string;
     model: string;
     models: OpenAIModelCatalogEntry[];
-    timeoutMs: number;
+    timeoutMs: number | null;
     maxRetries: number;
     retryBaseMs: number;
     retryMaxMs: number;
@@ -67,8 +67,8 @@ export type Config = {
     promptHistoryLimit: number | null;
     defaultVerbose: VerboseMode;
     toolLoopMaxSteps: number | null;
-    toolWorkflowTimeoutMs: number;
-    toolCommandTimeoutMs: number;
+    toolWorkflowTimeoutMs: number | null;
+    toolCommandTimeoutMs: number | null;
     toolPollIntervalMs: number;
     toolPollMaxAttempts: number;
     toolIdleOutputThresholdMs: number;

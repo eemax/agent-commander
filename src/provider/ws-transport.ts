@@ -475,45 +475,48 @@ export function createWsTransportManager(
           };
         }
 
-        // Set up request timeout.
+        // Set up request timeout (skip when null = no limit).
         const timeoutMs = config.openai.timeoutMs;
-        const timeoutId = setTimeout(() => {
-          if (conn.pendingRequest) {
-            conn.pendingRequest.reject(new ProviderError({
-              message: "WebSocket request timed out",
-              kind: "timeout",
-              attempts: 1,
-              retryable: true,
-              detail: {
-                reason: "WebSocket request timed out",
-                openaiErrorType: null,
-                openaiErrorCode: null,
-                openaiErrorParam: null,
-                requestId: null,
-                retryAfterMs: null,
-                timedOutBy: "local_timeout"
-              }
-            }));
-            conn.pendingRequest = null;
-          }
-        }, timeoutMs);
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        if (timeoutMs !== null) {
+          timeoutId = setTimeout(() => {
+            if (conn.pendingRequest) {
+              conn.pendingRequest.reject(new ProviderError({
+                message: "WebSocket request timed out",
+                kind: "timeout",
+                attempts: 1,
+                retryable: true,
+                detail: {
+                  reason: "WebSocket request timed out",
+                  openaiErrorType: null,
+                  openaiErrorCode: null,
+                  openaiErrorParam: null,
+                  requestId: null,
+                  retryAfterMs: null,
+                  timedOutBy: "local_timeout"
+                }
+              }));
+              conn.pendingRequest = null;
+            }
+          }, timeoutMs);
+        }
 
         // Wrap resolve/reject to clear timeout.
         const wrappedResolve = conn.pendingRequest.resolve;
         const wrappedReject = conn.pendingRequest.reject;
         conn.pendingRequest.resolve = (val) => {
-          clearTimeout(timeoutId);
+          if (timeoutId !== null) clearTimeout(timeoutId);
           wrappedResolve(val);
         };
         conn.pendingRequest.reject = (err) => {
-          clearTimeout(timeoutId);
+          if (timeoutId !== null) clearTimeout(timeoutId);
           wrappedReject(err);
         };
 
         try {
           conn.ws.send(JSON.stringify(envelope));
         } catch (sendError) {
-          clearTimeout(timeoutId);
+          if (timeoutId !== null) clearTimeout(timeoutId);
           conn.pendingRequest = null;
           reject(new ProviderError({
             message: `WebSocket send failed: ${sendError instanceof Error ? sendError.message : String(sendError)}`,

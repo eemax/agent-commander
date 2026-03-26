@@ -40,25 +40,25 @@
         "aliases": [ "mini" ]
       }
     ],
-    "timeout_ms": 45000,
-    "max_retries": 2,
-    "retry_base_ms": 1500,
-    "retry_max_ms": 2500
+    "timeout_ms": null,
+    "max_retries": 1,
+    "retry_base_ms": 2500,
+    "retry_max_ms": 4000
   },
   "runtime": {
     "log_level": "info",
     "prompt_history_limit": null,
     "default_verbose": "count",
-    "tool_loop_max_steps": 150,
-    "tool_workflow_timeout_ms": 1200000,
-    "tool_command_timeout_ms": 60000,
+    "tool_loop_max_steps": null,
+    "tool_workflow_timeout_ms": null,
+    "tool_command_timeout_ms": null,
     "tool_poll_interval_ms": 2000,
-    "tool_poll_max_attempts": 5,
-    "tool_idle_output_threshold_ms": 8000,
+    "tool_poll_max_attempts": 10,
+    "tool_idle_output_threshold_ms": 15000,
     "tool_heartbeat_interval_ms": 5000,
     "tool_cleanup_grace_ms": 3000,
     "tool_failure_breaker_threshold": 5,
-    "session_cache_max_entries": 20,
+    "session_cache_max_entries": 10,
     "app_log_flush_interval_ms": 250,
     "message_queue_mode": "batch"
   },
@@ -95,7 +95,7 @@
     "log_path": ".agent-commander/observability.jsonl",
     "redaction": {
       "enabled": true,
-      "max_string_chars": 4000,
+      "max_string_chars": 2500,
       "redact_keys": [
         "authorization",
         "api_key",

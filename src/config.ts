@@ -49,7 +49,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
         compaction_threshold: 1
       }
     ],
-    timeout_ms: 45_000,
+    timeout_ms: 45_000 as number | null,
     max_retries: 2,
     retry_base_ms: 250,
     retry_max_ms: 2_000
@@ -59,8 +59,8 @@ const DEFAULT_CONFIG_TEMPLATE = {
     prompt_history_limit: 20,
     default_verbose: "full",
     tool_loop_max_steps: 30,
-    tool_workflow_timeout_ms: 120_000,
-    tool_command_timeout_ms: 15_000,
+    tool_workflow_timeout_ms: 120_000 as number | null,
+    tool_command_timeout_ms: 15_000 as number | null,
     tool_poll_interval_ms: 2_000,
     tool_poll_max_attempts: 5,
     tool_idle_output_threshold_ms: 8_000,
@@ -182,7 +182,7 @@ export const configSchema = z
         default_transport: z.enum(["http", "wss"]).default("http"),
         model: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.openai.model),
         models: z.array(openAIModelSchema).min(1).default(DEFAULT_OPENAI_MODELS),
-        timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.openai.timeout_ms),
+        timeout_ms: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.openai.timeout_ms),
         max_retries: nonNegativeInt.default(DEFAULT_CONFIG_TEMPLATE.openai.max_retries),
         retry_base_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.openai.retry_base_ms),
         retry_max_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.openai.retry_max_ms)
@@ -197,8 +197,8 @@ export const configSchema = z
           z.boolean().transform((v): "full" | "off" => v ? "full" : "off")
         ]).default(DEFAULT_CONFIG_TEMPLATE.runtime.default_verbose),
         tool_loop_max_steps: z.number().int().positive().nullable().default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_loop_max_steps),
-        tool_workflow_timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_workflow_timeout_ms),
-        tool_command_timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_command_timeout_ms),
+        tool_workflow_timeout_ms: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_workflow_timeout_ms),
+        tool_command_timeout_ms: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_command_timeout_ms),
         tool_poll_interval_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_poll_interval_ms),
         tool_poll_max_attempts: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_poll_max_attempts),
         tool_idle_output_threshold_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_idle_output_threshold_ms),
