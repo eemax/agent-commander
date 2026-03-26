@@ -478,7 +478,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply.mock.calls[1]?.[0]).toBe("done");
   });
 
-  it("sends late tool call notices after main reply", async () => {
+  it("commits each phase inline on mode switch (tools -> text -> tools)", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -490,7 +490,7 @@ describe("dispatchTelegramTextMessage", () => {
         clock = 120;
         await stream?.onTextDelta?.("Reply");
         clock = 240;
-        // Late tool call after text started
+        // Tool call after text started — triggers text commit and mode switch
         await stream?.onToolCallNotice?.("✍️ Write: `bar.ts`");
         return { type: "reply", text: "Reply" };
       },
@@ -500,11 +500,14 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // sendReply: committed buffer, late notice, final reply
+    // sendReply: deferred tool1, deferred text "Reply" filtered (matches final), deferred tool2, final reply
     expect(sendReply).toHaveBeenCalledTimes(3);
     expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
     expect(sendReply.mock.calls[1]?.[0]).toBe("✍️ Write: `bar.ts`");
+    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
     expect(sendReply.mock.calls[2]?.[0]).toBe("Reply");
+    expect(sendReply.mock.calls[2]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
   });
 
   it("commits tool calls even when handler returns ignore", async () => {
@@ -553,5 +556,188 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendDraft.mock.calls[1]?.[0]).toHaveLength(4096);
     // The committed real message is also truncated (stored as 4096 in buffer)
     expect(sendReply.mock.calls[0]?.[0]).toHaveLength(4096);
+  });
+
+  it("supports text -> tools -> text mode switching", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onTextDelta?.("Part 1");
+        clock = 120;
+        await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
+        clock = 240;
+        await stream?.onTextDelta?.("Part 2");
+        return { type: "reply", text: "Part 2" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // sendReply: committed text draft, committed tool buffer, final reply
+    expect(sendReply).toHaveBeenCalledTimes(3);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("Part 1");
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "assistant" });
+    expect(sendReply.mock.calls[1]?.[0]).toBe("📖 Read: `foo.ts`");
+    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
+    expect(sendReply.mock.calls[2]?.[0]).toBe("Part 2");
+    expect(sendReply.mock.calls[2]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
+  });
+
+  it("supports multiple mode cycles (tools -> text -> tools -> text)", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onToolCallNotice?.("🔍 Search");
+        clock = 120;
+        await stream?.onTextDelta?.("Found it. ");
+        clock = 240;
+        await stream?.onToolCallNotice?.("📖 Read: `result.ts`");
+        clock = 360;
+        await stream?.onTextDelta?.("Here are the results.");
+        return { type: "reply", text: "Here are the results." };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // 4 sendReply calls: tool commit, text commit, tool commit, final reply
+    // (last text phase stays as draft until the final reply replaces it)
+    expect(sendReply).toHaveBeenCalledTimes(4);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("🔍 Search");
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
+    expect(sendReply.mock.calls[1]?.[0]).toBe("Found it.");
+    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "assistant" });
+    expect(sendReply.mock.calls[2]?.[0]).toBe("📖 Read: `result.ts`");
+    expect(sendReply.mock.calls[2]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
+    expect(sendReply.mock.calls[3]?.[0]).toBe("Here are the results.");
+    expect(sendReply.mock.calls[3]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
+  });
+
+  it("count-mode replace after text commits text first", async () => {
+    const VERBOSE_REPLACE_PREFIX = "\x00REPLACE\x00";
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onTextDelta?.("Thinking...");
+        clock = 120;
+        // Count-mode tool call notice arrives during text phase
+        await stream?.onToolCallNotice?.(VERBOSE_REPLACE_PREFIX + "📖 Read ×1");
+        clock = 240;
+        await stream?.onTextDelta?.("Done.");
+        return { type: "reply", text: "Done." };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // sendReply: committed text draft, committed tool buffer, final reply
+    expect(sendReply).toHaveBeenCalledTimes(3);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("Thinking...");
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "assistant" });
+    expect(sendReply.mock.calls[1]?.[0]).toBe("📖 Read ×1");
+    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
+    expect(sendReply.mock.calls[2]?.[0]).toBe("Done.");
+    expect(sendReply.mock.calls[2]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
+  });
+
+  it("discards deferred text on fallback, keeps tool notices", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onTextDelta?.("Draft answer");
+        clock = 120;
+        await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
+        clock = 240;
+        return { type: "fallback", text: "Provider error. Please try again." };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // Tool notice kept, text discarded, fallback message sent
+    expect(sendReply).toHaveBeenCalledTimes(2);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "fallback", isExtra: true, origin: "system" });
+    expect(sendReply.mock.calls[1]?.[0]).toBe("Provider error. Please try again.");
+    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "fallback", isExtra: false, origin: "system" });
+  });
+
+  it("discards all deferred text on ignore, keeps tool notices", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onTextDelta?.("Draft answer");
+        clock = 120;
+        await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
+        clock = 240;
+        return { type: "ignore" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // Only tool notice sent, text discarded
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
+  });
+
+  it("filters duplicate text commit matching final reply", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onTextDelta?.("Same text");
+        clock = 120;
+        await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
+        clock = 240;
+        // Final reply text matches the committed text fragment
+        return { type: "reply", text: "Same text" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // Deferred text "Same text" filtered (matches final reply), tool notice kept
+    expect(sendReply).toHaveBeenCalledTimes(2);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
+    expect(sendReply.mock.calls[1]?.[0]).toBe("Same text");
+    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
   });
 });

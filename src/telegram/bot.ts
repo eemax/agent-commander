@@ -173,8 +173,8 @@ export async function dispatchTelegramTextMessage(params: {
   let draftDisabled = !params.sendDraft;
 
   let toolCallBuffer = "";
-  let textStreamingStarted = false;
-  const lateToolCallNotices: string[] = [];
+  let currentMode: "idle" | "text" | "tools" = "idle";
+  const deferredCommits: Array<{ text: string; origin: "assistant" | "system" }> = [];
 
   await params.observability?.record({
     event: "telegram.inbound.received",
@@ -239,10 +239,22 @@ export async function dispatchTelegramTextMessage(params: {
       return;
     }
 
+    deferredCommits.push({ text, origin: "system" });
     toolCallBuffer = "";
     lastDraftText = "";
     lastDraftAtMs = null;
-    await sendOutbound(text, "reply", true, "system");
+  };
+
+  const commitTextDraft = async (): Promise<void> => {
+    const text = draftText.trim();
+    if (text.length === 0) {
+      return;
+    }
+
+    deferredCommits.push({ text, origin: "assistant" });
+    draftText = "";
+    lastDraftText = "";
+    lastDraftAtMs = null;
   };
 
   const flushDraft = async (force: boolean): Promise<void> => {
@@ -310,11 +322,11 @@ export async function dispatchTelegramTextMessage(params: {
           await ensureTypingStarted();
           stopTypingIndicator();
 
-          if (!textStreamingStarted) {
-            textStreamingStarted = true;
-            if (toolCallBuffer.trim().length > 0) {
+          if (currentMode !== "text") {
+            if (currentMode === "tools") {
               await commitToolCallBuffer();
             }
+            currentMode = "text";
           }
 
           if (draftDisabled || typeof delta !== "string" || delta.length === 0) {
@@ -323,6 +335,7 @@ export async function dispatchTelegramTextMessage(params: {
 
           draftText += delta;
           await flushDraft(false);
+          startTextTypingIndicator();
         },
         onToolCallNotice: async (notice) => {
           await ensureTypingStarted();
@@ -332,21 +345,22 @@ export async function dispatchTelegramTextMessage(params: {
             return;
           }
 
+          // Mode transition: text -> tools
+          if (currentMode === "text") {
+            await commitTextDraft();
+            currentMode = "tools";
+          } else if (currentMode !== "tools") {
+            currentMode = "tools";
+          }
+
           // Count-mode: replace the entire buffer instead of appending
           if (notice.startsWith(VERBOSE_REPLACE_PREFIX)) {
             const content = notice.slice(VERBOSE_REPLACE_PREFIX.length);
             toolCallBuffer = content.length > TELEGRAM_MESSAGE_LIMIT
               ? content.slice(0, TELEGRAM_MESSAGE_LIMIT)
               : content;
-            if (!textStreamingStarted) {
-              await flushToolCallDraft(false);
-              startToolCallTypingIndicator();
-            }
-            return;
-          }
-
-          if (textStreamingStarted) {
-            lateToolCallNotices.push(notice);
+            await flushToolCallDraft(false);
+            startToolCallTypingIndicator();
             return;
           }
 
@@ -388,7 +402,7 @@ export async function dispatchTelegramTextMessage(params: {
     let consecutiveErrors = 0;
 
     const sendFrame = (): void => {
-      if (draftDisabled || !params.sendDraft || textStreamingStarted) {
+      if (draftDisabled || !params.sendDraft || currentMode !== "tools") {
         stopTypingIndicator();
         return;
       }
@@ -408,6 +422,37 @@ export async function dispatchTelegramTextMessage(params: {
     };
 
     sendFrame();
+    typingTimer = setInterval(sendFrame, draftMinUpdateMs);
+  };
+
+  const startTextTypingIndicator = (): void => {
+    if (draftDisabled || !params.sendDraft) return;
+    stopTypingIndicator();
+    typingFrameIndex = 0;
+    let consecutiveErrors = 0;
+
+    const sendFrame = (): void => {
+      if (draftDisabled || !params.sendDraft || currentMode !== "text") {
+        stopTypingIndicator();
+        return;
+      }
+      const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
+      typingFrameIndex += 1;
+      const prefix = draftText.length > 0 ? draftText + "\n" : "";
+      const candidate = prefix + frame;
+      const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? draftText : candidate;
+      params.sendDraft(draft).then(() => {
+        consecutiveErrors = 0;
+      }).catch(() => {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 3) {
+          stopTypingIndicator();
+        }
+      });
+    };
+
+    // No immediate sendFrame — only animate during pauses between deltas.
+    // Rapid deltas call stopTypingIndicator() before the interval fires.
     typingTimer = setInterval(sendFrame, draftMinUpdateMs);
   };
 
@@ -469,8 +514,9 @@ export async function dispatchTelegramTextMessage(params: {
       for (const extra of extras) {
         await sendOutbound(extra, result.type, true, origin);
       }
-      for (const late of lateToolCallNotices) {
-        await sendOutbound(late, result.type, true, "system");
+      for (const commit of deferredCommits) {
+        if (commit.origin === "assistant" && commit.text === cleanText) continue;
+        await sendOutbound(commit.text, result.type, true, commit.origin);
       }
       await sendOutbound(cleanText, result.type, false, origin, result.inlineKeyboard);
       await sendExtractedAttachments(markers);
@@ -482,8 +528,10 @@ export async function dispatchTelegramTextMessage(params: {
       for (const extra of extras) {
         await sendOutbound(extra, result.type, true, "system");
       }
-      for (const late of lateToolCallNotices) {
-        await sendOutbound(late, result.type, true, "system");
+      for (const commit of deferredCommits) {
+        if (commit.origin === "system") {
+          await sendOutbound(commit.text, result.type, true, "system");
+        }
       }
       await sendOutbound(cleanText, result.type, false, "system", result.inlineKeyboard);
       await sendExtractedAttachments(markers);
@@ -492,7 +540,12 @@ export async function dispatchTelegramTextMessage(params: {
     case "unauthorized":
       await sendOutbound(result.text, result.type, false, "system", result.inlineKeyboard);
       break;
-    case "ignore":
+    case "ignore": {
+      for (const commit of deferredCommits) {
+        if (commit.origin === "system") {
+          await sendOutbound(commit.text, "reply", true, "system");
+        }
+      }
       await params.observability?.record({
         event: "telegram.outbound.reply.sent",
         trace: createChildTraceContext(messageTrace, "telegram"),
@@ -505,6 +558,7 @@ export async function dispatchTelegramTextMessage(params: {
         isExtra: false
       });
       break;
+    }
   }
   return result;
 }
