@@ -163,6 +163,9 @@ export async function dispatchTelegramTextMessage(params: {
   trace?: TraceContext;
   observability?: ObservabilitySink;
   userContent?: string | ContentPart[];
+  sendAcknowledgedReaction?: () => Promise<void>;
+  sendProcessingAction?: () => Promise<void>;
+  processingActionRefreshMs?: number;
 }): Promise<MessageRouteResult> {
   const messageTrace = params.trace ?? createTraceRootContext("telegram");
   const nowMs = params.nowMs ?? Date.now;
@@ -175,6 +178,27 @@ export async function dispatchTelegramTextMessage(params: {
   let toolCallBuffer = "";
   let currentMode: "idle" | "text" | "tools" = "idle";
   const deferredCommits: Array<{ text: string; origin: "assistant" | "system" }> = [];
+
+  // Lifecycle signal state
+  let acknowledged = false;
+  let processingTimer: ReturnType<typeof setInterval> | null = null;
+  const processingActionRefreshMs = params.processingActionRefreshMs ?? 4000;
+
+  const stopProcessingIndicator = (): void => {
+    if (processingTimer !== null) {
+      clearInterval(processingTimer);
+      processingTimer = null;
+    }
+  };
+
+  const startProcessingIndicator = (): void => {
+    if (!params.sendProcessingAction) return;
+    stopProcessingIndicator();
+    params.sendProcessingAction().catch(() => {});
+    processingTimer = setInterval(() => {
+      params.sendProcessingAction!().catch(() => {});
+    }, processingActionRefreshMs);
+  };
 
   await params.observability?.record({
     event: "telegram.inbound.received",
@@ -316,9 +340,10 @@ export async function dispatchTelegramTextMessage(params: {
     }
   };
 
-  const stream: MessageStreamingSink | undefined = params.sendDraft
+  const hasLifecycleCallbacks = Boolean(params.sendAcknowledgedReaction || params.sendProcessingAction);
+  const stream: MessageStreamingSink | undefined = (params.sendDraft || hasLifecycleCallbacks)
     ? {
-        onTextDelta: async (delta) => {
+        onTextDelta: params.sendDraft ? async (delta: string) => {
           await ensureTypingStarted();
           stopTypingIndicator();
 
@@ -336,8 +361,8 @@ export async function dispatchTelegramTextMessage(params: {
           draftText += delta;
           await flushDraft(false);
           startTextTypingIndicator();
-        },
-        onToolCallNotice: async (notice) => {
+        } : undefined,
+        onToolCallNotice: params.sendDraft ? async (notice: string) => {
           await ensureTypingStarted();
           stopTypingIndicator();
 
@@ -393,7 +418,44 @@ export async function dispatchTelegramTextMessage(params: {
 
           await flushToolCallDraft(false);
           startToolCallTypingIndicator();
-        }
+        } : undefined,
+        onLifecycleEvent: hasLifecycleCallbacks ? async (event: import("../types.js").ProviderLifecycleEvent) => {
+          if (event.type === "response_acknowledged") {
+            if (!acknowledged && params.sendAcknowledgedReaction) {
+              acknowledged = true;
+              try {
+                await params.sendAcknowledgedReaction();
+                await params.observability?.record({
+                  event: "telegram.outbound.acknowledged.sent",
+                  trace: createChildTraceContext(messageTrace, "telegram"),
+                  stage: "completed",
+                  chatId: params.message.chatId,
+                  messageId: params.message.messageId
+                });
+              } catch (error) {
+                await params.observability?.record({
+                  event: "telegram.outbound.acknowledged.failed",
+                  trace: createChildTraceContext(messageTrace, "telegram"),
+                  stage: "failed",
+                  chatId: params.message.chatId,
+                  messageId: params.message.messageId,
+                  error
+                });
+              }
+            }
+          } else if (event.type === "response_processing_started") {
+            if (processingTimer === null) {
+              startProcessingIndicator();
+              await params.observability?.record({
+                event: "telegram.outbound.processing.started",
+                trace: createChildTraceContext(messageTrace, "telegram"),
+                stage: "started",
+                chatId: params.message.chatId,
+                messageId: params.message.messageId
+              });
+            }
+          }
+        } : undefined
       }
     : undefined;
 
@@ -510,8 +572,22 @@ export async function dispatchTelegramTextMessage(params: {
     }
   };
 
-  const result = await params.handleMessage(params.message, stream, messageTrace, params.userContent);
-  stopTypingIndicator();
+  let result: MessageRouteResult;
+  try {
+    result = await params.handleMessage(params.message, stream, messageTrace, params.userContent);
+  } finally {
+    stopTypingIndicator();
+    if (processingTimer !== null) {
+      await params.observability?.record({
+        event: "telegram.outbound.processing.stopped",
+        trace: createChildTraceContext(messageTrace, "telegram"),
+        stage: "completed",
+        chatId: params.message.chatId,
+        messageId: params.message.messageId
+      });
+    }
+    stopProcessingIndicator();
+  }
   await flushToolCallDraft(true);
   await commitToolCallBuffer();
   await flushDraft(true);
@@ -594,6 +670,7 @@ export function createTelegramBot(params: {
   maxFileSizeBytes: number;
   fileDownloadTimeoutMs: number;
   maxConcurrentDownloads: number;
+  acknowledgedEmoji: string | null;
   logger: RuntimeLogger;
   handleMessage: TelegramTextHandler;
   handleCallbackQuery: TelegramCallbackQueryHandler;
@@ -778,7 +855,16 @@ export function createTelegramBot(params: {
             );
           },
           trace: inboundTrace,
-          observability: params.observability
+          observability: params.observability,
+          sendAcknowledgedReaction: params.acknowledgedEmoji
+            ? async () => {
+                await ctx.react(params.acknowledgedEmoji! as Parameters<typeof ctx.react>[0]);
+              }
+            : undefined,
+          sendProcessingAction: async () => {
+            await ctx.replyWithChatAction("typing");
+          },
+          processingActionRefreshMs: 4000
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

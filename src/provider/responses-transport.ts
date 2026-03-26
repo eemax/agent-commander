@@ -2,6 +2,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Config, RuntimeLogger } from "../runtime/contracts.js";
 import { createChildTraceContext, createTraceRootContext, type ObservabilitySink, type TraceContext } from "../observability.js";
 import { ProviderError } from "../provider-error.js";
+import type { ProviderLifecycleEvent } from "../types.js";
 import type { OpenAIResponsesResponse } from "./openai-types.js";
 import { classifyFetchError, classifyHttpStatus, computeRetryDelayMs, type RetryDecision } from "./retry-policy.js";
 import { sanitizeReason } from "./sanitize.js";
@@ -19,6 +20,7 @@ export type ProviderTransportDeps = {
 
 export type ResponsesRequestOptions = {
   onTextDelta?: (delta: string) => void | Promise<void>;
+  onLifecycleEvent?: (event: ProviderLifecycleEvent) => void | Promise<void>;
   trace?: TraceContext;
   messageId?: string;
   abortSignal?: AbortSignal;
@@ -36,6 +38,7 @@ function readHeaders(headers: Headers): Record<string, string> {
 async function parseSuccessPayload(params: {
   response: Response;
   onTextDelta?: (delta: string) => void | Promise<void>;
+  onResponseCreated?: () => void | Promise<void>;
 }): Promise<StreamParseResult> {
   const contentType = params.response.headers.get("content-type") ?? "";
   if (/text\/event-stream/i.test(contentType)) {
@@ -57,6 +60,8 @@ async function parseSuccessPayload(params: {
     });
   }
 
+  // Non-streaming JSON response — the model accepted and completed in one shot.
+  await params.onResponseCreated?.();
   const payload = JSON.parse(responseBody) as OpenAIResponsesResponse;
   return {
     payload,
@@ -114,6 +119,7 @@ export function createResponsesRequestWithRetry(
       const startedAtMs = nowMsImpl();
       let streamDeltaCount = 0;
       let streamDeltaChars = 0;
+      let lifecycleAcknowledged = false;
 
       await observability?.record({
         event: "provider.openai.request.started",
@@ -193,17 +199,29 @@ export function createResponsesRequestWithRetry(
             }
           });
         } else {
+          const emitAcknowledgedIfNeeded = async (): Promise<void> => {
+            if (!lifecycleAcknowledged) {
+              lifecycleAcknowledged = true;
+              await options.onLifecycleEvent?.({ type: "response_acknowledged" });
+              await options.onLifecycleEvent?.({ type: "response_processing_started" });
+            }
+          };
           const parsed = await parseSuccessPayload({
             response,
             onTextDelta: async (delta) => {
               streamDeltaCount += 1;
               streamDeltaChars += delta.length;
+              // Fallback: if response.created was never seen, treat the first
+              // upstream delta as acceptance.
+              await emitAcknowledgedIfNeeded();
               await options.onTextDelta?.(delta);
-            }
+            },
+            onResponseCreated: emitAcknowledgedIfNeeded
           });
           if (parsed.emittedTextDelta && streamDeltaCount === 0) {
             streamDeltaCount = 1;
           }
+          await options.onLifecycleEvent?.({ type: "response_processing_finished", outcome: "completed" });
           await observability?.record({
             event: "provider.openai.request.completed",
             trace: attemptTrace,
@@ -228,6 +246,10 @@ export function createResponsesRequestWithRetry(
           return { payload: parsed.payload, attempt };
         }
       } catch (error) {
+        if (lifecycleAcknowledged) {
+          const outcome = options.abortSignal?.aborted ? "aborted" as const : "failed" as const;
+          try { await options.onLifecycleEvent?.({ type: "response_processing_finished", outcome }); } catch { /* ignore */ }
+        }
         const streamFailureMessage = error instanceof Error ? error.message : String(error);
         const failureFromError = classifyFetchError(error, {
           localTimeoutFired,

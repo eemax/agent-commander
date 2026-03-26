@@ -323,4 +323,98 @@ describe("createResponsesRequestWithRetry", () => {
     });
     expect(fetchMock).toHaveBeenCalledOnce();
   });
+
+  it("emits lifecycle events on successful stream with response.created", async () => {
+    const fetchMock = vi.fn<(...args: Parameters<typeof fetch>) => Promise<Response>>().mockResolvedValue(
+      makeSseResponse([
+        { event: "response.created", data: { type: "response.created", response: { id: "r1" } } },
+        { event: "response.output_text.delta", data: { type: "response.output_text.delta", delta: "hi" } },
+        { event: "response.completed", data: { type: "response.completed", response: { id: "r1", output_text: "hi", output: [] } } }
+      ])
+    );
+
+    const lifecycleEvents: Array<{ type: string; outcome?: string }> = [];
+    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), {
+      fetchImpl: fetchMock as unknown as typeof fetch
+    });
+
+    await request({ model: "gpt-5.4-mini", input: [] }, "chat-lifecycle", {
+      authModeAdapter: mockAdapter,
+      onLifecycleEvent: (event) => { lifecycleEvents.push(event); }
+    });
+
+    expect(lifecycleEvents).toEqual([
+      { type: "response_acknowledged" },
+      { type: "response_processing_started" },
+      { type: "response_processing_finished", outcome: "completed" }
+    ]);
+  });
+
+  it("emits no lifecycle events when request fails before 2xx", async () => {
+    const fetchMock = vi.fn<(...args: Parameters<typeof fetch>) => Promise<Response>>().mockResolvedValue(
+      new Response("Server Error", { status: 500 })
+    );
+
+    const lifecycleEvents: Array<{ type: string }> = [];
+    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), {
+      fetchImpl: fetchMock as unknown as typeof fetch
+    });
+
+    await expect(
+      request({ model: "gpt-5.4-mini", input: [] }, "chat-fail", {
+        authModeAdapter: mockAdapter,
+        onLifecycleEvent: (event) => { lifecycleEvents.push(event); }
+      })
+    ).rejects.toThrow();
+
+    expect(lifecycleEvents).toEqual([]);
+  });
+
+  it("emits lifecycle events via fallback when response.created is absent", async () => {
+    const fetchMock = vi.fn<(...args: Parameters<typeof fetch>) => Promise<Response>>().mockResolvedValue(
+      makeSseResponse([
+        { event: "response.output_text.delta", data: { type: "response.output_text.delta", delta: "hi" } },
+        { event: "response.completed", data: { type: "response.completed", response: { id: "r1", output_text: "hi", output: [] } } }
+      ])
+    );
+
+    const lifecycleEvents: Array<{ type: string; outcome?: string }> = [];
+    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), {
+      fetchImpl: fetchMock as unknown as typeof fetch
+    });
+
+    await request({ model: "gpt-5.4-mini", input: [] }, "chat-fallback", {
+      authModeAdapter: mockAdapter,
+      onLifecycleEvent: (event) => { lifecycleEvents.push(event); }
+    });
+
+    expect(lifecycleEvents).toEqual([
+      { type: "response_acknowledged" },
+      { type: "response_processing_started" },
+      { type: "response_processing_finished", outcome: "completed" }
+    ]);
+  });
+
+  it("emits lifecycle events for non-streaming JSON response", async () => {
+    const jsonPayload = { id: "r1", output_text: "done", output: [] };
+    const fetchMock = vi.fn<(...args: Parameters<typeof fetch>) => Promise<Response>>().mockResolvedValue(
+      new Response(JSON.stringify(jsonPayload), { status: 200, headers: { "content-type": "application/json" } })
+    );
+
+    const lifecycleEvents: Array<{ type: string; outcome?: string }> = [];
+    const request = createResponsesRequestWithRetry(makeConfig({ openai: { maxRetries: 0 } }), makeLogger(), {
+      fetchImpl: fetchMock as unknown as typeof fetch
+    });
+
+    await request({ model: "gpt-5.4-mini", input: [] }, "chat-json", {
+      authModeAdapter: mockAdapter,
+      onLifecycleEvent: (event) => { lifecycleEvents.push(event); }
+    });
+
+    expect(lifecycleEvents).toEqual([
+      { type: "response_acknowledged" },
+      { type: "response_processing_started" },
+      { type: "response_processing_finished", outcome: "completed" }
+    ]);
+  });
 });

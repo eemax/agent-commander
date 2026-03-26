@@ -50,6 +50,7 @@ export type Config = {
     maxFileSizeBytes: number;
     fileDownloadTimeoutMs: number;
     maxConcurrentDownloads: number;
+    acknowledgedEmoji: string | null;
   };
   openai: {
     authMode: AuthMode;

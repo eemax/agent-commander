@@ -21,7 +21,8 @@ const DEFAULT_CONFIG_TEMPLATE = {
     assistant_format: "plain_text",
     max_file_size_mb: 10,
     file_download_timeout_ms: 30_000,
-    max_concurrent_downloads: 4
+    max_concurrent_downloads: 4,
+    acknowledged_emoji: "off"
   },
   openai: {
     auth_mode: "api",
@@ -173,7 +174,8 @@ export const configSchema = z
           .default(DEFAULT_CONFIG_TEMPLATE.telegram.assistant_format as TelegramAssistantFormat),
         max_file_size_mb: z.number().positive().default(DEFAULT_CONFIG_TEMPLATE.telegram.max_file_size_mb),
         file_download_timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.file_download_timeout_ms),
-        max_concurrent_downloads: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.max_concurrent_downloads)
+        max_concurrent_downloads: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.max_concurrent_downloads),
+        acknowledged_emoji: z.string().default(DEFAULT_CONFIG_TEMPLATE.telegram.acknowledged_emoji)
       })
       .strict(),
     openai: z
@@ -576,7 +578,8 @@ export function buildConfigFromParsed(
       assistantFormat: config.telegram.assistant_format,
       maxFileSizeBytes: Math.round(config.telegram.max_file_size_mb * 1024 * 1024),
       fileDownloadTimeoutMs: config.telegram.file_download_timeout_ms,
-      maxConcurrentDownloads: config.telegram.max_concurrent_downloads
+      maxConcurrentDownloads: config.telegram.max_concurrent_downloads,
+      acknowledgedEmoji: config.telegram.acknowledged_emoji === "off" ? null : config.telegram.acknowledged_emoji
     },
     openai: {
       authMode,

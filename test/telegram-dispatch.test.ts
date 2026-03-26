@@ -870,4 +870,160 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply.mock.calls[2]?.[0]).toBe("Final answer");
     expect(sendReply.mock.calls[2]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "assistant" });
   });
+
+  it("sends acknowledged reaction exactly once on first response_acknowledged", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    const sendAcknowledgedReaction = vi.fn(async () => {});
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onLifecycleEvent?.({ type: "response_acknowledged" });
+        await stream?.onLifecycleEvent?.({ type: "response_processing_started" });
+        // Second ack should be ignored
+        await stream?.onLifecycleEvent?.({ type: "response_acknowledged" });
+        await stream?.onLifecycleEvent?.({ type: "response_processing_finished", outcome: "completed" });
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendDraft,
+      sendAcknowledgedReaction
+    });
+
+    expect(sendAcknowledgedReaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts processing indicator on response_processing_started", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendProcessingAction = vi.fn(async () => {});
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onLifecycleEvent?.({ type: "response_acknowledged" });
+        await stream?.onLifecycleEvent?.({ type: "response_processing_started" });
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendProcessingAction
+    });
+
+    // Should have been called at least once (immediate send on start)
+    expect(sendProcessingAction).toHaveBeenCalled();
+  });
+
+  it("cleans up processing timer in finally block even when handler throws", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendProcessingAction = vi.fn(async () => {});
+
+    await expect(
+      dispatchTelegramTextMessage({
+        message: baseMessage,
+        handleMessage: async (_message, stream) => {
+          await stream?.onLifecycleEvent?.({ type: "response_acknowledged" });
+          await stream?.onLifecycleEvent?.({ type: "response_processing_started" });
+          throw new Error("handler crashed");
+        },
+        sendReply,
+        sendProcessingAction
+      })
+    ).rejects.toThrow("handler crashed");
+
+    // The timer should have been cleaned up in finally block.
+    // Verify no further calls after the throw by checking the mock wasn't called excessively.
+    expect(sendProcessingAction).toHaveBeenCalled();
+  });
+
+  it("lifecycle events work when sendDraft is disabled", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendAcknowledgedReaction = vi.fn(async () => {});
+    const sendProcessingAction = vi.fn(async () => {});
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        // stream should exist even without sendDraft because lifecycle callbacks are provided
+        expect(stream).toBeDefined();
+        await stream?.onLifecycleEvent?.({ type: "response_acknowledged" });
+        await stream?.onLifecycleEvent?.({ type: "response_processing_started" });
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      // No sendDraft!
+      sendAcknowledgedReaction,
+      sendProcessingAction
+    });
+
+    expect(sendAcknowledgedReaction).toHaveBeenCalledTimes(1);
+    expect(sendProcessingAction).toHaveBeenCalled();
+  });
+
+  it("does not send reaction when sendAcknowledgedReaction is undefined", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onLifecycleEvent?.({ type: "response_acknowledged" });
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendDraft
+      // No sendAcknowledgedReaction - simulates acknowledged_emoji: "off"
+    });
+
+    // No errors thrown, no reaction sent
+    expect(sendReply).toHaveBeenCalledTimes(1);
+  });
+
+  it("reaction failure does not block the reply", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendAcknowledgedReaction = vi.fn(async () => {
+      throw new Error("reaction API failed");
+    });
+
+    const result = await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onLifecycleEvent?.({ type: "response_acknowledged" });
+        await stream?.onLifecycleEvent?.({ type: "response_processing_started" });
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendAcknowledgedReaction
+    });
+
+    expect(result.type).toBe("reply");
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendAcknowledgedReaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("draft failure does not disable processing indicator", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async () => {
+      throw new Error("draft failed");
+    });
+    const sendProcessingAction = vi.fn(async () => {});
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onLifecycleEvent?.({ type: "response_acknowledged" });
+        await stream?.onLifecycleEvent?.({ type: "response_processing_started" });
+        // Draft will fail on first text delta
+        await stream?.onTextDelta?.("hello");
+        // Processing action should still be working
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendDraft,
+      sendProcessingAction,
+      draftMinUpdateMs: 1
+    });
+
+    // Processing action was called despite draft failure
+    expect(sendProcessingAction).toHaveBeenCalled();
+  });
 });

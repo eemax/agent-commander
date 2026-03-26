@@ -29,6 +29,7 @@ This is the canonical `config/config.json` shape.
 - `max_file_size_mb`: positive float, default `10` — attachment size limit
 - `file_download_timeout_ms`: positive integer, default `30000` — timeout for Telegram file downloads
 - `max_concurrent_downloads`: positive integer, default `4` — concurrent attachment download limit
+- `acknowledged_emoji`: string, default `"off"` — emoji reaction added to the user's message when OpenAI accepts the request. Set to any valid Telegram reaction emoji (e.g. `"👍"`) to enable, or `"off"` to disable
 
 ### `openai`
 

@@ -97,6 +97,7 @@ export type ProviderRequest = {
   onToolProgress?: (event: ToolProgressEvent) => void | Promise<void>;
   onUsage?: (usage: ProviderUsageSnapshot) => void | Promise<void>;
   onCompaction?: (count: number) => void | Promise<void>;
+  onLifecycleEvent?: (event: ProviderLifecycleEvent) => void | Promise<void>;
 };
 
 export type Provider = {
@@ -106,6 +107,7 @@ export type Provider = {
 export type MessageStreamingSink = {
   onTextDelta?: (delta: string) => void | Promise<void>;
   onToolCallNotice?: (notice: string) => void | Promise<void>;
+  onLifecycleEvent?: (event: ProviderLifecycleEvent) => void | Promise<void>;
 };
 
 export type ToolErrorCode =
@@ -161,6 +163,11 @@ export type ToolCallReport = {
   error: string | null;
   errorCode?: ToolErrorCode | null;
 };
+
+export type ProviderLifecycleEvent =
+  | { type: "response_acknowledged" }
+  | { type: "response_processing_started" }
+  | { type: "response_processing_finished"; outcome: "completed" | "failed" | "aborted" };
 
 export type ProviderUsageSnapshot = {
   inputTokens: number | null;

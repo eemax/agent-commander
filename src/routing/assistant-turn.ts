@@ -29,6 +29,7 @@ export type AssistantTurnHandlerInput = {
   interruptedPreviousTurn?: boolean;
   onTextDelta?: (delta: string) => void | Promise<void>;
   onToolCallNotice?: (notice: string) => void | Promise<void>;
+  onLifecycleEvent?: (event: import("../types.js").ProviderLifecycleEvent) => void | Promise<void>;
 };
 
 function sanitizeLogToken(value: string | null | undefined): string {
@@ -140,6 +141,7 @@ export function createAssistantTurnHandler(params: {
         steerChannel: input.steerChannel,
         trace: createChildTraceContext(input.trace, "provider"),
         onTextDelta: input.onTextDelta,
+        onLifecycleEvent: input.onLifecycleEvent,
         onToolCall: async (event) => {
           await conversations.recordToolResult(input.message.chatId, {
             tool: event.tool,

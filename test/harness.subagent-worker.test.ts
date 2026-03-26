@@ -50,7 +50,8 @@ function makeConfig(): Config {
       assistantFormat: "plain_text",
       maxFileSizeBytes: 10 * 1024 * 1024,
       fileDownloadTimeoutMs: 30_000,
-      maxConcurrentDownloads: 4
+      maxConcurrentDownloads: 4,
+      acknowledgedEmoji: null
     },
     openai: {
       authMode: "api",

@@ -1,5 +1,5 @@
 import type { TraceContext } from "../observability.js";
-import type { AuthMode, TransportMode } from "../types.js";
+import type { AuthMode, TransportMode, ProviderLifecycleEvent } from "../types.js";
 import type { OpenAIResponsesResponse } from "./openai-types.js";
 import type { AuthModeRegistry } from "./auth-mode-contracts.js";
 import type { ResponsesRequestOptions } from "./responses-transport.js";
@@ -22,6 +22,7 @@ export type ExecuteRequestParams = {
   authMode: AuthMode;
   transportMode: TransportMode;
   onTextDelta?: (delta: string) => void | Promise<void>;
+  onLifecycleEvent?: (event: ProviderLifecycleEvent) => void | Promise<void>;
 };
 
 export type OpenAIRequestExecutor = {
@@ -48,6 +49,7 @@ export function createRequestExecutor(
 
       const requestOptions = {
         onTextDelta: params.onTextDelta,
+        onLifecycleEvent: params.onLifecycleEvent,
         trace: params.trace,
         messageId: params.messageId,
         abortSignal: params.abortSignal,

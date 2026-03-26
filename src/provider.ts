@@ -136,7 +136,8 @@ export function createOpenAIProvider(
                 abortSignal: input.abortSignal,
                 authMode: effectiveAuthMode,
                 transportMode: input.transportMode ?? config.openai.defaultTransport,
-                onTextDelta: input.onTextDelta
+                onTextDelta: input.onTextDelta,
+                onLifecycleEvent: input.onLifecycleEvent
               });
               lastAttempt = result.attempt;
               return result.payload;

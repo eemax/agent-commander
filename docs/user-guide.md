@@ -211,6 +211,7 @@ Common optional fields:
 - `telegram.streaming_enabled` (default `true`)
 - `telegram.streaming_min_update_ms` (default `100`)
 - `telegram.assistant_format` (`plain_text` by default, `markdown_to_html` to enable Markdown->HTML formatting for final assistant replies)
+- `telegram.acknowledged_emoji` (default `"off"`, set to an emoji like `"👍"` to react to messages when OpenAI accepts the request)
 - `observability.enabled` (default `false`)
 - `observability.log_path` (default `.agent-commander/observability.jsonl`)
 - `observability.redaction.enabled` (default `true`)

@@ -131,4 +131,34 @@ describe("parseOpenAIStream", () => {
     });
     expect(deltas).toEqual(["real"]);
   });
+
+  it("calls onResponseCreated on response.created event", async () => {
+    const onResponseCreated = vi.fn();
+    const sseText = [
+      `event: message\ndata: ${JSON.stringify({ type: "response.created", response: { id: "r1" } })}\n\n`,
+      `event: response.completed\ndata: ${JSON.stringify({ response: { id: "r1", output_text: "done" } })}\n\n`
+    ].join("");
+
+    await parseOpenAIStream({
+      response: makeSseResponse(sseText),
+      onResponseCreated
+    });
+
+    expect(onResponseCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onResponseCreated when event is absent", async () => {
+    const onResponseCreated = vi.fn();
+    const sseText = [
+      `event: message\ndata: ${JSON.stringify({ type: "response.output_text.delta", delta: "hi" })}\n\n`,
+      `event: response.completed\ndata: ${JSON.stringify({ response: { id: "r1", output_text: "hi" } })}\n\n`
+    ].join("");
+
+    await parseOpenAIStream({
+      response: makeSseResponse(sseText),
+      onResponseCreated
+    });
+
+    expect(onResponseCreated).not.toHaveBeenCalled();
+  });
 });

@@ -2,6 +2,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Config, RuntimeLogger } from "../runtime/contracts.js";
 import { createChildTraceContext, createTraceRootContext, type ObservabilitySink, type TraceContext } from "../observability.js";
 import { ProviderError } from "../provider-error.js";
+import type { ProviderLifecycleEvent } from "../types.js";
 import type { OpenAIResponsesResponse } from "./openai-types.js";
 import { parseCompletedPayload } from "./sse-parser.js";
 import { computeRetryDelayMs } from "./retry-policy.js";
@@ -22,6 +23,7 @@ export type WsTransportDeps = {
 
 export type WsTransportRequestOptions = {
   onTextDelta?: (delta: string) => void | Promise<void>;
+  onLifecycleEvent?: (event: ProviderLifecycleEvent) => void | Promise<void>;
   trace?: TraceContext;
   messageId?: string;
   abortSignal?: AbortSignal;
@@ -32,7 +34,9 @@ type PendingRequest = {
   resolve: (result: { payload: OpenAIResponsesResponse; emittedTextDelta: boolean }) => void;
   reject: (error: Error) => void;
   emittedTextDelta: boolean;
+  lifecycleAcknowledged: boolean;
   onTextDelta?: (delta: string) => void | Promise<void>;
+  onLifecycleEvent?: (event: ProviderLifecycleEvent) => void | Promise<void>;
 };
 
 type WsConnection = {
@@ -176,6 +180,9 @@ export function createWsTransportManager(
         // to prevent a stale socket's onclose from tearing down a replacement
         // connection that was stored in the map after an auth-triggered reconnect.
         if (conn.pendingRequest) {
+          if (conn.pendingRequest.lifecycleAcknowledged) {
+            try { conn.pendingRequest.onLifecycleEvent?.({ type: "response_processing_finished", outcome: "failed" }); } catch { /* ignore */ }
+          }
           conn.pendingRequest.reject(new ProviderError({
             message: `WebSocket closed mid-request: code=${event.code} reason=${event.reason || "none"}`,
             kind: "network",
@@ -252,10 +259,30 @@ export function createWsTransportManager(
 
         const pending = currentConn.pendingRequest;
 
+        if (eventType === "response.created") {
+          if (!pending.lifecycleAcknowledged) {
+            pending.lifecycleAcknowledged = true;
+            try {
+              await pending.onLifecycleEvent?.({ type: "response_acknowledged" });
+              await pending.onLifecycleEvent?.({ type: "response_processing_started" });
+            } catch { /* ignore lifecycle callback errors */ }
+          }
+          return;
+        }
+
         if (eventType === "response.output_text.delta") {
           const delta = (parsed as { delta?: unknown }).delta;
           if (typeof delta === "string" && delta.length > 0) {
             pending.emittedTextDelta = true;
+            // Fallback: if response.created was never seen, treat the first
+            // upstream delta as acceptance.
+            if (!pending.lifecycleAcknowledged) {
+              pending.lifecycleAcknowledged = true;
+              try {
+                await pending.onLifecycleEvent?.({ type: "response_acknowledged" });
+                await pending.onLifecycleEvent?.({ type: "response_processing_started" });
+              } catch { /* ignore lifecycle callback errors */ }
+            }
             try {
               await pending.onTextDelta?.(delta);
             } catch {
@@ -272,6 +299,9 @@ export function createWsTransportManager(
           }
           const payload = parseCompletedPayload(parsed);
           if (payload) {
+            if (pending.lifecycleAcknowledged) {
+              try { await pending.onLifecycleEvent?.({ type: "response_processing_finished", outcome: "completed" }); } catch { /* ignore */ }
+            }
             currentConn.pendingRequest = null;
             resetIdleTimer(currentConn);
             // Proactive rotation if timer already fired while request was in-flight.
@@ -280,6 +310,9 @@ export function createWsTransportManager(
             }
             pending.resolve({ payload, emittedTextDelta: pending.emittedTextDelta });
           } else {
+            if (pending.lifecycleAcknowledged) {
+              try { await pending.onLifecycleEvent?.({ type: "response_processing_finished", outcome: "failed" }); } catch { /* ignore */ }
+            }
             currentConn.pendingRequest = null;
             pending.reject(new SyntaxError("WebSocket response.completed event did not include a response payload"));
           }
@@ -293,6 +326,9 @@ export function createWsTransportManager(
               ? (errorObj as { message: string }).message
               : "OpenAI WebSocket returned an error event";
 
+          if (pending.lifecycleAcknowledged) {
+            try { await pending.onLifecycleEvent?.({ type: "response_processing_finished", outcome: "failed" }); } catch { /* ignore */ }
+          }
           currentConn.pendingRequest = null;
           pending.reject(new ProviderError({
             message,
@@ -436,13 +472,18 @@ export function createWsTransportManager(
           resolve,
           reject,
           emittedTextDelta: false,
-          onTextDelta: options?.onTextDelta
+          lifecycleAcknowledged: false,
+          onTextDelta: options?.onTextDelta,
+          onLifecycleEvent: options?.onLifecycleEvent
         };
 
         // Set up abort signal listener.
         if (options?.abortSignal) {
           const onAbort = () => {
             if (conn.pendingRequest) {
+              if (conn.pendingRequest.lifecycleAcknowledged) {
+                try { conn.pendingRequest.onLifecycleEvent?.({ type: "response_processing_finished", outcome: "aborted" }); } catch { /* ignore */ }
+              }
               conn.pendingRequest.reject(new ProviderError({
                 message: "WebSocket request interrupted by upstream abort signal",
                 kind: "timeout",
@@ -481,6 +522,9 @@ export function createWsTransportManager(
         if (timeoutMs !== null) {
           timeoutId = setTimeout(() => {
             if (conn.pendingRequest) {
+              if (conn.pendingRequest.lifecycleAcknowledged) {
+                try { conn.pendingRequest.onLifecycleEvent?.({ type: "response_processing_finished", outcome: "failed" }); } catch { /* ignore */ }
+              }
               conn.pendingRequest.reject(new ProviderError({
                 message: "WebSocket request timed out",
                 kind: "timeout",

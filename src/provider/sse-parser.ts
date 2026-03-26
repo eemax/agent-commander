@@ -38,6 +38,7 @@ export function parseCompletedPayload(eventPayload: unknown): OpenAIResponsesRes
 export async function parseOpenAIStream(params: {
   response: Response;
   onTextDelta?: (delta: string) => void | Promise<void>;
+  onResponseCreated?: () => void | Promise<void>;
 }): Promise<StreamParseResult> {
   const body = params.response.body;
   if (!body) {
@@ -103,6 +104,11 @@ export async function parseOpenAIStream(params: {
       typeof (parsed as { type?: unknown }).type === "string"
         ? (parsed as { type: string }).type
         : eventName;
+
+    if (eventType === "response.created") {
+      await params.onResponseCreated?.();
+      return;
+    }
 
     if (eventType === "response.output_text.delta" && typeof (parsed as { delta?: unknown }).delta === "string") {
       const delta = (parsed as { delta: string }).delta;

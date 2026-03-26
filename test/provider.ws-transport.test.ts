@@ -639,4 +639,136 @@ describe("createWsTransportManager", () => {
 
     manager.closeAll();
   });
+
+  it("emits lifecycle events on response.created and response.completed", async () => {
+    const config = makeConfig({ openai: { timeoutMs: 5_000 } });
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+      WebSocketImpl: trackingSockets()
+    }));
+
+    const lifecycleEvents: Array<{ type: string; outcome?: string }> = [];
+    const promise = manager.sendResponseCreate(
+      { model: "gpt-5.4-mini", input: [] },
+      "chat-lc",
+      {
+        authModeAdapter: mockAdapter,
+        onLifecycleEvent: (event) => { lifecycleEvents.push(event); }
+      }
+    );
+
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
+    const ws = createdSockets[0]!;
+    await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
+
+    ws._receiveMessage({ type: "response.created", response: { id: "r1" } });
+    ws._receiveMessage({ type: "response.completed", response: { id: "r1", output_text: "done", output: [] } });
+
+    await promise;
+
+    expect(lifecycleEvents).toEqual([
+      { type: "response_acknowledged" },
+      { type: "response_processing_started" },
+      { type: "response_processing_finished", outcome: "completed" }
+    ]);
+
+    manager.closeAll();
+  });
+
+  it("emits response_processing_finished with failed on error event", async () => {
+    const config = makeConfig({ openai: { timeoutMs: 5_000 } });
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+      WebSocketImpl: trackingSockets()
+    }));
+
+    const lifecycleEvents: Array<{ type: string; outcome?: string }> = [];
+    const promise = manager.sendResponseCreate(
+      { model: "gpt-5.4-mini", input: [] },
+      "chat-lc-err",
+      {
+        authModeAdapter: mockAdapter,
+        onLifecycleEvent: (event) => { lifecycleEvents.push(event); }
+      }
+    );
+
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
+    const ws = createdSockets[0]!;
+    await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
+
+    ws._receiveMessage({ type: "response.created", response: { id: "r1" } });
+    ws._receiveMessage({ type: "error", error: { message: "server exploded" } });
+
+    await expect(promise).rejects.toThrow();
+
+    expect(lifecycleEvents).toEqual([
+      { type: "response_acknowledged" },
+      { type: "response_processing_started" },
+      { type: "response_processing_finished", outcome: "failed" }
+    ]);
+
+    manager.closeAll();
+  });
+
+  it("emits lifecycle events via fallback on first delta when response.created absent", async () => {
+    const config = makeConfig({ openai: { timeoutMs: 5_000 } });
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+      WebSocketImpl: trackingSockets()
+    }));
+
+    const lifecycleEvents: Array<{ type: string; outcome?: string }> = [];
+    const promise = manager.sendResponseCreate(
+      { model: "gpt-5.4-mini", input: [] },
+      "chat-lc-fallback",
+      {
+        authModeAdapter: mockAdapter,
+        onLifecycleEvent: (event) => { lifecycleEvents.push(event); }
+      }
+    );
+
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
+    const ws = createdSockets[0]!;
+    await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
+
+    // No response.created — go straight to delta
+    ws._receiveMessage({ type: "response.output_text.delta", delta: "hello" });
+    ws._receiveMessage({ type: "response.completed", response: { id: "r1", output_text: "hello", output: [] } });
+
+    await promise;
+
+    expect(lifecycleEvents).toEqual([
+      { type: "response_acknowledged" },
+      { type: "response_processing_started" },
+      { type: "response_processing_finished", outcome: "completed" }
+    ]);
+
+    manager.closeAll();
+  });
+
+  it("emits no lifecycle events when error occurs before response.created", async () => {
+    const config = makeConfig({ openai: { timeoutMs: 5_000 } });
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+      WebSocketImpl: trackingSockets()
+    }));
+
+    const lifecycleEvents: Array<{ type: string }> = [];
+    const promise = manager.sendResponseCreate(
+      { model: "gpt-5.4-mini", input: [] },
+      "chat-lc-no-ack",
+      {
+        authModeAdapter: mockAdapter,
+        onLifecycleEvent: (event) => { lifecycleEvents.push(event); }
+      }
+    );
+
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
+    const ws = createdSockets[0]!;
+    await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
+
+    ws._receiveMessage({ type: "error", error: { message: "bad request" } });
+
+    await expect(promise).rejects.toThrow();
+
+    expect(lifecycleEvents).toEqual([]);
+
+    manager.closeAll();
+  });
 });

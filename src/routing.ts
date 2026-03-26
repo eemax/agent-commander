@@ -70,7 +70,8 @@ export function createMessageRouter(params: {
         steerChannel: turn.steerChannel,
         interruptedPreviousTurn: turn.interruptedPrevious,
         onTextDelta: stream?.onTextDelta,
-        onToolCallNotice: stream?.onToolCallNotice
+        onToolCallNotice: stream?.onToolCallNotice,
+        onLifecycleEvent: stream?.onLifecycleEvent
       });
     } finally {
       turns.releaseTurn(message.chatId, turn.token);
