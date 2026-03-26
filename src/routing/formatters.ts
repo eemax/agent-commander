@@ -317,7 +317,7 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
 
   if (report.tool === "web_search") {
     const query = readString(args.query);
-    const queryDisplay = query ? `"${query}"` : "(multi-query)";
+    const queryDisplay = query ? `\`${query}\`` : "(multi-query)";
     const model = readString(result.model) ?? "unknown";
     return `🔎 Web search: ${queryDisplay} · ${model}`;
   }
