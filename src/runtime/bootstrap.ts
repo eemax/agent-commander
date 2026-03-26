@@ -160,7 +160,7 @@ async function bootstrapAgentRuntime(
   let codexAuth: CodexAuthManager | undefined;
   try {
     codexAuth = createCodexAuthManager(logger);
-  } catch (err) {
+  } catch (_err) {
     logger.info("startup: codex auth not available (no ~/.codex/auth.json), /auth codex will be unavailable");
   }
 

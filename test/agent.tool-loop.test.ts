@@ -289,7 +289,7 @@ describe("runOpenAIToolLoop", () => {
 
     // Since all function calls are malformed, extractFunctionCalls returns [], which means
     // the model returned no tool calls → it's the final response from the first call
-    const result = await runOpenAIToolLoop(makeParams({ request, harness }));
+    await runOpenAIToolLoop(makeParams({ request, harness }));
     // The first response has no output_text, so extractAssistantText returns ""
     // Actually, since calls.length === 0, it tries extractAssistantText on the first response
     // which has no output_text. Our mock extractAssistantText returns "" for that.

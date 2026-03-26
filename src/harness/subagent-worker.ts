@@ -6,7 +6,7 @@ import { runOpenAIToolLoop, ToolWorkflowAbortError } from "../agent/tool-loop.js
 import { extractAssistantText } from "../provider/response-text.js";
 import type { ProviderTransportDeps } from "../provider/responses-transport.js";
 import type { AuthModeRegistry } from "../provider/auth-mode-contracts.js";
-import { createRequestExecutor, type OpenAIRequestExecutor, type RequestExecutorTransports } from "../provider/request-executor.js";
+import { createRequestExecutor, type OpenAIRequestExecutor } from "../provider/request-executor.js";
 import { createResponsesRequestWithRetry } from "../provider/responses-transport.js";
 import { createWsTransportManager, type WsTransportManager } from "../provider/ws-transport.js";
 import type { AuthMode, TransportMode } from "../types.js";

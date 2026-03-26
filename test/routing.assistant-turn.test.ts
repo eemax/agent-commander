@@ -50,7 +50,22 @@ function makeConversations(): StateStore {
 
 function makeWorkspace(): WorkspaceCatalog {
   return {
-    getSnapshot: vi.fn().mockReturnValue({ skills: [], agents: [] })
+    getSnapshot: vi.fn().mockReturnValue({
+      workspaceRoot: "/tmp/test",
+      systemPath: "/tmp/test/SYSTEM.md",
+      systemContent: "",
+      systemSha256: "",
+      agentsPath: "/tmp/test/AGENTS.md",
+      agentsContent: "",
+      agentsSha256: "",
+      soulPath: "/tmp/test/SOUL.md",
+      soulContent: "",
+      soulSha256: "",
+      skillsDir: "/tmp/test/skills",
+      skills: [],
+      commands: [],
+      signature: "test"
+    })
   } as unknown as WorkspaceCatalog;
 }
 
@@ -209,7 +224,7 @@ describe("createAssistantTurnHandler", () => {
   it("adds interrupted notice when interruptedPreviousTurn is true", async () => {
     const deltas: string[] = [];
     const handler = createHandler();
-    const result = await handler({
+    await handler({
       message: makeMessage(),
       userContent: "hello",
       trace: makeTrace(),

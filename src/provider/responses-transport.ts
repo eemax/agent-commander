@@ -7,7 +7,7 @@ import type { OpenAIResponsesResponse } from "./openai-types.js";
 import { classifyFetchError, classifyHttpStatus, computeRetryDelayMs, type RetryDecision } from "./retry-policy.js";
 import { sanitizeReason } from "./sanitize.js";
 import { parseOpenAIStream, type StreamParseResult } from "./sse-parser.js";
-import type { AuthModeAdapter, ResolvedAuthRequest } from "./auth-mode-contracts.js";
+import type { AuthModeAdapter } from "./auth-mode-contracts.js";
 import { buildResolvedRequestBody } from "./auth-mode-contracts.js";
 
 export type ProviderTransportDeps = {

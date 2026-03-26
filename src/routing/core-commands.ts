@@ -14,7 +14,7 @@ import {
   type TelegramInlineKeyboard
 } from "../types.js";
 import type { AuthModeRegistry } from "../provider/auth-mode-contracts.js";
-import { isThinkingEffort, isCacheRetention, isTransportMode, isAuthMode, isVerboseMode } from "../utils.js";
+import { isThinkingEffort, isCacheRetention, isTransportMode, isAuthMode } from "../utils.js";
 import { formatConversationIdForUi, formatConversationIdTail } from "./conversation-id.js";
 import { buildStatusReply, formatBashReply, formatCompactNumber } from "./formatters.js";
 
