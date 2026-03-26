@@ -26,7 +26,13 @@ function splitPlainText(text: string): string[] {
 
   while (remaining.length > TELEGRAM_MESSAGE_LIMIT) {
     const slice = remaining.slice(0, TELEGRAM_MESSAGE_LIMIT);
-    let splitAt = slice.lastIndexOf("\n");
+    let splitAt = slice.lastIndexOf("\n\n");
+    if (splitAt > 0) {
+      splitAt += 1; // split after the first \n, so the second \n is stripped below
+    }
+    if (splitAt <= 0) {
+      splitAt = slice.lastIndexOf("\n");
+    }
     if (splitAt <= 0) {
       splitAt = slice.lastIndexOf(" ");
     }
@@ -145,20 +151,41 @@ function splitHtml(text: string): string[] {
 }
 
 /**
- * Find a good split point in the chunk text, preferring newlines then spaces.
+ * Find a good split point in the chunk text, preferring \n\n > \n > space.
  * Returns an index to split at, or -1 if no good point found.
  */
 function findSplitPoint(text: string, prefixLength: number): number {
-  // Look in the last ~200 chars for a newline or space
   const searchFrom = Math.max(prefixLength, text.length - 200);
-  let best = -1;
+  let bestNewline = -1;
+  let bestSpace = -1;
 
   for (let j = text.length - 1; j >= searchFrom; j -= 1) {
-    if (text[j] === "\n") return j;
-    if (text[j] === " " && best < 0) best = j;
+    if (text[j] === "\n" && j > 0 && text[j - 1] === "\n") return j;
+    if (text[j] === "\n" && bestNewline < 0) bestNewline = j;
+    if (text[j] === " " && bestSpace < 0) bestSpace = j;
   }
 
-  return best;
+  return bestNewline > 0 ? bestNewline : bestSpace > 0 ? bestSpace : -1;
+}
+
+/**
+ * Find a split point for mid-stream draft commits.
+ * Searches backward up to `window` chars with priority: \n\n > \n > space.
+ * Returns the index to split at (text.slice(0, idx) is the committed chunk),
+ * or -1 if no good point found.
+ */
+export function findDraftSplitPoint(text: string, window: number = 596): number {
+  const searchFrom = Math.max(0, text.length - window);
+  let bestNewline = -1;
+  let bestSpace = -1;
+
+  for (let j = text.length - 1; j >= searchFrom; j -= 1) {
+    if (text[j] === "\n" && j > 0 && text[j - 1] === "\n") return j + 1; // after \n\n
+    if (text[j] === "\n" && bestNewline < 0) bestNewline = j + 1; // after \n
+    if (text[j] === " " && bestSpace < 0) bestSpace = j + 1; // after space
+  }
+
+  return bestNewline > 0 ? bestNewline : bestSpace > 0 ? bestSpace : -1;
 }
 
 function findLastIndex<T>(arr: T[], predicate: (item: T) => boolean): number {

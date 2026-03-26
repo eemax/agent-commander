@@ -1026,4 +1026,135 @@ describe("dispatchTelegramTextMessage", () => {
     // Processing action was called despite draft failure
     expect(sendProcessingAction).toHaveBeenCalled();
   });
+
+  it("resets draft and continues streaming when text approaches 4096 limit", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    const chunkA = "a".repeat(3500);
+    const chunkB = "b".repeat(1000);
+    const fullText = chunkA + "\n\n" + chunkB;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onTextDelta?.(chunkA + "\n\n");
+        clock = 200;
+        await stream?.onTextDelta?.(chunkB);
+        clock = 400;
+        return { type: "reply", text: fullText, origin: "assistant" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // Draft resets after mid-stream commit — post-commit draft has only the remainder
+    const draftTexts = sendDraft.mock.calls.map((c: [string]) => c[0]);
+    const postCommitDrafts = draftTexts.filter((t: string) => t.includes(chunkB) && !t.includes(chunkA));
+    expect(postCommitDrafts.length).toBeGreaterThan(0);
+
+    // Final reply contains the full text (deferred chunks are deduped as substrings)
+    expect(sendReply).toHaveBeenCalledWith(fullText, {
+      resultType: "reply",
+      isExtra: false,
+      origin: "assistant"
+    });
+  });
+
+  it("does not send deferred assistant text on fallback or ignore", async () => {
+    for (const resultType of ["fallback", "ignore"] as const) {
+      const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+      const sendDraft = vi.fn(async (_text: string) => {});
+      let clock = 0;
+
+      const bigChunk = "a".repeat(3600);
+
+      await dispatchTelegramTextMessage({
+        message: baseMessage,
+        handleMessage: async (_message, stream) => {
+          await stream?.onTextDelta?.(bigChunk);
+          clock = 200;
+          if (resultType === "fallback") {
+            return { type: "fallback", text: "Something went wrong" };
+          }
+          return { type: "ignore" };
+        },
+        sendReply,
+        sendDraft,
+        draftMinUpdateMs: 100,
+        nowMs: () => clock
+      });
+
+      // The deferred assistant chunk must NOT appear as a sent reply
+      const sentTexts = sendReply.mock.calls.map((c: [string]) => c[0]);
+      expect(sentTexts).not.toContain(bigChunk);
+      // For fallback, only the error text is sent
+      if (resultType === "fallback") {
+        expect(sentTexts).toContain("Something went wrong");
+      }
+    }
+  });
+
+  it("prefers paragraph break over line break over space for mid-stream split", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    // Place \n\n earlier, \n later, space latest — should pick \n\n
+    const beforeParagraph = "x".repeat(3200);
+    const afterParagraph = "y".repeat(200) + "\n" + "z".repeat(100) + " " + "w".repeat(200);
+    const fullDelta = beforeParagraph + "\n\n" + afterParagraph;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onTextDelta?.(fullDelta);
+        clock = 200;
+        return { type: "reply", text: fullDelta.trim(), origin: "assistant" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // Draft should reset to the portion after \n\n
+    const draftTexts = sendDraft.mock.calls.map((c: [string]) => c[0]);
+    const postCommitDrafts = draftTexts.filter((t: string) =>
+      t.includes(afterParagraph.slice(0, 10)) && !t.includes(beforeParagraph.slice(0, 10))
+    );
+    expect(postCommitDrafts.length).toBeGreaterThan(0);
+  });
+
+  it("draft continues streaming after mid-stream commit", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    const bigChunk = "a".repeat(3500);
+    const smallChunk = "bbb";
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onTextDelta?.(bigChunk + "\n\n");
+        clock = 200;
+        await stream?.onTextDelta?.(smallChunk);
+        clock = 400;
+        return { type: "reply", text: bigChunk + "\n\n" + smallChunk, origin: "assistant" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // After the mid-stream commit, sendDraft should be called with the short remainder
+    const draftTexts = sendDraft.mock.calls.map((c: [string]) => c[0]);
+    const postCommitDrafts = draftTexts.filter((t: string) => t.includes(smallChunk));
+    expect(postCommitDrafts.length).toBeGreaterThan(0);
+  });
 });

@@ -21,7 +21,7 @@ import { resolveAttachmentContentParts } from "./attachment-resolve.js";
 import { extractAttachMarkers, resolveOutboundAttachment, type OutboundAttachment } from "./outbound-attachments.js";
 import { Semaphore } from "../concurrency.js";
 import { renderBasicTelegramHtml, renderMarkdownToTelegramHtml } from "./assistant-format.js";
-import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
+import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT, findDraftSplitPoint } from "./message-split.js";
 import { normalizeTelegramCallbackQuery, normalizeTelegramMessage } from "./normalize.js";
 import { VERBOSE_REPLACE_PREFIX } from "../routing/formatters.js";
 
@@ -281,6 +281,26 @@ export async function dispatchTelegramTextMessage(params: {
     lastDraftAtMs = null;
   };
 
+  const DRAFT_FLUSH_THRESHOLD = TELEGRAM_MESSAGE_LIMIT - 596;
+
+  const commitDraftMidStream = async (): Promise<void> => {
+    if (draftText.length < DRAFT_FLUSH_THRESHOLD) return;
+
+    const splitIdx = findDraftSplitPoint(draftText);
+    const breakPoint = splitIdx > 0 ? splitIdx : draftText.length;
+
+    const committed = draftText.slice(0, breakPoint).trim();
+    if (committed.length === 0) return;
+
+    const remainder = draftText.slice(breakPoint);
+
+    deferredCommits.push({ text: committed, origin: "assistant" });
+
+    draftText = remainder;
+    lastDraftText = "";
+    lastDraftAtMs = null;
+  };
+
   const flushDraft = async (force: boolean): Promise<void> => {
     if (draftDisabled || !params.sendDraft) {
       return;
@@ -359,6 +379,7 @@ export async function dispatchTelegramTextMessage(params: {
           }
 
           draftText += delta;
+          await commitDraftMidStream();
           await flushDraft(false);
           startTextTypingIndicator();
         } : undefined,
@@ -619,7 +640,7 @@ export async function dispatchTelegramTextMessage(params: {
         await sendOutbound(extra, result.type, true, origin);
       }
       for (const commit of deferredCommits) {
-        if (commit.origin === "assistant" && commit.text === cleanText) continue;
+        if (commit.origin === "assistant" && cleanText.includes(commit.text)) continue;
         if (commit.origin === "assistant" && extras.some((e) => e.includes(commit.text))) continue;
         await sendOutbound(commit.text, result.type, true, commit.origin);
       }

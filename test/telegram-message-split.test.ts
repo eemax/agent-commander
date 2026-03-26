@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "../src/telegram/message-split.js";
+import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT, findDraftSplitPoint } from "../src/telegram/message-split.js";
 
 describe("splitTelegramMessage", () => {
   it("returns a single chunk for short text", () => {
@@ -9,6 +9,21 @@ describe("splitTelegramMessage", () => {
   it("returns a single chunk for text exactly at the limit", () => {
     const text = "a".repeat(TELEGRAM_MESSAGE_LIMIT);
     expect(splitTelegramMessage(text)).toEqual([text]);
+  });
+
+  it("prefers paragraph break over line break for plain text split", () => {
+    // Build text with both \n and \n\n — the split should happen at \n\n
+    const paragraph1 = ("a".repeat(80) + "\n").repeat(30).trimEnd(); // ~2430 chars with \n
+    const paragraph2 = ("b".repeat(80) + "\n").repeat(30).trimEnd(); // ~2430 chars with \n
+    const text = paragraph1 + "\n\n" + paragraph2;
+    expect(text.length).toBeGreaterThan(TELEGRAM_MESSAGE_LIMIT);
+
+    const chunks = splitTelegramMessage(text);
+    expect(chunks.length).toBe(2);
+    // Split happens at \n\n: first chunk gets paragraph1 + trailing \n,
+    // second chunk starts clean after the paragraph break
+    expect(chunks[0]).toBe(paragraph1 + "\n");
+    expect(chunks[1]).toBe(paragraph2);
   });
 
   it("splits plain text at newline boundary", () => {
@@ -84,5 +99,42 @@ describe("splitTelegramMessage", () => {
     const chunks = splitTelegramMessage(html, { parseMode: "HTML" });
     expect(chunks.length).toBeGreaterThan(1);
     expect(chunks[1]).toContain('href="https://example.com"');
+  });
+});
+
+describe("findDraftSplitPoint", () => {
+  it("prefers \\n\\n over \\n over space", () => {
+    const text = "aaa bbb\nccc\n\nddd";
+    const idx = findDraftSplitPoint(text, text.length);
+    // Should split after \n\n
+    expect(text.slice(0, idx)).toBe("aaa bbb\nccc\n\n");
+    expect(text.slice(idx)).toBe("ddd");
+  });
+
+  it("falls back to \\n when no \\n\\n exists", () => {
+    const text = "aaa bbb\nccc ddd";
+    const idx = findDraftSplitPoint(text, text.length);
+    expect(text.slice(0, idx)).toBe("aaa bbb\n");
+  });
+
+  it("falls back to space when no newlines exist", () => {
+    const text = "aaa bbb ccc";
+    const idx = findDraftSplitPoint(text, text.length);
+    expect(text.slice(0, idx)).toBe("aaa bbb ");
+  });
+
+  it("returns -1 when no split point exists", () => {
+    const text = "abcdef";
+    const idx = findDraftSplitPoint(text, text.length);
+    expect(idx).toBe(-1);
+  });
+
+  it("only searches within the window", () => {
+    // \n\n is outside the window (at position 3), only space is inside
+    const text = "aa\n\n" + "b".repeat(600) + " ccc";
+    const idx = findDraftSplitPoint(text, 596);
+    // Should NOT find the \n\n (outside window), should find the space
+    expect(idx).toBeGreaterThan(4);
+    expect(text[idx - 1]).toBe(" ");
   });
 });
