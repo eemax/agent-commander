@@ -3,7 +3,12 @@ import { createCoreCommandHandler } from "../src/routing/core-commands.js";
 import { makeConfig } from "./helpers.js";
 import type { StateStore, WorkspaceCatalog, StashedConversationSummary, ConversationSwitchRuntime } from "../src/runtime/contracts.js";
 import type { ToolHarness } from "../src/harness/index.js";
-import type { NormalizedTelegramMessage, NormalizedTelegramCallbackQuery } from "../src/types.js";
+import type { NormalizedTelegramMessage, NormalizedTelegramCallbackQuery, MessageRouteResult } from "../src/types.js";
+
+/** Narrow a MessageRouteResult to a variant that has text (reply | unauthorized | fallback). */
+function assertHasText(r: MessageRouteResult | null | undefined): asserts r is Exclude<MessageRouteResult, { type: "ignore" }> {
+  if (!r || r.type === "ignore") throw new Error(`Expected result with text, got ${r?.type ?? "null"}`);
+}
 
 function makeMessage(overrides: Partial<NormalizedTelegramMessage> = {}): NormalizedTelegramMessage {
   return {
@@ -13,7 +18,7 @@ function makeMessage(overrides: Partial<NormalizedTelegramMessage> = {}): Normal
     messageId: "msg-1",
     text: "",
     attachments: [],
-    replyToMessageId: null,
+    receivedAt: new Date().toISOString(),
     ...overrides
   } as NormalizedTelegramMessage;
 }
@@ -129,16 +134,18 @@ describe("core-commands – handleCommand", () => {
   it("/start returns greeting", async () => {
     const handler = createHandler();
     const result = await handler.handleCommand("start", "", makeMessage());
-    expect(result?.type).toBe("reply");
-    expect(result?.text).toContain("online");
+    assertHasText(result);
+    expect(result.type).toBe("reply");
+    expect(result.text).toContain("online");
   });
 
   it("/new creates new conversation", async () => {
     const conversations = makeConversations();
     const handler = createHandler({ conversations });
     const result = await handler.handleCommand("new", "", makeMessage());
-    expect(result?.type).toBe("reply");
-    expect(result?.text).toContain("conv...-new");
+    assertHasText(result);
+    expect(result.type).toBe("reply");
+    expect(result.text).toContain("conv...-new");
     expect(conversations.completeNewSelection).toHaveBeenCalledWith(
       "chat-1",
       { type: "new" },
@@ -155,21 +162,24 @@ describe("core-commands – handleCommand", () => {
     (conversations.listStashedConversations as ReturnType<typeof vi.fn>).mockResolvedValue(stashes);
     const handler = createHandler({ conversations });
     const result = await handler.handleCommand("new", "from", makeMessage());
-    expect(result?.type).toBe("reply");
-    expect(result?.inlineKeyboard).toBeDefined();
-    expect(result!.inlineKeyboard!.length).toBeGreaterThan(0);
+    assertHasText(result);
+    expect(result.type).toBe("reply");
+    expect(result.inlineKeyboard).toBeDefined();
+    expect(result.inlineKeyboard!.length).toBeGreaterThan(0);
   });
 
   it("/new with invalid args returns usage", async () => {
     const handler = createHandler();
     const result = await handler.handleCommand("new", "invalid", makeMessage());
-    expect(result?.text).toContain("Usage");
+    assertHasText(result);
+    expect(result.text).toContain("Usage");
   });
 
   it("/stash without args returns usage", async () => {
     const handler = createHandler();
     const result = await handler.handleCommand("stash", "", makeMessage());
-    expect(result?.text).toContain("Usage");
+    assertHasText(result);
+    expect(result.text).toContain("Usage");
   });
 
   it("/stash list returns stash listing", async () => {
@@ -177,42 +187,48 @@ describe("core-commands – handleCommand", () => {
     (conversations.listStashedConversations as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     const handler = createHandler({ conversations });
     const result = await handler.handleCommand("stash", "list", makeMessage());
-    expect(result?.text).toContain("No stashes");
+    assertHasText(result);
+    expect(result.text).toContain("No stashes");
   });
 
   it("/stash <name> opens stash menu", async () => {
     const handler = createHandler();
     const result = await handler.handleCommand("stash", "my-branch", makeMessage());
-    expect(result?.inlineKeyboard).toBeDefined();
-    expect(result?.text).toContain("my-branch");
+    assertHasText(result);
+    expect(result.inlineKeyboard).toBeDefined();
+    expect(result.text).toContain("my-branch");
   });
 
   it("/status returns status info", async () => {
     const handler = createHandler();
     const result = await handler.handleCommand("status", "", makeMessage());
-    expect(result?.type).toBe("reply");
-    expect(result?.text).toContain("gpt-5.4-mini");
+    assertHasText(result);
+    expect(result.type).toBe("reply");
+    expect(result.text).toContain("gpt-5.4-mini");
   });
 
   it("/verbose sets mode", async () => {
     const conversations = makeConversations();
     const handler = createHandler({ conversations });
     const result = await handler.handleCommand("verbose", "count", makeMessage());
-    expect(result?.text).toContain("count");
+    assertHasText(result);
+    expect(result.text).toContain("count");
     expect(conversations.setVerboseMode).toHaveBeenCalledWith("chat-1", "count", expect.anything());
   });
 
   it("/verbose without valid arg shows usage", async () => {
     const handler = createHandler();
     const result = await handler.handleCommand("verbose", "", makeMessage());
-    expect(result?.text).toContain("Usage");
+    assertHasText(result);
+    expect(result.text).toContain("Usage");
   });
 
   it("/thinking sets effort", async () => {
     const conversations = makeConversations();
     const handler = createHandler({ conversations });
     const result = await handler.handleCommand("thinking", "high", makeMessage());
-    expect(result?.text).toContain("high");
+    assertHasText(result);
+    expect(result.text).toContain("high");
     expect(conversations.setThinkingEffort).toHaveBeenCalledWith("chat-1", "high", expect.anything());
   });
 
@@ -225,7 +241,8 @@ describe("core-commands – handleCommand", () => {
   it("/bash without args returns usage", async () => {
     const handler = createHandler();
     const result = await handler.handleCommand("bash", "", makeMessage());
-    expect(result?.text).toContain("Usage");
+    assertHasText(result);
+    expect(result.text).toContain("Usage");
   });
 
   it("unknown command returns null", async () => {
@@ -237,7 +254,8 @@ describe("core-commands – handleCommand", () => {
   it("/stop kills running sessions", async () => {
     const handler = createHandler();
     const result = await handler.handleCommand("stop", "", makeMessage());
-    expect(result?.text).toContain("stopped sessions: 0");
+    assertHasText(result);
+    expect(result.text).toContain("stopped sessions: 0");
   });
 });
 
@@ -253,7 +271,8 @@ describe("core-commands – handleCallbackQuery", () => {
     const result = await handler.handleCallbackQuery(
       makeCallbackQuery({ data: "convmenu:unknown_token:n" })
     );
-    expect(result?.text).toContain("expired");
+    assertHasText(result);
+    expect(result.text).toContain("expired");
   });
 
   it("handles New selection from /new from menu", async () => {
@@ -262,16 +281,18 @@ describe("core-commands – handleCallbackQuery", () => {
 
     // First create a menu via /new from
     const menuResult = await handler.handleCommand("new", "from", makeMessage());
-    expect(menuResult?.inlineKeyboard).toBeDefined();
+    assertHasText(menuResult);
+    expect(menuResult.inlineKeyboard).toBeDefined();
 
     // Extract token from the callback data of the "New" button
-    const newButton = menuResult!.inlineKeyboard!.flat().find((b) => b.text === "New");
+    const newButton = menuResult.inlineKeyboard!.flat().find((b: { text: string }) => b.text === "New");
     expect(newButton).toBeDefined();
 
     const result = await handler.handleCallbackQuery(
       makeCallbackQuery({ data: newButton!.callbackData })
     );
-    expect(result?.text).toContain("✨Started new conversation");
+    assertHasText(result);
+    expect(result.text).toContain("✨Started new conversation");
     expect(conversations.completeNewSelection).toHaveBeenCalled();
   });
 
@@ -279,7 +300,8 @@ describe("core-commands – handleCallbackQuery", () => {
     const handler = createHandler();
 
     const menuResult = await handler.handleCommand("new", "from", makeMessage());
-    const newButton = menuResult!.inlineKeyboard!.flat().find((b) => b.text === "New");
+    assertHasText(menuResult);
+    const newButton = menuResult.inlineKeyboard!.flat().find((b: { text: string }) => b.text === "New");
 
     // Use it once
     await handler.handleCallbackQuery(makeCallbackQuery({ data: newButton!.callbackData }));
@@ -288,17 +310,20 @@ describe("core-commands – handleCallbackQuery", () => {
     const result = await handler.handleCallbackQuery(
       makeCallbackQuery({ data: newButton!.callbackData })
     );
-    expect(result?.text).toContain("expired");
+    assertHasText(result);
+    expect(result.text).toContain("expired");
   });
 
   it("rejects callback from different sender", async () => {
     const handler = createHandler();
     const menuResult = await handler.handleCommand("new", "from", makeMessage());
-    const newButton = menuResult!.inlineKeyboard!.flat().find((b) => b.text === "New");
+    assertHasText(menuResult);
+    const newButton = menuResult.inlineKeyboard!.flat().find((b: { text: string }) => b.text === "New");
 
     const result = await handler.handleCallbackQuery(
       makeCallbackQuery({ data: newButton!.callbackData, senderId: "other-user" })
     );
-    expect(result?.text).toContain("not valid");
+    assertHasText(result);
+    expect(result.text).toContain("not valid");
   });
 });

@@ -23,7 +23,21 @@ describe("tool registry", () => {
       completedSessionRetentionMs: 3_600_000,
       maxCompletedSessions: 500,
       maxOutputChars: 200_000,
-      subagents: { enabled: true }
+      subagents: {
+        enabled: true,
+        defaultModel: "gpt-5.4-mini",
+        maxConcurrentTasks: 10,
+        defaultTimeBudgetSec: 900,
+        defaultMaxTurns: 30,
+        defaultMaxTotalTokens: 500_000,
+        defaultHeartbeatIntervalSec: 30,
+        defaultIdleTimeoutSec: 120,
+        defaultStallTimeoutSec: 300,
+        defaultRequirePlanByTurn: 3,
+        recvMaxEvents: 100,
+        recvDefaultWaitMs: 200,
+        awaitMaxTimeoutMs: 30_000
+      }
     });
 
     const names = harness.registry

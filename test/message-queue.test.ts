@@ -4,8 +4,8 @@ import type { QueuedMessage } from "../src/message-queue.js";
 
 function makeEntry(text: string): QueuedMessage {
   return {
-    message: { chatId: "c1", senderId: "u1", senderName: "A", messageId: "m1", text, attachments: [], replyToMessageId: null },
-    trace: { traceId: "t1", spanId: "s1", operationName: "test" }
+    message: { chatId: "c1", senderId: "u1", senderName: "A", messageId: "m1", text, attachments: [], receivedAt: new Date().toISOString() },
+    trace: { traceId: "t1", spanId: "s1", parentSpanId: null, origin: "test" }
   } as QueuedMessage;
 }
 

@@ -1576,7 +1576,7 @@ describe("createMessageRouter", () => {
     const call = vi.mocked(provider.generateReply).mock.calls[0]?.[0];
     const lastUserMsg = call?.history?.findLast((m: { role: string }) => m.role === "user");
     const userText = Array.isArray(lastUserMsg?.content)
-      ? lastUserMsg.content.find((p: { type: string }) => p.type === "text")?.text ?? ""
+      ? (lastUserMsg.content.find((p: { type: string }) => p.type === "text") as { type: "text"; text: string } | undefined)?.text ?? ""
       : lastUserMsg?.content ?? "";
     expect(userText).toContain("[Skill Invoked: /Research]");
   });

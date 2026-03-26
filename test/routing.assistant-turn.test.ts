@@ -6,7 +6,8 @@ import { createToolErrorPayload } from "../src/harness/errors.js";
 import { makeConfig } from "./helpers.js";
 import type { RuntimeLogger, StateStore, WorkspaceCatalog } from "../src/runtime/contracts.js";
 import type { ToolHarness } from "../src/harness/index.js";
-import type { Provider, NormalizedTelegramMessage, TraceContext } from "../src/types.js";
+import type { Provider, NormalizedTelegramMessage } from "../src/types.js";
+import type { TraceContext } from "../src/observability.js";
 
 function makeLogger(): RuntimeLogger {
   return {
@@ -67,7 +68,7 @@ function makeMessage(overrides: Partial<NormalizedTelegramMessage> = {}): Normal
     messageId: "msg-1",
     text: "hello",
     attachments: [],
-    replyToMessageId: null,
+    receivedAt: new Date().toISOString(),
     ...overrides
   } as NormalizedTelegramMessage;
 }
@@ -104,6 +105,7 @@ describe("createAssistantTurnHandler", () => {
     });
 
     expect(result.type).toBe("reply");
+    if (result.type !== "reply") throw new Error("unreachable");
     expect(result.text).toBe("assistant reply");
   });
 
@@ -168,6 +170,7 @@ describe("createAssistantTurnHandler", () => {
     });
 
     expect(result.type).toBe("fallback");
+    if (result.type !== "fallback") throw new Error("unreachable");
     expect(result.text).toContain("rate limit");
     expect(conversations.appendProviderFailure).toHaveBeenCalled();
     expect(conversations.setLastProviderFailure).toHaveBeenCalled();

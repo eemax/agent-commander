@@ -10,7 +10,7 @@ describe("ProviderError", () => {
       openaiErrorParam: null,
       requestId: "req-1",
       retryAfterMs: 5000,
-      timedOutBy: null as const
+      timedOutBy: null
     };
 
     const err = new ProviderError({
