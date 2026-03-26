@@ -406,13 +406,17 @@ export async function dispatchTelegramTextMessage(params: {
         stopTypingIndicator();
         return;
       }
+      const now = nowMs();
+      if (lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs) return;
       const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
       typingFrameIndex += 1;
       const prefix = toolCallBuffer.length > 0 ? toolCallBuffer + "\n" : "";
       const candidate = prefix + frame;
       const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? toolCallBuffer : candidate;
+      lastDraftAtMs = now;
       params.sendDraft(draft).then(() => {
         consecutiveErrors = 0;
+        lastDraftText = draft;
       }).catch(() => {
         consecutiveErrors += 1;
         if (consecutiveErrors >= 3) {
@@ -421,7 +425,6 @@ export async function dispatchTelegramTextMessage(params: {
       });
     };
 
-    sendFrame();
     typingTimer = setInterval(sendFrame, draftMinUpdateMs);
   };
 
@@ -436,13 +439,17 @@ export async function dispatchTelegramTextMessage(params: {
         stopTypingIndicator();
         return;
       }
+      const now = nowMs();
+      if (lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs) return;
       const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
       typingFrameIndex += 1;
       const prefix = draftText.length > 0 ? draftText + "\n" : "";
       const candidate = prefix + frame;
       const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? draftText : candidate;
+      lastDraftAtMs = now;
       params.sendDraft(draft).then(() => {
         consecutiveErrors = 0;
+        lastDraftText = draft;
       }).catch(() => {
         consecutiveErrors += 1;
         if (consecutiveErrors >= 3) {
@@ -464,6 +471,8 @@ export async function dispatchTelegramTextMessage(params: {
     initialTypingStarted = true;
     try {
       await params.sendDraft(TYPING_FRAMES[0]!);
+      lastDraftAtMs = nowMs();
+      lastDraftText = TYPING_FRAMES[0]!;
       typingFrameIndex = 1;
       typingTimer = setInterval(() => {
         if (draftDisabled || !params.sendDraft) {
@@ -471,9 +480,15 @@ export async function dispatchTelegramTextMessage(params: {
           return;
         }
 
+        const now = nowMs();
+        if (lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs) return;
+
         const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
         typingFrameIndex += 1;
-        params.sendDraft(frame).catch(() => {
+        lastDraftAtMs = now;
+        params.sendDraft(frame).then(() => {
+          lastDraftText = frame;
+        }).catch(() => {
           stopTypingIndicator();
         });
       }, draftMinUpdateMs);

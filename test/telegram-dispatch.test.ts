@@ -54,7 +54,7 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([".", "Hel", "Hello!"]);
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([".", "Hello!"]);
     expect(sendReply).toHaveBeenCalledWith("Hello!", {
       resultType: "reply",
       isExtra: false,
@@ -81,7 +81,7 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([".", "Hello", "Hello world"]);
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([".", "Hello world"]);
     expect(sendReply).toHaveBeenCalledWith("Hello world", {
       resultType: "reply",
       isExtra: false,
@@ -332,10 +332,7 @@ describe("dispatchTelegramTextMessage", () => {
 
     expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
       ".",
-      "📖 Read: `foo.ts`",
-      "📖 Read: `foo.ts`\n.",
-      "📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`",
-      "📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`\n."
+      "📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`"
     ]);
     expect(sendReply).toHaveBeenCalledTimes(2);
     expect(sendReply.mock.calls.map((call) => call[0])).toEqual([
@@ -405,11 +402,9 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Draft: typing indicator, tool call, tool call animation frame, then text drafts
+    // Draft: typing indicator (throttles tool call flush), then text drafts after commit resets throttle
     expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
       ".",
-      "📖 Read: `foo.ts`",
-      "📖 Read: `foo.ts`\n.",
       "Reply ",
       "Reply text"
     ]);
