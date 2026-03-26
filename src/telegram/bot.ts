@@ -516,6 +516,7 @@ export async function dispatchTelegramTextMessage(params: {
       }
       for (const commit of deferredCommits) {
         if (commit.origin === "assistant" && commit.text === cleanText) continue;
+        if (commit.origin === "assistant" && extras.some((e) => e.includes(commit.text))) continue;
         await sendOutbound(commit.text, result.type, true, commit.origin);
       }
       await sendOutbound(cleanText, result.type, false, origin, result.inlineKeyboard);
@@ -540,12 +541,7 @@ export async function dispatchTelegramTextMessage(params: {
     case "unauthorized":
       await sendOutbound(result.text, result.type, false, "system", result.inlineKeyboard);
       break;
-    case "ignore": {
-      for (const commit of deferredCommits) {
-        if (commit.origin === "system") {
-          await sendOutbound(commit.text, "reply", true, "system");
-        }
-      }
+    case "ignore":
       await params.observability?.record({
         event: "telegram.outbound.reply.sent",
         trace: createChildTraceContext(messageTrace, "telegram"),
@@ -558,7 +554,6 @@ export async function dispatchTelegramTextMessage(params: {
         isExtra: false
       });
       break;
-    }
   }
   return result;
 }

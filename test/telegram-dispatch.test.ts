@@ -528,9 +528,8 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Tool call buffer committed as real message even though result is ignore
-    expect(sendReply).toHaveBeenCalledTimes(1);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
+    // Stale turns emit no permanent messages — all deferred commits discarded
+    expect(sendReply).toHaveBeenCalledTimes(0);
   });
 
   it("truncates single tool call notice exceeding 4096 chars", async () => {
@@ -706,10 +705,8 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Only tool notice sent, text discarded
-    expect(sendReply).toHaveBeenCalledTimes(1);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
-    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
+    // Stale turns emit no permanent messages — all deferred commits discarded
+    expect(sendReply).toHaveBeenCalledTimes(0);
   });
 
   it("filters duplicate text commit matching final reply", async () => {
@@ -739,5 +736,47 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
     expect(sendReply.mock.calls[1]?.[0]).toBe("Same text");
     expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
+  });
+
+  it("filters deferred text that duplicates an extraReply", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    const bannerText = "Interrupted previous in-progress run and handling your latest message.";
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        // Banner streamed as text delta (like assistant-turn.ts:93)
+        await stream?.onTextDelta?.(`${bannerText}\n`);
+        clock = 120;
+        // Tool call triggers text->tools commit, deferring the banner text
+        await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
+        clock = 240;
+        await stream?.onTextDelta?.("Final answer");
+        return {
+          type: "reply",
+          text: "Final answer",
+          origin: "assistant",
+          // Banner also in extraReplies (like assistant-turn.ts:92)
+          extraReplies: [`⚠️ ${bannerText}`]
+        };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // extraReply sent once, deferred banner text filtered (substring of extraReply),
+    // tool notice sent, final reply sent
+    expect(sendReply).toHaveBeenCalledTimes(3);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(`⚠️ ${bannerText}`);
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "assistant" });
+    expect(sendReply.mock.calls[1]?.[0]).toBe("📖 Read: `foo.ts`");
+    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
+    expect(sendReply.mock.calls[2]?.[0]).toBe("Final answer");
+    expect(sendReply.mock.calls[2]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "assistant" });
   });
 });
