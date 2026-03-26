@@ -170,13 +170,12 @@ export async function dispatchTelegramTextMessage(params: {
   const messageTrace = params.trace ?? createTraceRootContext("telegram");
   const nowMs = params.nowMs ?? Date.now;
   const draftMinUpdateMs = Math.max(1, params.draftMinUpdateMs ?? 100);
-  let draftText = "";
+  let draftBuffer = "";
   let lastDraftText = "";
   let lastDraftAtMs: number | null = null;
   let draftDisabled = !params.sendDraft;
+  let lastAppendType: "text" | "tool" | null = null;
 
-  let toolCallBuffer = "";
-  let currentMode: "idle" | "text" | "tools" = "idle";
   const deferredCommits: Array<{ text: string; origin: "assistant" | "system" }> = [];
 
   // Lifecycle signal state
@@ -257,26 +256,14 @@ export async function dispatchTelegramTextMessage(params: {
     await params.sendReply(text, meta);
   };
 
-  const commitToolCallBuffer = async (): Promise<void> => {
-    const text = toolCallBuffer.trim();
+  const commitDraftBuffer = async (origin: "assistant" | "system"): Promise<void> => {
+    const text = draftBuffer.trim();
     if (text.length === 0) {
       return;
     }
 
-    deferredCommits.push({ text, origin: "system" });
-    toolCallBuffer = "";
-    lastDraftText = "";
-    lastDraftAtMs = null;
-  };
-
-  const commitTextDraft = async (): Promise<void> => {
-    const text = draftText.trim();
-    if (text.length === 0) {
-      return;
-    }
-
-    deferredCommits.push({ text, origin: "assistant" });
-    draftText = "";
+    deferredCommits.push({ text, origin });
+    draftBuffer = "";
     lastDraftText = "";
     lastDraftAtMs = null;
   };
@@ -284,19 +271,19 @@ export async function dispatchTelegramTextMessage(params: {
   const DRAFT_FLUSH_THRESHOLD = TELEGRAM_MESSAGE_LIMIT - 596;
 
   const commitDraftMidStream = async (): Promise<void> => {
-    if (draftText.length < DRAFT_FLUSH_THRESHOLD) return;
+    if (draftBuffer.length < DRAFT_FLUSH_THRESHOLD) return;
 
-    const splitIdx = findDraftSplitPoint(draftText);
-    const breakPoint = splitIdx > 0 ? splitIdx : draftText.length;
+    const splitIdx = findDraftSplitPoint(draftBuffer);
+    const breakPoint = splitIdx > 0 ? splitIdx : draftBuffer.length;
 
-    const committed = draftText.slice(0, breakPoint).trim();
+    const committed = draftBuffer.slice(0, breakPoint).trim();
     if (committed.length === 0) return;
 
-    const remainder = draftText.slice(breakPoint);
+    const remainder = draftBuffer.slice(breakPoint);
 
-    deferredCommits.push({ text: committed, origin: "assistant" });
+    deferredCommits.push({ text: committed, origin: lastAppendType === "tool" ? "system" : "assistant" });
 
-    draftText = remainder;
+    draftBuffer = remainder;
     lastDraftText = "";
     lastDraftAtMs = null;
   };
@@ -306,7 +293,7 @@ export async function dispatchTelegramTextMessage(params: {
       return;
     }
 
-    if (draftText.trim().length === 0 || draftText === lastDraftText) {
+    if (draftBuffer.trim().length === 0 || draftBuffer === lastDraftText) {
       return;
     }
 
@@ -316,6 +303,9 @@ export async function dispatchTelegramTextMessage(params: {
     }
 
     try {
+      const truncated = draftBuffer.length > TELEGRAM_MESSAGE_LIMIT
+        ? draftBuffer.slice(0, TELEGRAM_MESSAGE_LIMIT)
+        : draftBuffer;
       await params.observability?.record({
         event: "telegram.outbound.draft.sent",
         trace: createChildTraceContext(messageTrace, "telegram"),
@@ -323,37 +313,11 @@ export async function dispatchTelegramTextMessage(params: {
         chatId: params.message.chatId,
         messageId: params.message.messageId,
         senderId: params.message.senderId,
-        text: draftText,
+        text: truncated,
         forced: force
       });
-      await params.sendDraft(draftText);
-      lastDraftText = draftText;
-      lastDraftAtMs = now;
-    } catch (error) {
-      await disableDraft(error);
-    }
-  };
-
-  const flushToolCallDraft = async (force: boolean): Promise<void> => {
-    if (draftDisabled || !params.sendDraft) {
-      return;
-    }
-
-    if (toolCallBuffer.trim().length === 0 || toolCallBuffer === lastDraftText) {
-      return;
-    }
-
-    const now = nowMs();
-    if (!force && lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs) {
-      return;
-    }
-
-    try {
-      const truncated = toolCallBuffer.length > TELEGRAM_MESSAGE_LIMIT
-        ? toolCallBuffer.slice(0, TELEGRAM_MESSAGE_LIMIT)
-        : toolCallBuffer;
       await params.sendDraft(truncated);
-      lastDraftText = toolCallBuffer;
+      lastDraftText = draftBuffer;
       lastDraftAtMs = now;
     } catch (error) {
       await disableDraft(error);
@@ -367,21 +331,18 @@ export async function dispatchTelegramTextMessage(params: {
           await ensureTypingStarted();
           stopTypingIndicator();
 
-          if (currentMode !== "text") {
-            if (currentMode === "tools") {
-              await commitToolCallBuffer();
-            }
-            currentMode = "text";
-          }
-
           if (draftDisabled || typeof delta !== "string" || delta.length === 0) {
             return;
           }
 
-          draftText += delta;
+          if (lastAppendType === "tool" && draftBuffer.length > 0) {
+            await commitDraftBuffer("system");
+          }
+          lastAppendType = "text";
+          draftBuffer += delta;
           await commitDraftMidStream();
           await flushDraft(false);
-          startTextTypingIndicator();
+          startTypingIndicator();
         } : undefined,
         onToolCallNotice: params.sendDraft ? async (notice: string) => {
           await ensureTypingStarted();
@@ -392,53 +353,47 @@ export async function dispatchTelegramTextMessage(params: {
           }
 
           // Empty notice = tool-phase entry signal (tool execution starting).
-          // Enter tools mode and start typing indicator without adding content.
+          // Start typing indicator without adding content.
           if (notice.length === 0) {
-            if (currentMode !== "tools") {
-              if (currentMode === "text") {
-                await commitTextDraft();
-              }
-              currentMode = "tools";
-            }
-            startToolCallTypingIndicator();
+            startTypingIndicator();
             return;
           }
 
-          // Mode transition: text -> tools
-          if (currentMode === "text") {
-            await commitTextDraft();
-            currentMode = "tools";
-          } else if (currentMode !== "tools") {
-            currentMode = "tools";
+          // Commit text buffer before entering tool content
+          if (lastAppendType === "text" && draftBuffer.length > 0) {
+            await commitDraftBuffer("assistant");
           }
 
           // Count-mode: replace the entire buffer instead of appending
           if (notice.startsWith(VERBOSE_REPLACE_PREFIX)) {
             const content = notice.slice(VERBOSE_REPLACE_PREFIX.length);
-            toolCallBuffer = content.length > TELEGRAM_MESSAGE_LIMIT
+            draftBuffer = content.length > TELEGRAM_MESSAGE_LIMIT
               ? content.slice(0, TELEGRAM_MESSAGE_LIMIT)
               : content;
-            await flushToolCallDraft(false);
-            startToolCallTypingIndicator();
+            lastAppendType = "tool";
+            await flushDraft(false);
+            startTypingIndicator();
             return;
           }
 
-          const delimiter = toolCallBuffer.length > 0 ? "\n\n" : "";
-          const candidate = toolCallBuffer + delimiter + notice;
+          lastAppendType = "tool";
+          const delimiter = draftBuffer.length > 0 ? "\n\n" : "";
+          const candidate = draftBuffer + delimiter + notice;
 
           if (candidate.length > TELEGRAM_MESSAGE_LIMIT) {
-            if (toolCallBuffer.trim().length > 0) {
-              await commitToolCallBuffer();
+            if (draftBuffer.trim().length > 0) {
+              await commitDraftBuffer("system");
             }
-            toolCallBuffer = notice.length > TELEGRAM_MESSAGE_LIMIT
+            draftBuffer = notice.length > TELEGRAM_MESSAGE_LIMIT
               ? notice.slice(0, TELEGRAM_MESSAGE_LIMIT)
               : notice;
           } else {
-            toolCallBuffer = candidate;
+            draftBuffer = candidate;
           }
 
-          await flushToolCallDraft(false);
-          startToolCallTypingIndicator();
+          await commitDraftMidStream();
+          await flushDraft(false);
+          startTypingIndicator();
         } : undefined,
         onLifecycleEvent: hasLifecycleCallbacks ? async (event: import("../types.js").ProviderLifecycleEvent) => {
           if (event.type === "response_acknowledged") {
@@ -480,7 +435,7 @@ export async function dispatchTelegramTextMessage(params: {
       }
     : undefined;
 
-  const TYPING_FRAMES = [".", "..", "..."];
+  const TYPING_FRAMES = ["🕐\u200B", "🕑\u200B", "🕒\u200B", "🕓\u200B", "🕔\u200B", "🕕\u200B"];
   let typingTimer: ReturnType<typeof setInterval> | null = null;
   let typingFrameIndex = 0;
 
@@ -491,14 +446,13 @@ export async function dispatchTelegramTextMessage(params: {
     }
   };
 
-  const startToolCallTypingIndicator = (): void => {
+  const startTypingIndicator = (): void => {
     if (draftDisabled || !params.sendDraft) return;
     stopTypingIndicator();
-    typingFrameIndex = 0;
     let consecutiveErrors = 0;
 
     const sendFrame = (): void => {
-      if (draftDisabled || !params.sendDraft || currentMode !== "tools") {
+      if (draftDisabled || !params.sendDraft) {
         stopTypingIndicator();
         return;
       }
@@ -506,42 +460,9 @@ export async function dispatchTelegramTextMessage(params: {
       if (lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs) return;
       const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
       typingFrameIndex += 1;
-      const prefix = toolCallBuffer.length > 0 ? toolCallBuffer + "\n" : "";
+      const prefix = draftBuffer.length > 0 ? draftBuffer + "\n" : "";
       const candidate = prefix + frame;
-      const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? toolCallBuffer : candidate;
-      lastDraftAtMs = now;
-      params.sendDraft(draft).then(() => {
-        consecutiveErrors = 0;
-        lastDraftText = draft;
-      }).catch(() => {
-        consecutiveErrors += 1;
-        if (consecutiveErrors >= 3) {
-          stopTypingIndicator();
-        }
-      });
-    };
-
-    typingTimer = setInterval(sendFrame, draftMinUpdateMs);
-  };
-
-  const startTextTypingIndicator = (): void => {
-    if (draftDisabled || !params.sendDraft) return;
-    stopTypingIndicator();
-    typingFrameIndex = 0;
-    let consecutiveErrors = 0;
-
-    const sendFrame = (): void => {
-      if (draftDisabled || !params.sendDraft || currentMode !== "text") {
-        stopTypingIndicator();
-        return;
-      }
-      const now = nowMs();
-      if (lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs) return;
-      const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
-      typingFrameIndex += 1;
-      const prefix = draftText.length > 0 ? draftText + "\n" : "";
-      const candidate = prefix + frame;
-      const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? draftText : candidate;
+      const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? draftBuffer : candidate;
       lastDraftAtMs = now;
       params.sendDraft(draft).then(() => {
         consecutiveErrors = 0;
@@ -609,9 +530,8 @@ export async function dispatchTelegramTextMessage(params: {
     }
     stopProcessingIndicator();
   }
-  await flushToolCallDraft(true);
-  await commitToolCallBuffer();
   await flushDraft(true);
+  await commitDraftBuffer(lastAppendType === "tool" ? "system" : "assistant");
 
   const sendExtractedAttachments = async (markerPaths: string[]): Promise<void> => {
     if (!params.sendAttachment || !params.logger || markerPaths.length === 0) {
