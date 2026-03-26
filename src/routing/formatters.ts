@@ -492,7 +492,7 @@ export function formatBashReply(output: unknown): string {
   if (status === "running") {
     const sessionId = String(record.sessionId ?? "unknown");
     const tail = typeof record.tail === "string" ? truncateOutput(record.tail) : "";
-    const lines = ["bash started", `session: ${sessionId}`, tail.length > 0 ? `tail:\n${tail}` : "tail: (empty)"];
+    const lines = ["bash started", `session: ${sessionId}`, tail.length > 0 ? `tail:\n\`\`\`bash\n${tail}\n\`\`\`` : "tail: (empty)"];
     if (truncatedCombinedChars > 0) {
       lines.push(`buffer_truncated_chars: ${truncatedCombinedChars}`);
     }
@@ -503,7 +503,7 @@ export function formatBashReply(output: unknown): string {
   const combined = typeof record.combined === "string" ? record.combined : "";
   const lines = [
     `bash completed (exit=${String(exitCode)})`,
-    combined.length > 0 ? `output:\n${truncateOutput(combined)}` : "output: (empty)"
+    combined.length > 0 ? `output:\n\`\`\`bash\n${truncateOutput(combined)}\n\`\`\`` : "output: (empty)"
   ];
   if (truncatedCombinedChars > 0) {
     lines.push(`buffer_truncated_chars: ${truncatedCombinedChars}`);
