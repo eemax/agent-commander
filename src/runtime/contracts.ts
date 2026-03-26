@@ -50,6 +50,7 @@ export type Config = {
     maxFileSizeBytes: number;
     fileDownloadTimeoutMs: number;
     maxConcurrentDownloads: number;
+    maxTextAttachmentBytes: number;
     acknowledgedEmoji: string | null;
   };
   openai: {
@@ -171,6 +172,14 @@ export type StashedConversationSummary = {
 export type StateStore = {
   ensureActiveConversation(chatId: string): Promise<string>;
   getActiveConversation(chatId: string): Promise<string | null>;
+  getConversationRuntimeProfile(chatId: string): Promise<{
+    verboseMode: VerboseMode;
+    thinkingEffort: ThinkingEffort;
+    cacheRetention: CacheRetention;
+    transportMode: TransportMode;
+    authMode: AuthMode;
+    activeModelOverride: string | null;
+  } | null>;
   getWorkingDirectory(chatId: string): Promise<string>;
   setWorkingDirectory(chatId: string, cwd: string, options?: { trace?: TraceContext }): Promise<void>;
   getVerboseMode(chatId: string): Promise<VerboseMode>;
@@ -193,6 +202,10 @@ export type StateStore = {
   recordToolResult(chatId: string, event: { tool: string; success: boolean }): Promise<void>;
   getCompactionCount(chatId: string): Promise<number>;
   incrementCompactionCount(chatId: string): Promise<number>;
+  flushTurnStats(chatId: string, stats: {
+    toolResults: Array<{ tool: string; success: boolean }>;
+    compactionIncrements: number;
+  }): Promise<void>;
   getLastProviderFailure(chatId: string): Promise<ProviderFailureSummary | null>;
   setLastProviderFailure(chatId: string, failure: ProviderFailureSummary | null): Promise<void>;
   listStashedConversations(chatId: string): Promise<StashedConversationSummary[]>;

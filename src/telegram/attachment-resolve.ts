@@ -50,6 +50,7 @@ function decodeUtf8Strict(buffer: Buffer): string | null {
 export function resolveAttachmentContentParts(params: {
   downloaded: DownloadedFile[];
   logger: RuntimeLogger;
+  maxTextBytes?: number;
 }): { parts: ContentPart[]; rejected: string[] } {
   const { downloaded, logger } = params;
   const parts: ContentPart[] = [];
@@ -72,17 +73,27 @@ export function resolveAttachmentContentParts(params: {
       });
       logger.debug(`attachment-resolve: pdf ${file.fileName}`);
     } else if (isTextMime(file.mimeType) || TEXT_MIME_TYPES.has(file.mimeType) || isTextExtension(file.fileName)) {
-      const textContent = decodeUtf8Strict(file.buffer);
+      const maxBytes = params.maxTextBytes ?? Infinity;
+      const needsTruncation = Number.isFinite(maxBytes) && file.buffer.byteLength > maxBytes;
+      const sourceBuffer = needsTruncation ? file.buffer.subarray(0, maxBytes) : file.buffer;
+      const textContent = decodeUtf8Strict(sourceBuffer)
+        ?? (needsTruncation ? new TextDecoder("utf-8", { fatal: false }).decode(sourceBuffer) : null);
       if (textContent === null) {
         rejected.push(`${file.fileName}: not valid UTF-8 text`);
         logger.debug(`attachment-resolve: rejected ${file.fileName} (invalid UTF-8)`);
         continue;
       }
       const safeName = file.fileName.replace(/`/g, "'");
+      const suffix = needsTruncation
+        ? `\n\n[Truncated: file is ${Math.round(file.buffer.byteLength / 1024)}KB, showing first ${Math.round(maxBytes / 1024)}KB]`
+        : "";
       parts.push({
         type: "text",
-        text: `\`${safeName}\`:\n${textContent}`
+        text: `\`${safeName}\`:\n${textContent}${suffix}`
       });
+      if (needsTruncation) {
+        logger.info(`attachment-resolve: truncated ${file.fileName} from ${file.buffer.byteLength} to ${maxBytes} bytes`);
+      }
       logger.debug(`attachment-resolve: text file ${file.fileName} (${file.mimeType})`);
     } else {
       rejected.push(file.mimeType);

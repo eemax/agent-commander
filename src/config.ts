@@ -22,6 +22,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
     max_file_size_mb: 10,
     file_download_timeout_ms: 30_000,
     max_concurrent_downloads: 4,
+    max_text_attachment_bytes: 204_800,
     acknowledged_emoji: "off"
   },
   openai: {
@@ -175,6 +176,7 @@ export const configSchema = z
         max_file_size_mb: z.number().positive().default(DEFAULT_CONFIG_TEMPLATE.telegram.max_file_size_mb),
         file_download_timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.file_download_timeout_ms),
         max_concurrent_downloads: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.max_concurrent_downloads),
+        max_text_attachment_bytes: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.max_text_attachment_bytes),
         acknowledged_emoji: z.string().default(DEFAULT_CONFIG_TEMPLATE.telegram.acknowledged_emoji)
       })
       .strict(),
@@ -579,6 +581,7 @@ export function buildConfigFromParsed(
       maxFileSizeBytes: Math.round(config.telegram.max_file_size_mb * 1024 * 1024),
       fileDownloadTimeoutMs: config.telegram.file_download_timeout_ms,
       maxConcurrentDownloads: config.telegram.max_concurrent_downloads,
+      maxTextAttachmentBytes: config.telegram.max_text_attachment_bytes,
       acknowledgedEmoji: config.telegram.acknowledged_emoji === "off" ? null : config.telegram.acknowledged_emoji
     },
     openai: {

@@ -1,9 +1,17 @@
 import type { NormalizedTelegramMessage, MessageStreamingSink, ContentPart } from "./types.js";
 import type { TraceContext } from "./observability.js";
 
+export type AttachmentResolverResult = {
+  userContent: string | ContentPart[] | undefined;
+  errors: string[];
+};
+
+export type AttachmentResolver = () => Promise<AttachmentResolverResult>;
+
 export type QueuedMessage = {
   message: NormalizedTelegramMessage;
   userContent?: string | ContentPart[];
+  attachmentResolver?: AttachmentResolver;
   stream?: MessageStreamingSink;
   trace: TraceContext;
 };

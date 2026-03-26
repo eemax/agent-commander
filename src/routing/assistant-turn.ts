@@ -71,14 +71,11 @@ export function createAssistantTurnHandler(params: {
 
   return async (input: AssistantTurnHandlerInput): Promise<MessageRouteResult> => {
     const conversationId = await conversations.ensureActiveConversation(input.message.chatId);
-    const [verboseMode, thinkingEffort, cacheRetention, transportMode, authMode, activeModelOverride] = await Promise.all([
-      conversations.getVerboseMode(input.message.chatId),
-      conversations.getThinkingEffort(input.message.chatId),
-      conversations.getCacheRetention(input.message.chatId),
-      conversations.getTransportMode(input.message.chatId),
-      conversations.getAuthMode(input.message.chatId),
-      conversations.getActiveModelOverride(input.message.chatId)
-    ]);
+    const runtimeProfile = await conversations.getConversationRuntimeProfile(input.message.chatId);
+    if (!runtimeProfile) {
+      throw new Error(`BUG: conversation runtime profile missing after ensureActiveConversation for chat=${input.message.chatId}`);
+    }
+    const { verboseMode, thinkingEffort, cacheRetention, transportMode, authMode, activeModelOverride } = runtimeProfile;
     const activeModel = resolveActiveModel({
       models: config.openai.models,
       defaultModelId: config.openai.model,
@@ -87,6 +84,7 @@ export function createAssistantTurnHandler(params: {
     const verboseReplies: string[] = [];
     const toolCallAccumulator = new Map<string, CountAccumulatorEntry>();
     let countModeBufferIndex = -1;
+    const turnStats = { toolResults: [] as Array<{ tool: string; success: boolean }>, compactionIncrements: 0 };
 
     if (input.interruptedPreviousTurn) {
       const note = "Interrupted previous in-progress run and handling your latest message.";
@@ -123,6 +121,7 @@ export function createAssistantTurnHandler(params: {
       });
     }
 
+    try { // outer try/finally for turn stats flush
     try {
       const reply = await provider.generateReply({
         chatId: input.message.chatId,
@@ -143,10 +142,7 @@ export function createAssistantTurnHandler(params: {
         onTextDelta: input.onTextDelta,
         onLifecycleEvent: input.onLifecycleEvent,
         onToolCall: async (event) => {
-          await conversations.recordToolResult(input.message.chatId, {
-            tool: event.tool,
-            success: event.success
-          });
+          turnStats.toolResults.push({ tool: event.tool, success: event.success });
           if (verboseMode === "full") {
             const notice = formatVerboseToolCallNotice(event);
             if (input.onToolCallNotice) {
@@ -198,9 +194,7 @@ export function createAssistantTurnHandler(params: {
         },
         onUsage: (usage) => conversations.setLatestUsageSnapshot(input.message.chatId, usage),
         onCompaction: async (count) => {
-          for (let i = 0; i < count; i++) {
-            await conversations.incrementCompactionCount(input.message.chatId);
-          }
+          turnStats.compactionIncrements += count;
           logger.info(`compaction detected: ${count} item(s) for chat=${input.message.chatId}`);
         }
       });
@@ -274,6 +268,11 @@ export function createAssistantTurnHandler(params: {
         }),
         ...(verboseReplies.length > 0 ? { extraReplies: [...verboseReplies] } : {})
       };
+    }
+    } finally {
+      await conversations.flushTurnStats(input.message.chatId, turnStats).catch((err) => {
+        logger.warn(`routing: failed to flush turn stats for chat=${input.message.chatId}: ${err instanceof Error ? err.message : String(err)}`);
+      });
     }
   };
 }

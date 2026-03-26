@@ -12,6 +12,7 @@ import type {
   ContentPart
 } from "./types.js";
 import type { AuthModeRegistry } from "./provider/auth-mode-contracts.js";
+import type { AttachmentResolver } from "./message-queue.js";
 import { createAssistantTurnHandler } from "./routing/assistant-turn.js";
 import { createCoreCommandHandler } from "./routing/core-commands.js";
 import { runMessageGatekeeping } from "./routing/gatekeeping.js";
@@ -22,7 +23,8 @@ export type MessageRouter = {
     message: NormalizedTelegramMessage,
     stream?: MessageStreamingSink,
     trace?: TraceContext,
-    userContent?: string | ContentPart[]
+    userContent?: string | ContentPart[],
+    attachmentResolver?: AttachmentResolver
   ): Promise<MessageRouteResult>;
   handleIncomingCallbackQuery(query: NormalizedTelegramCallbackQuery, trace?: TraceContext): Promise<MessageRouteResult>;
 };
@@ -95,6 +97,15 @@ export function createMessageRouter(params: {
     return result;
   };
 
+  const resolveQueuedEntryContent = async (entry: import("./message-queue.js").QueuedMessage): Promise<string | ContentPart[]> => {
+    if (entry.userContent) return entry.userContent;
+    if (entry.attachmentResolver) {
+      const resolved = await entry.attachmentResolver();
+      if (resolved.userContent) return resolved.userContent;
+    }
+    return entry.message.text;
+  };
+
   const processQueue = async (chatId: string): Promise<void> => {
     const queue = turns.getQueue(chatId);
     if (!queue || queue.length === 0) {
@@ -106,16 +117,23 @@ export function createMessageRouter(params: {
       const entries = queue.drain();
       turns.deleteQueue(chatId);
       const last = entries[entries.length - 1]!;
-      const hasMultipart = entries.some((e) => Array.isArray(e.userContent));
+
+      // Resolve any deferred attachments in queued entries
+      const resolvedEntries: Array<{ userContent: string | ContentPart[] }> = [];
+      for (const entry of entries) {
+        resolvedEntries.push({ userContent: await resolveQueuedEntryContent(entry) });
+      }
+
+      const hasMultipart = resolvedEntries.some((e) => Array.isArray(e.userContent));
 
       let combinedContent: string | ContentPart[];
       if (hasMultipart) {
         const parts: ContentPart[] = [];
-        for (let i = 0; i < entries.length; i++) {
+        for (let i = 0; i < resolvedEntries.length; i++) {
           if (i > 0 && parts.length > 0) {
             parts.push({ type: "text", text: "---" });
           }
-          const uc = entries[i]!.userContent ?? entries[i]!.message.text;
+          const uc = resolvedEntries[i]!.userContent;
           if (typeof uc === "string") {
             if (uc.length > 0) parts.push({ type: "text", text: uc });
           } else {
@@ -124,7 +142,7 @@ export function createMessageRouter(params: {
         }
         combinedContent = parts;
       } else {
-        combinedContent = entries.map((e) => (e.userContent as string | undefined) ?? e.message.text).join("\n\n");
+        combinedContent = resolvedEntries.map((e) => e.userContent as string).join("\n\n");
       }
 
       await runSingleTurn(last.message, combinedContent, last.trace, last.stream);
@@ -137,7 +155,8 @@ export function createMessageRouter(params: {
         return;
       }
 
-      await runSingleTurn(entry.message, entry.userContent ?? entry.message.text, entry.trace, entry.stream);
+      const content = await resolveQueuedEntryContent(entry);
+      await runSingleTurn(entry.message, content, entry.trace, entry.stream);
       await processQueue(chatId);
     }
   };
@@ -178,7 +197,8 @@ export function createMessageRouter(params: {
       message: NormalizedTelegramMessage,
       stream?: MessageStreamingSink,
       trace?: TraceContext,
-      resolvedUserContent?: string | ContentPart[]
+      resolvedUserContent?: string | ContentPart[],
+      attachmentResolver?: AttachmentResolver
     ): Promise<MessageRouteResult> {
       const inboundTrace = trace ?? createTraceRootContext("routing");
       const routingTrace = createChildTraceContext(inboundTrace, "routing");
@@ -212,7 +232,7 @@ export function createMessageRouter(params: {
         const activeTurn = turns.getActiveTurn(message.chatId);
         if (activeTurn) {
           const queue = turns.getOrCreateQueue(message.chatId);
-          const count = queue.push({ message, userContent: resolvedUserContent, stream, trace: routingTrace });
+          const count = queue.push({ message, userContent: resolvedUserContent, attachmentResolver, stream, trace: routingTrace });
 
           await observability?.record({
             event: "routing.message.queued",
@@ -226,7 +246,22 @@ export function createMessageRouter(params: {
           return { type: "reply", text: `Message queued (${count} pending)` };
         }
 
-        return await runTurnAndDrainQueue(message, resolvedUserContent ?? message.text, routingTrace, stream);
+        // Resolve deferred attachments now that we know the message will execute
+        let finalUserContent: string | ContentPart[] = resolvedUserContent ?? message.text;
+        if (!resolvedUserContent && attachmentResolver) {
+          const resolved = await attachmentResolver();
+          if (resolved.errors.length > 0 && !resolved.userContent && message.text.length === 0) {
+            return { type: "reply", text: resolved.errors.join("\n") };
+          }
+          if (resolved.errors.length > 0) {
+            logger.warn(`routing: attachment errors for chat=${message.chatId}: ${resolved.errors.join("; ")}`);
+          }
+          if (resolved.userContent) {
+            finalUserContent = resolved.userContent;
+          }
+        }
+
+        return await runTurnAndDrainQueue(message, finalUserContent, routingTrace, stream);
       }
 
       if (parsedCommand.command === "steer") {

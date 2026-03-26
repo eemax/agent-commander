@@ -51,6 +51,7 @@ function makeConfig(): Config {
       maxFileSizeBytes: 10 * 1024 * 1024,
       fileDownloadTimeoutMs: 30_000,
       maxConcurrentDownloads: 4,
+      maxTextAttachmentBytes: 204_800,
       acknowledgedEmoji: null
     },
     openai: {

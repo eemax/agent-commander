@@ -29,7 +29,8 @@ export type TelegramTextHandler = (
   message: NormalizedTelegramMessage,
   stream?: MessageStreamingSink,
   trace?: TraceContext,
-  userContent?: string | ContentPart[]
+  userContent?: string | ContentPart[],
+  attachmentResolver?: import("../message-queue.js").AttachmentResolver
 ) => Promise<MessageRouteResult>;
 
 export type TelegramCallbackQueryHandler = (
@@ -163,6 +164,7 @@ export async function dispatchTelegramTextMessage(params: {
   trace?: TraceContext;
   observability?: ObservabilitySink;
   userContent?: string | ContentPart[];
+  attachmentResolver?: import("../message-queue.js").AttachmentResolver;
   sendAcknowledgedReaction?: () => Promise<void>;
   sendProcessingAction?: () => Promise<void>;
   processingActionRefreshMs?: number;
@@ -302,6 +304,12 @@ export async function dispatchTelegramTextMessage(params: {
       return;
     }
 
+    // Skip if a typing-indicator send is already in-flight
+    if (!force && draftInflight) {
+      return;
+    }
+
+    draftInflight = true;
     try {
       const truncated = draftBuffer.length > TELEGRAM_MESSAGE_LIMIT
         ? draftBuffer.slice(0, TELEGRAM_MESSAGE_LIMIT)
@@ -318,9 +326,11 @@ export async function dispatchTelegramTextMessage(params: {
       });
       await params.sendDraft(truncated);
       lastDraftText = draftBuffer;
-      lastDraftAtMs = now;
+      lastDraftAtMs = nowMs();
     } catch (error) {
       await disableDraft(error);
+    } finally {
+      draftInflight = false;
     }
   };
 
@@ -436,48 +446,54 @@ export async function dispatchTelegramTextMessage(params: {
     : undefined;
 
   const TYPING_FRAMES = ["🕐\u200B", "🕑\u200B", "🕒\u200B", "🕓\u200B", "🕔\u200B", "🕕\u200B"];
-  let typingTimer: ReturnType<typeof setInterval> | null = null;
   let typingFrameIndex = 0;
+  let draftWorkerActive = false;
+  let draftInflight = false;
 
   const stopTypingIndicator = (): void => {
-    if (typingTimer !== null) {
-      clearInterval(typingTimer);
-      typingTimer = null;
-    }
+    draftWorkerActive = false;
   };
 
   const startTypingIndicator = (): void => {
-    if (draftDisabled || !params.sendDraft) return;
-    stopTypingIndicator();
+    if (draftDisabled || !params.sendDraft || draftWorkerActive) return;
+    draftWorkerActive = true;
     let consecutiveErrors = 0;
 
-    const sendFrame = (): void => {
-      if (draftDisabled || !params.sendDraft) {
-        stopTypingIndicator();
-        return;
-      }
-      const now = nowMs();
-      if (lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs) return;
-      const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
-      typingFrameIndex += 1;
-      const prefix = draftBuffer.length > 0 ? draftBuffer + "\n" : "";
-      const candidate = prefix + frame;
-      const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? draftBuffer : candidate;
-      lastDraftAtMs = now;
-      params.sendDraft(draft).then(() => {
-        consecutiveErrors = 0;
-        lastDraftText = draft;
-      }).catch(() => {
-        consecutiveErrors += 1;
-        if (consecutiveErrors >= 3) {
-          stopTypingIndicator();
+    const runWorker = async (): Promise<void> => {
+      while (draftWorkerActive && !draftDisabled && params.sendDraft) {
+        // Wait the minimum interval before sending a frame
+        await new Promise<void>((resolve) => setTimeout(resolve, draftMinUpdateMs));
+        if (!draftWorkerActive || draftDisabled || !params.sendDraft) break;
+
+        // Skip if another send is in-flight or was sent recently
+        const now = nowMs();
+        if (draftInflight || (lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs)) continue;
+
+        const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
+        typingFrameIndex += 1;
+        const prefix = draftBuffer.length > 0 ? draftBuffer + "\n" : "";
+        const candidate = prefix + frame;
+        const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? draftBuffer : candidate;
+
+        draftInflight = true;
+        try {
+          await params.sendDraft(draft);
+          lastDraftText = draft;
+          lastDraftAtMs = nowMs();
+          consecutiveErrors = 0;
+        } catch {
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= 3) {
+            draftWorkerActive = false;
+            return;
+          }
+        } finally {
+          draftInflight = false;
         }
-      });
+      }
     };
 
-    // No immediate sendFrame — only animate during pauses between deltas.
-    // Rapid deltas call stopTypingIndicator() before the interval fires.
-    typingTimer = setInterval(sendFrame, draftMinUpdateMs);
+    void runWorker();
   };
 
   let initialTypingStarted = false;
@@ -491,24 +507,7 @@ export async function dispatchTelegramTextMessage(params: {
       lastDraftAtMs = nowMs();
       lastDraftText = TYPING_FRAMES[0]!;
       typingFrameIndex = 1;
-      typingTimer = setInterval(() => {
-        if (draftDisabled || !params.sendDraft) {
-          stopTypingIndicator();
-          return;
-        }
-
-        const now = nowMs();
-        if (lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs) return;
-
-        const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
-        typingFrameIndex += 1;
-        lastDraftAtMs = now;
-        params.sendDraft(frame).then(() => {
-          lastDraftText = frame;
-        }).catch(() => {
-          stopTypingIndicator();
-        });
-      }, draftMinUpdateMs);
+      startTypingIndicator();
     } catch (error) {
       await disableDraft(error);
     }
@@ -516,7 +515,7 @@ export async function dispatchTelegramTextMessage(params: {
 
   let result: MessageRouteResult;
   try {
-    result = await params.handleMessage(params.message, stream, messageTrace, params.userContent);
+    result = await params.handleMessage(params.message, stream, messageTrace, params.userContent, params.attachmentResolver);
   } finally {
     stopTypingIndicator();
     if (processingTimer !== null) {
@@ -611,6 +610,7 @@ export function createTelegramBot(params: {
   maxFileSizeBytes: number;
   fileDownloadTimeoutMs: number;
   maxConcurrentDownloads: number;
+  maxTextAttachmentBytes: number;
   acknowledgedEmoji: string | null;
   logger: RuntimeLogger;
   handleMessage: TelegramTextHandler;
@@ -658,72 +658,69 @@ export function createTelegramBot(params: {
     const inboundTrace = createTraceRootContext("telegram");
     void (async () => {
       try {
-        let resolvedUserContent: string | ContentPart[] | undefined;
+        // Create a lazy attachment resolver instead of downloading eagerly.
+        // Attachments are only fetched when routing decides to execute the message.
+        const attachmentResolver = (normalized.attachments && normalized.attachments.length > 0 && params.isAuthorizedSender(normalized.senderId))
+          ? async (): Promise<import("../message-queue.js").AttachmentResolverResult> => {
+              const downloaded = [];
+              const errors: string[] = [];
 
-        if (normalized.attachments && normalized.attachments.length > 0 && params.isAuthorizedSender(normalized.senderId)) {
-          const downloaded = [];
-          const errors: string[] = [];
-
-          for (const attachment of normalized.attachments) {
-            await downloadSemaphore.acquire();
-            try {
-              const file = await downloadTelegramFile({
-                bot,
-                fileId: attachment.fileId,
-                declaredMimeType: attachment.mimeType,
-                declaredFileName: attachment.fileName,
-                declaredFileSize: attachment.fileSize,
-                maxSizeBytes: maxFileSizeBytes,
-                timeoutMs: fileDownloadTimeoutMs,
-                logger: params.logger
-              });
-              downloaded.push(file);
-            } catch (error) {
-              if (error instanceof FileTooLargeError) {
-                errors.push(`File too large (${Math.round(error.fileSize / 1024 / 1024)}MB). Maximum size is ${Math.round(maxFileSizeBytes / 1024 / 1024)}MB.`);
-              } else {
-                const msg = error instanceof Error ? error.message : String(error);
-                params.logger.error(`telegram: file download failed: ${msg}`);
-                errors.push("Failed to download file.");
+              for (const attachment of normalized.attachments!) {
+                await downloadSemaphore.acquire();
+                try {
+                  const file = await downloadTelegramFile({
+                    bot,
+                    fileId: attachment.fileId,
+                    declaredMimeType: attachment.mimeType,
+                    declaredFileName: attachment.fileName,
+                    declaredFileSize: attachment.fileSize,
+                    maxSizeBytes: maxFileSizeBytes,
+                    timeoutMs: fileDownloadTimeoutMs,
+                    logger: params.logger
+                  });
+                  downloaded.push(file);
+                } catch (error) {
+                  if (error instanceof FileTooLargeError) {
+                    errors.push(`File too large (${Math.round(error.fileSize / 1024 / 1024)}MB). Maximum size is ${Math.round(maxFileSizeBytes / 1024 / 1024)}MB.`);
+                  } else {
+                    const msg = error instanceof Error ? error.message : String(error);
+                    params.logger.error(`telegram: file download failed: ${msg}`);
+                    errors.push("Failed to download file.");
+                  }
+                } finally {
+                  downloadSemaphore.release();
+                }
               }
-            } finally {
-              downloadSemaphore.release();
+
+              const { parts, rejected } = resolveAttachmentContentParts({
+                downloaded,
+                logger: params.logger,
+                maxTextBytes: params.maxTextAttachmentBytes
+              });
+
+              for (const mime of rejected) {
+                errors.push(`Unsupported file type: ${mime}. I can process images, PDFs, and text files.`);
+              }
+
+              let userContent: string | ContentPart[] | undefined;
+              if (parts.length > 0) {
+                const contentParts: ContentPart[] = [];
+                if (normalized.text.length > 0) {
+                  contentParts.push({ type: "text", text: normalized.text });
+                }
+                contentParts.push(...parts);
+                userContent = contentParts;
+              }
+
+              return { userContent, errors };
             }
-          }
-
-          const { parts, rejected } = resolveAttachmentContentParts({
-            downloaded,
-            logger: params.logger
-          });
-
-          for (const mime of rejected) {
-            errors.push(`Unsupported file type: ${mime}. I can process images, PDFs, and text files.`);
-          }
-
-          if (errors.length > 0 && parts.length === 0 && normalized.text.length === 0) {
-            await ctx.reply(errors.join("\n"), { link_preview_options: { is_disabled: true } });
-            return;
-          }
-
-          if (errors.length > 0) {
-            await ctx.reply(errors.join("\n"), { link_preview_options: { is_disabled: true } });
-          }
-
-          if (parts.length > 0) {
-            const contentParts: ContentPart[] = [];
-            if (normalized.text.length > 0) {
-              contentParts.push({ type: "text", text: normalized.text });
-            }
-            contentParts.push(...parts);
-            resolvedUserContent = contentParts;
-          }
-        }
+          : undefined;
 
         await dispatchTelegramTextMessage({
           message: normalized,
-          handleMessage: (message, stream, trace, userContent) =>
-            params.handleMessage(message, stream, inboundTrace, userContent),
-          userContent: resolvedUserContent,
+          handleMessage: (message, stream, trace, userContent, resolver) =>
+            params.handleMessage(message, stream, inboundTrace, userContent, resolver),
+          attachmentResolver,
           sendReply: async (text, meta) => {
             const prepared = prepareTelegramReply({
               text,
@@ -845,8 +842,9 @@ export function createTelegramBot(params: {
         payload: normalized
       });
 
+      // Dismiss the Telegram loading spinner immediately, before handler execution
+      await ctx.answerCallbackQuery().catch(() => {});
       const result = await params.handleCallbackQuery(normalized, inboundTrace);
-      await ctx.answerCallbackQuery();
 
       const sendCallbackReply = async (
         text: string,

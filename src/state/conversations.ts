@@ -795,6 +795,21 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       return index[chatId]?.conversationId ?? null;
     },
 
+    async getConversationRuntimeProfile(chatId) {
+      const index = await loadCurrentConversations();
+      const record = index[chatId];
+      if (!record) return null;
+      const rt = record.runtime;
+      return {
+        verboseMode: rt.verboseMode,
+        thinkingEffort: rt.thinkingEffort,
+        cacheRetention: rt.cacheRetention,
+        transportMode: rt.transportMode,
+        authMode: rt.authMode,
+        activeModelOverride: rt.activeModelOverride
+      };
+    },
+
     async getWorkingDirectory(chatId): Promise<string> {
       return enqueueMutation(async () => {
         const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
@@ -1200,6 +1215,45 @@ export function createConversationStore(params: ConversationStoreParams): Conver
 
         await saveCurrentConversations(nextCurrent);
         return nextCount;
+      });
+    },
+
+    async flushTurnStats(chatId, stats): Promise<void> {
+      if (stats.toolResults.length === 0 && stats.compactionIncrements === 0) return;
+      await enqueueMutation(async () => {
+        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
+        const existing = ensured.record.runtime.toolResults;
+
+        let total = existing.total;
+        let success = existing.success;
+        let fail = existing.fail;
+        const byTool = { ...existing.byTool };
+        for (const event of stats.toolResults) {
+          total += 1;
+          if (event.success) {
+            success += 1;
+          } else {
+            fail += 1;
+          }
+          const normalizedTool = event.tool.trim();
+          if (normalizedTool.length > 0) {
+            byTool[normalizedTool] = (byTool[normalizedTool] ?? 0) + 1;
+          }
+        }
+
+        const nextCurrent = {
+          ...ensured.index,
+          [chatId]: {
+            ...ensured.record,
+            runtime: {
+              ...ensured.record.runtime,
+              toolResults: { total, success, fail, byTool },
+              compactionCount: ensured.record.runtime.compactionCount + stats.compactionIncrements
+            }
+          }
+        };
+
+        await saveCurrentConversations(nextCurrent);
       });
     },
 

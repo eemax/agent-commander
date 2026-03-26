@@ -213,6 +213,7 @@ async function bootstrapAgentRuntime(
     maxFileSizeBytes: config.telegram.maxFileSizeBytes,
     fileDownloadTimeoutMs: config.telegram.fileDownloadTimeoutMs,
     maxConcurrentDownloads: config.telegram.maxConcurrentDownloads,
+    maxTextAttachmentBytes: config.telegram.maxTextAttachmentBytes,
     acknowledgedEmoji: config.telegram.acknowledgedEmoji,
     logger,
     handleMessage: router.handleIncomingMessage,
