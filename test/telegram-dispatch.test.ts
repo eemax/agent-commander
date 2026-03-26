@@ -505,6 +505,102 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply.mock.calls[2]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
   });
 
+  it("empty tool call notice enters tools mode with typing indicator", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        // Empty notice = tool-phase entry signal (tool execution starting)
+        await stream?.onToolCallNotice?.("");
+        clock = 120;
+        // Tool completes, verbose notice arrives
+        await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
+        clock = 240;
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // Draft: typing indicator from ensureTypingStarted, then tool notice
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
+      ".",
+      "📖 Read: `foo.ts`"
+    ]);
+    // Reply: tool notice committed, then final reply
+    expect(sendReply).toHaveBeenCalledTimes(2);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
+    expect(sendReply.mock.calls[1]?.[0]).toBe("done");
+  });
+
+  it("empty notice after text commits text and enters tools mode", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onTextDelta?.("Hello");
+        clock = 120;
+        // Flush the text draft within throttle window
+        await stream?.onTextDelta?.(" there");
+        clock = 240;
+        // Tool phase starts — should commit text and switch to tools mode
+        await stream?.onToolCallNotice?.("");
+        clock = 360;
+        await stream?.onTextDelta?.(" world");
+        clock = 480;
+        return { type: "reply", text: "Hello there world" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // Draft: typing indicator, text flushed, then " world" after mode switch back
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
+      ".",
+      "Hello there",
+      " world"
+    ]);
+    // Reply: deferred "Hello there" text filtered (substring of final), final reply
+    expect(sendReply.mock.calls[sendReply.mock.calls.length - 1]?.[0]).toBe("Hello there world");
+  });
+
+  it("empty notice produces no deferred commit when buffer stays empty", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        // Only empty notices (verbose off scenario) — no content in buffer
+        await stream?.onToolCallNotice?.("");
+        clock = 120;
+        await stream?.onToolCallNotice?.("");
+        clock = 240;
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // Only the final reply — no deferred tool notices committed
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("done");
+  });
+
   it("commits tool calls even when handler returns ignore", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});

@@ -341,7 +341,20 @@ export async function dispatchTelegramTextMessage(params: {
           await ensureTypingStarted();
           stopTypingIndicator();
 
-          if (typeof notice !== "string" || notice.length === 0) {
+          if (typeof notice !== "string") {
+            return;
+          }
+
+          // Empty notice = tool-phase entry signal (tool execution starting).
+          // Enter tools mode and start typing indicator without adding content.
+          if (notice.length === 0) {
+            if (currentMode !== "tools") {
+              if (currentMode === "text") {
+                await commitTextDraft();
+              }
+              currentMode = "tools";
+            }
+            startToolCallTypingIndicator();
             return;
           }
 

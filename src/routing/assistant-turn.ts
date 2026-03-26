@@ -191,6 +191,8 @@ export function createAssistantTurnHandler(params: {
             } else {
               verboseReplies.push(notice);
             }
+          } else if (event.type === "tool" && input.onToolCallNotice) {
+            await input.onToolCallNotice("");
           }
         },
         onUsage: (usage) => conversations.setLatestUsageSnapshot(input.message.chatId, usage),
