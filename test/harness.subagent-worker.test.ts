@@ -300,19 +300,20 @@ describe("SubagentWorker", () => {
   }
 
   function buildTask(params?: Partial<SpawnTaskParams>): SubagentTask {
+    const mergedParams = makeSpawnParams(params);
     // Use a NoOp worker during spawn so the manager doesn't trigger the real worker
     const savedWorker = { start: vi.fn().mockResolvedValue(undefined), stop: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined) };
     manager.setWorker(savedWorker);
-    const response = manager.spawn("owner-1", makeSpawnParams(params));
+    const response = manager.spawn("owner-1", mergedParams);
     const snapshot = manager.inspect("owner-1", response.taskId);
     return {
       taskId: response.taskId,
       ownerId: "owner-1",
-      title: "Test task",
-      goal: "Do the thing",
-      instructions: "Follow the spec.",
-      context: {},
-      artifacts: [],
+      title: mergedParams.title,
+      goal: mergedParams.goal,
+      instructions: mergedParams.instructions,
+      context: mergedParams.context ?? {},
+      artifacts: mergedParams.artifacts ?? [],
       constraints: {
         timeBudgetSec: 900,
         maxTurns: 30,
@@ -336,10 +337,10 @@ describe("SubagentWorker", () => {
         stallTimeoutSec: 99999
       },
       completionContract: {
-        requireFinalSummary: true,
-        requireStructuredResult: false
+        requireFinalSummary: mergedParams.completionContract?.requireFinalSummary ?? true,
+        requireStructuredResult: mergedParams.completionContract?.requireStructuredResult ?? false
       },
-      labels: {},
+      labels: mergedParams.labels ?? {},
       state: snapshot.state,
       turnOwnership: snapshot.turnOwnership,
       budgetUsage: {
@@ -448,6 +449,128 @@ describe("SubagentWorker", () => {
 
       const snapshot = manager.inspect("owner-1", task.taskId);
       expect(snapshot.turnsUsed).toBe(1);
+    });
+
+    it("includes reporting instructions and TASK_RESULT schema when structured results are required", async () => {
+      let sentInstructions = "";
+      mockFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as { instructions?: string };
+        sentInstructions = body.instructions ?? "";
+        return new Response(
+          JSON.stringify(makeCompletionResponse("done [TASK_COMPLETE]")),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      });
+
+      const worker = createWorker();
+      const task = buildTask({
+        completionContract: {
+          requireFinalSummary: true,
+          requireStructuredResult: true
+        }
+      });
+
+      await worker.start(task);
+      await waitFor(() => sentInstructions.length > 0);
+
+      expect(sentInstructions).toContain("Confirmed");
+      expect(sentInstructions).toContain("Inferred");
+      expect(sentInstructions).toContain("Unverified");
+      expect(sentInstructions).toContain("<TASK_RESULT>");
+      expect(sentInstructions).toContain(`notes/${task.taskId}.md`);
+    });
+
+    it("parses structured TASK_RESULT payload into the stored task result", async () => {
+      const decisionJournalPath = "notes/custom-task-note.md";
+      const completionResp = makeCompletionResponse(
+        [
+          "Completed the requested work.",
+          "",
+          "Confirmed:",
+          "- Updated the config loader tests.",
+          "",
+          "Inferred:",
+          "- The new branch should reduce duplicate retries.",
+          "",
+          "Unverified:",
+          "- Did not run end-to-end Telegram traffic.",
+          "",
+          "<TASK_RESULT>",
+          JSON.stringify({
+            summary: "Completed the requested work.",
+            outcome: "partial",
+            confirmed: ["Updated the config loader tests."],
+            inferred: ["The new branch should reduce duplicate retries."],
+            unverified: ["Did not run end-to-end Telegram traffic."],
+            deliverables: [{ type: "file", ref: "src/config.ts", label: "config changes" }],
+            open_issues: ["Telegram path still unverified."],
+            recommended_next_steps: ["Run an end-to-end Telegram smoke test."],
+            decision_journal: decisionJournalPath
+          }),
+          "</TASK_RESULT>",
+          "[TASK_COMPLETE]"
+        ].join("\n")
+      );
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify(completionResp), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+
+      const worker = createWorker();
+      const task = buildTask({
+        completionContract: {
+          requireFinalSummary: true,
+          requireStructuredResult: true
+        }
+      });
+
+      await worker.start(task);
+      await waitFor(() => manager.inspect("owner-1", task.taskId).state === "completed");
+
+      const snapshot = manager.inspect("owner-1", task.taskId);
+      expect(snapshot.result?.summary).toBe("Completed the requested work.");
+      expect(snapshot.result?.outcome).toBe("partial");
+      expect(snapshot.result?.confirmed).toEqual(["Updated the config loader tests."]);
+      expect(snapshot.result?.inferred).toEqual(["The new branch should reduce duplicate retries."]);
+      expect(snapshot.result?.unverified).toEqual(["Did not run end-to-end Telegram traffic."]);
+      expect(snapshot.result?.evidence).toEqual(["Updated the config loader tests."]);
+      expect(snapshot.result?.openIssues).toEqual([
+        "Telegram path still unverified.",
+        "Did not run end-to-end Telegram traffic."
+      ]);
+      expect(snapshot.result?.recommendedNextSteps).toEqual(["Run an end-to-end Telegram smoke test."]);
+      expect(snapshot.result?.decisionJournalPath).toBe(decisionJournalPath);
+      expect(snapshot.result?.deliverables).toEqual([
+        { type: "file", ref: "src/config.ts", label: "config changes" },
+        { type: "note", ref: decisionJournalPath, label: "decision_journal" }
+      ]);
+    });
+
+    it("marks missing structured payloads as unverified when the contract requires them", async () => {
+      const completionResp = makeCompletionResponse("Work appears complete.\n[TASK_COMPLETE]");
+      mockFetch.mockResolvedValue(
+        new Response(JSON.stringify(completionResp), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+
+      const worker = createWorker();
+      const task = buildTask({
+        completionContract: {
+          requireFinalSummary: true,
+          requireStructuredResult: true
+        }
+      });
+
+      await worker.start(task);
+      await waitFor(() => manager.inspect("owner-1", task.taskId).state === "completed");
+
+      const snapshot = manager.inspect("owner-1", task.taskId);
+      expect(snapshot.result?.outcome).toBe("inconclusive");
+      expect(snapshot.result?.unverified).toContain("Structured TASK_RESULT payload missing or invalid.");
     });
   });
 

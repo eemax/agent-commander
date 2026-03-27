@@ -241,6 +241,11 @@ Create and start a new subagent task.
 - `sandbox`, `network` — execution environment
 - `approval_policy` — action permissions (`can_edit_code`, `can_run_tests`, `can_open_pr`, `requires_supervisor_for`)
 
+**Completion contract:**
+- `require_final_summary` — final reply must contain a concise human summary
+- `require_structured_result` — final reply must include a machine-readable `TASK_RESULT` payload
+- Structured result fields: `summary`, `outcome`, `confirmed`, `inferred`, `unverified`, `deliverables`, `open_issues`, `recommended_next_steps`, `decision_journal`
+
 **Returns:** `taskId`, `state`, `cursor`, `leaseExpiresAt`, `startedAt`
 
 #### `action: "recv"`
@@ -313,6 +318,7 @@ Block until a condition is met or timeout.
 - Plan enforcement: if no checkpoint with plan by `require_plan_by_turn`, task → `needs_steer`
 - Terminal states: `completed`, `failed`, `cancelled`, `timed_out`
 - Every spawned task is guaranteed to reach a terminal state
+- Final structured results are expected to separate `confirmed`, `inferred`, and `unverified`
 
 **Observability events:**
 - `subagent.task.spawned` — task created (includes goal, instructions, context)

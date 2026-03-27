@@ -21,7 +21,8 @@ import type {
   SubagentWorker,
   SubagentTask,
   SupervisorMessage,
-  TaskResult
+  TaskResult,
+  Attachment
 } from "./subagent-types.js";
 import type { ProviderFunctionTool, ToolContext } from "./types.js";
 import type { OpenAIInputMessage, OpenAIFunctionCallOutput, OpenAIResponsesOutputItem } from "../provider/openai-types.js";
@@ -81,6 +82,435 @@ function stripMarker(reply: string): string {
     return trimmed.slice(0, -TASK_COMPLETE_MARKER.length).trimEnd();
   }
   return reply;
+}
+
+type StructuredTaskResultPayload = {
+  summary?: unknown;
+  outcome?: unknown;
+  confirmed?: unknown;
+  inferred?: unknown;
+  unverified?: unknown;
+  deliverables?: unknown;
+  open_issues?: unknown;
+  recommended_next_steps?: unknown;
+  decision_journal?: unknown;
+};
+
+type ParsedTaskResult = {
+  summary: string;
+  result: TaskResult;
+};
+
+type ParsedSectionedResult = {
+  leadSummary: string;
+  summary: string;
+  outcome: string | null;
+  confirmed: string[];
+  inferred: string[];
+  unverified: string[];
+  deliverables: Attachment[];
+  openIssues: string[];
+  recommendedNextSteps: string[];
+  decisionJournalPath: string | null;
+};
+
+const TASK_RESULT_TAG = "TASK_RESULT";
+const SECTION_LABELS = new Map<string, keyof ParsedSectionedResult>([
+  ["summary", "summary"],
+  ["outcome", "outcome"],
+  ["confirmed", "confirmed"],
+  ["inferred", "inferred"],
+  ["unverified", "unverified"],
+  ["deliverables", "deliverables"],
+  ["open issues", "openIssues"],
+  ["recommended next steps", "recommendedNextSteps"],
+  ["next steps", "recommendedNextSteps"],
+  ["decision journal", "decisionJournalPath"]
+]);
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter((value) => value.length > 0)));
+}
+
+function inferAttachmentType(ref: string): string {
+  if (/^https?:\/\//i.test(ref)) {
+    return "url";
+  }
+  if (/[/.]/.test(ref)) {
+    return "file";
+  }
+  return "note";
+}
+
+function normalizeAttachment(value: unknown): Attachment | null {
+  if (typeof value === "string") {
+    const ref = value.trim();
+    if (ref.length === 0) return null;
+    return { type: inferAttachmentType(ref), ref };
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const ref = typeof record.ref === "string" ? record.ref.trim() : "";
+  if (ref.length === 0) {
+    return null;
+  }
+
+  const type = typeof record.type === "string" && record.type.trim().length > 0
+    ? record.type.trim()
+    : inferAttachmentType(ref);
+  const label = typeof record.label === "string" && record.label.trim().length > 0
+    ? record.label.trim()
+    : undefined;
+
+  return {
+    type,
+    ref,
+    ...(label ? { label } : {})
+  };
+}
+
+function normalizeAttachmentList(value: unknown): Attachment[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const attachments: Attachment[] = [];
+  for (const item of value) {
+    const attachment = normalizeAttachment(item);
+    if (attachment) {
+      attachments.push(attachment);
+    }
+  }
+
+  return attachments;
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return dedupeStrings(
+    value.filter((item): item is string => typeof item === "string")
+  );
+}
+
+function extractTaggedBlock(reply: string, tagName: string): { content: string | null; stripped: string } {
+  const pattern = new RegExp(`<${tagName}>\\s*([\\s\\S]*?)\\s*</${tagName}>`, "i");
+  const match = pattern.exec(reply);
+  if (!match) {
+    return {
+      content: null,
+      stripped: reply.trim()
+    };
+  }
+
+  return {
+    content: match[1].trim(),
+    stripped: reply.replace(match[0], "").trim()
+  };
+}
+
+function normalizeSectionHeading(line: string): keyof ParsedSectionedResult | null {
+  const match = /^(?:#{1,6}\s*)?([A-Za-z][A-Za-z ]*[A-Za-z])\s*:?\s*$/.exec(line.trim());
+  if (!match) {
+    return null;
+  }
+
+  return SECTION_LABELS.get(match[1].trim().toLowerCase()) ?? null;
+}
+
+function appendSectionValue(
+  target: ParsedSectionedResult,
+  section: keyof ParsedSectionedResult,
+  rawLine: string
+): void {
+  const trimmed = rawLine.trim();
+  if (trimmed.length === 0) {
+    return;
+  }
+
+  const bulletMatch = /^(?:[-*+]\s+|\d+\.\s+)(.+)$/.exec(trimmed);
+  const value = (bulletMatch ? bulletMatch[1] : trimmed).trim();
+  if (value.length === 0) {
+    return;
+  }
+
+  switch (section) {
+    case "summary":
+    case "leadSummary":
+      target.summary = target.summary.length > 0 ? `${target.summary}\n${value}` : value;
+      break;
+    case "outcome":
+      target.outcome = value;
+      break;
+    case "decisionJournalPath":
+      target.decisionJournalPath = value;
+      break;
+    case "deliverables": {
+      const attachment = normalizeAttachment(value);
+      if (attachment) {
+        target.deliverables.push(attachment);
+      }
+      break;
+    }
+    case "confirmed":
+    case "inferred":
+    case "unverified":
+    case "openIssues":
+    case "recommendedNextSteps":
+      target[section].push(value);
+      break;
+  }
+}
+
+function parseSectionedResult(reply: string): ParsedSectionedResult {
+  const parsed: ParsedSectionedResult = {
+    leadSummary: "",
+    summary: "",
+    outcome: null,
+    confirmed: [],
+    inferred: [],
+    unverified: [],
+    deliverables: [],
+    openIssues: [],
+    recommendedNextSteps: [],
+    decisionJournalPath: null
+  };
+
+  let activeSection: keyof ParsedSectionedResult | null = null;
+  let sawHeading = false;
+
+  for (const line of reply.split(/\r?\n/)) {
+    const section = normalizeSectionHeading(line);
+    if (section) {
+      activeSection = section;
+      sawHeading = true;
+      continue;
+    }
+
+    if (!sawHeading) {
+      const trimmed = line.trim();
+      if (trimmed.length === 0) {
+        if (parsed.leadSummary.length > 0 && !parsed.leadSummary.endsWith("\n\n")) {
+          parsed.leadSummary += "\n\n";
+        }
+        continue;
+      }
+      parsed.leadSummary += parsed.leadSummary.length > 0 && !parsed.leadSummary.endsWith("\n\n")
+        ? ` ${trimmed}`
+        : trimmed;
+      continue;
+    }
+
+    if (activeSection) {
+      appendSectionValue(parsed, activeSection, line);
+    }
+  }
+
+  parsed.leadSummary = parsed.leadSummary.trim();
+  parsed.summary = parsed.summary.trim();
+  parsed.confirmed = dedupeStrings(parsed.confirmed);
+  parsed.inferred = dedupeStrings(parsed.inferred);
+  parsed.unverified = dedupeStrings(parsed.unverified);
+  parsed.openIssues = dedupeStrings(parsed.openIssues);
+  parsed.recommendedNextSteps = dedupeStrings(parsed.recommendedNextSteps);
+
+  return parsed;
+}
+
+function normalizeOutcome(value: unknown): TaskResult["outcome"] | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "success" || normalized === "partial" || normalized === "inconclusive") {
+    return normalized;
+  }
+  return null;
+}
+
+function inferOutcome(
+  explicitOutcome: TaskResult["outcome"] | null,
+  confirmed: string[],
+  inferred: string[],
+  unverified: string[],
+  openIssues: string[],
+  summary: string,
+  requireStructuredResult: boolean
+): TaskResult["outcome"] {
+  if (explicitOutcome) {
+    return explicitOutcome;
+  }
+  if (confirmed.length > 0 && unverified.length === 0 && openIssues.length === 0) {
+    return "success";
+  }
+  if (!requireStructuredResult && summary.trim().length > 0 && openIssues.length === 0) {
+    return "success";
+  }
+  if (confirmed.length > 0 || inferred.length > 0) {
+    return "partial";
+  }
+  return "inconclusive";
+}
+
+function inferConfidence(
+  outcome: TaskResult["outcome"],
+  confirmed: string[],
+  unverified: string[],
+  hasStructuredPayload: boolean
+): number {
+  let confidence = outcome === "success"
+    ? 0.85
+    : outcome === "partial"
+      ? 0.65
+      : 0.35;
+
+  if (confirmed.length === 0) {
+    confidence -= 0.15;
+  }
+  confidence -= Math.min(0.25, unverified.length * 0.05);
+  if (!hasStructuredPayload) {
+    confidence -= 0.1;
+  }
+
+  return Math.round(clamp(confidence, 0.1, 0.95) * 100) / 100;
+}
+
+function buildFallbackSummary(reply: string): string {
+  const firstLine = reply
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  return firstLine ?? "Subagent completed without a usable final summary.";
+}
+
+function parseTaskResult(reply: string, task: SubagentTask): ParsedTaskResult {
+  const strippedReply = stripMarker(reply).trim();
+  const tagged = extractTaggedBlock(strippedReply, TASK_RESULT_TAG);
+  const sectioned = parseSectionedResult(tagged.stripped);
+
+  let structuredPayload: StructuredTaskResultPayload | null = null;
+  let structuredPayloadValid = false;
+  if (tagged.content) {
+    try {
+      structuredPayload = JSON.parse(tagged.content) as StructuredTaskResultPayload;
+      structuredPayloadValid = true;
+    } catch {
+      structuredPayload = null;
+      structuredPayloadValid = false;
+    }
+  }
+
+  const confirmed = dedupeStrings([
+    ...normalizeStringList(structuredPayload?.confirmed),
+    ...sectioned.confirmed
+  ]);
+  const inferred = dedupeStrings([
+    ...normalizeStringList(structuredPayload?.inferred),
+    ...sectioned.inferred
+  ]);
+  const unverified = dedupeStrings([
+    ...normalizeStringList(structuredPayload?.unverified),
+    ...sectioned.unverified
+  ]);
+  const deliverables = [
+    ...normalizeAttachmentList(structuredPayload?.deliverables),
+    ...sectioned.deliverables
+  ];
+  const openIssues = dedupeStrings([
+    ...normalizeStringList(structuredPayload?.open_issues),
+    ...sectioned.openIssues
+  ]);
+  const recommendedNextSteps = dedupeStrings([
+    ...normalizeStringList(structuredPayload?.recommended_next_steps),
+    ...sectioned.recommendedNextSteps
+  ]);
+
+  let decisionJournalPath =
+    (typeof structuredPayload?.decision_journal === "string" && structuredPayload.decision_journal.trim().length > 0
+      ? structuredPayload.decision_journal.trim()
+      : null)
+    ?? sectioned.decisionJournalPath;
+
+  const summary =
+    (typeof structuredPayload?.summary === "string" && structuredPayload.summary.trim().length > 0
+      ? structuredPayload.summary.trim()
+      : null)
+    ?? (sectioned.summary.length > 0 ? sectioned.summary : null)
+    ?? (sectioned.leadSummary.length > 0 ? sectioned.leadSummary : null)
+    ?? buildFallbackSummary(tagged.stripped);
+
+  if (task.completionContract.requireStructuredResult && !structuredPayloadValid) {
+    unverified.push("Structured TASK_RESULT payload missing or invalid.");
+  }
+  if (task.completionContract.requireFinalSummary && summary.trim().length === 0) {
+    unverified.push("Final summary missing.");
+  }
+  if (task.budgetUsage.turnsUsed >= 2 && !decisionJournalPath) {
+    unverified.push("No decision journal path was reported for this multi-turn task.");
+  }
+
+  const normalizedOutcome = inferOutcome(
+    normalizeOutcome(structuredPayload?.outcome ?? sectioned.outcome),
+    confirmed,
+    inferred,
+    unverified,
+    openIssues,
+    summary,
+    task.completionContract.requireStructuredResult
+  );
+
+  const dedupedUnverified = dedupeStrings(unverified);
+  const dedupedOpenIssues = dedupeStrings([...openIssues, ...dedupedUnverified]);
+  if (decisionJournalPath) {
+    const noteAttachment = normalizeAttachment({
+      type: "note",
+      ref: decisionJournalPath,
+      label: "decision_journal"
+    });
+    if (noteAttachment) {
+      const alreadyPresent = deliverables.some(
+        (attachment) => attachment.type === noteAttachment.type && attachment.ref === noteAttachment.ref
+      );
+      if (!alreadyPresent) {
+        deliverables.push(noteAttachment);
+      }
+    }
+  } else {
+    decisionJournalPath = null;
+  }
+
+  return {
+    summary,
+    result: {
+      summary,
+      outcome: normalizedOutcome,
+      confidence: inferConfidence(
+        normalizedOutcome,
+        confirmed,
+        dedupedUnverified,
+        structuredPayloadValid || !task.completionContract.requireStructuredResult
+      ),
+      confirmed,
+      inferred,
+      unverified: dedupedUnverified,
+      deliverables,
+      evidence: confirmed,
+      openIssues: dedupedOpenIssues,
+      recommendedNextSteps,
+      decisionJournalPath
+    }
+  };
 }
 
 // ── Scoped harness ───────────────────────────────────────────────────────────
@@ -146,6 +576,7 @@ function createScopedHarness(
 
 function buildSystemInstructions(task: SubagentTask): string {
   const parts: string[] = [];
+  const decisionJournalPath = `notes/${task.taskId}.md`;
 
   parts.push("You are a subagent working on a specific task assigned by a supervisor.");
   parts.push("");
@@ -175,7 +606,51 @@ function buildSystemInstructions(task: SubagentTask): string {
   parts.push(`- Token budget: ${task.constraints.maxTotalTokens} tokens`);
   parts.push("");
 
+  parts.push("## Reporting Contract");
+  parts.push("");
+  parts.push("Every substantive technical report must separate:");
+  parts.push("- Confirmed: direct evidence from a read, check, test, or tool result");
+  parts.push("- Inferred: reasoned conclusions that are plausible but not directly proved");
+  parts.push("- Unverified: what remains unchecked, blocked, or unknown");
+  parts.push("");
+  parts.push("Use 'verified' only for direct evidence.");
+  parts.push("Use 'appears' for indirect evidence.");
+  parts.push("Use 'likely' for inference.");
+  parts.push("");
+  parts.push("If tool output, assumptions, or prior verified state contradict each other:");
+  parts.push("- Stop");
+  parts.push("- State the contradiction explicitly");
+  parts.push("- Ask for guidance with [NEEDS_INPUT]");
+  parts.push("");
+  parts.push("Once the requested outcome is achieved and reported, stop.");
+  parts.push("Do not continue optimizing, cleaning, or investigating unless asked.");
+  parts.push("");
+  parts.push("If the task spans multiple turns, multiple files, or important decisions:");
+  parts.push(`- Keep a concise decision journal at ${decisionJournalPath}`);
+  parts.push("- Record key decisions, surprises, and recovery notes");
+  parts.push("- Mention the journal path in your final report");
+  parts.push("");
+
   parts.push("## Completion Protocol");
+  parts.push("");
+  parts.push("Your final report must include Confirmed, Inferred, and Unverified sections.");
+  if (task.completionContract.requireStructuredResult) {
+    parts.push("");
+    parts.push("Before [TASK_COMPLETE], include a machine-readable payload in this exact form:");
+    parts.push(`<${TASK_RESULT_TAG}>`);
+    parts.push("{");
+    parts.push('  "summary": "one concise paragraph",');
+    parts.push('  "outcome": "success | partial | inconclusive",');
+    parts.push('  "confirmed": ["directly verified facts"],');
+    parts.push('  "inferred": ["reasoned but not directly proven conclusions"],');
+    parts.push('  "unverified": ["remaining unknowns or unchecked items"],');
+    parts.push('  "deliverables": [{"type": "file|url|note", "ref": "path-or-url", "label": "optional"}],');
+    parts.push('  "open_issues": ["known gaps or risks"],');
+    parts.push('  "recommended_next_steps": ["next actions if any"],');
+    parts.push(`  "decision_journal": "${decisionJournalPath} or null"`);
+    parts.push("}");
+    parts.push(`</${TASK_RESULT_TAG}>`);
+  }
   parts.push("");
   parts.push("When you finish the task, end your final message with exactly:");
   parts.push("[TASK_COMPLETE]");
@@ -194,20 +669,6 @@ function buildSystemInstructions(task: SubagentTask): string {
   parts.push("- The supervisor will respond with guidance, and you will continue from there");
 
   return parts.join("\n");
-}
-
-// ── Result construction ──────────────────────────────────────────────────────
-
-function buildSuccessResult(reply: string): TaskResult {
-  return {
-    summary: reply,
-    outcome: "success",
-    confidence: 1.0,
-    deliverables: [],
-    evidence: [],
-    openIssues: [],
-    recommendedNextSteps: []
-  };
 }
 
 // ── Factory ──────────────────────────────────────────────────────────────────
@@ -346,10 +807,11 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
     }
 
     // Complete
+    const parsed = parseTaskResult(cleanReply, runtime.task);
     try {
       manager.pushWorkerEvent(taskId, "result", {
-        message: cleanReply,
-        result: buildSuccessResult(cleanReply)
+        message: parsed.summary,
+        result: parsed.result
       });
     } catch {
       // Task may already be in a terminal state

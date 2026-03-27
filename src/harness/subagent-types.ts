@@ -111,10 +111,14 @@ export type TaskResult = {
   summary: string;
   outcome: "success" | "partial" | "inconclusive";
   confidence: number;
+  confirmed: string[];
+  inferred: string[];
+  unverified: string[];
   deliverables: Attachment[];
   evidence: string[];
   openIssues: string[];
   recommendedNextSteps: string[];
+  decisionJournalPath: string | null;
 };
 
 export type TaskError = {

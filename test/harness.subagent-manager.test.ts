@@ -382,10 +382,14 @@ describe("SubagentManager", () => {
           summary: "Fixed the bug",
           outcome: "success",
           confidence: 0.95,
+          confirmed: ["tests pass"],
+          inferred: [],
+          unverified: [],
           deliverables: [],
           evidence: ["tests pass"],
           openIssues: [],
-          recommendedNextSteps: []
+          recommendedNextSteps: [],
+          decisionJournalPath: null
         }
       });
 
@@ -853,10 +857,14 @@ describe("SubagentManager", () => {
           summary: "Fixed",
           outcome: "success",
           confidence: 0.9,
+          confirmed: [],
+          inferred: [],
+          unverified: [],
           deliverables: [],
           evidence: [],
           openIssues: [],
-          recommendedNextSteps: []
+          recommendedNextSteps: [],
+          decisionJournalPath: null
         }
       });
 
