@@ -23,7 +23,8 @@ import { resolveAttachmentContentParts } from "./attachment-resolve.js";
 import { extractAttachMarkers, resolveOutboundAttachment, type OutboundAttachment } from "./outbound-attachments.js";
 import { Semaphore } from "../concurrency.js";
 import { renderBasicTelegramHtml, renderMarkdownToTelegramHtml } from "./assistant-format.js";
-import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT, findDraftSplitPoint } from "./message-split.js";
+import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
+import { StreamTranscript } from "./stream-transcript.js";
 import { normalizeTelegramCallbackQuery, normalizeTelegramMessage } from "./normalize.js";
 import { VERBOSE_REPLACE_PREFIX } from "../routing/formatters.js";
 
@@ -178,13 +179,10 @@ export async function dispatchTelegramTextMessage(params: {
   const nowMs = params.nowMs ?? Date.now;
   const draftMinUpdateMs = Math.max(1, params.draftMinUpdateMs ?? 100);
   const shouldSuppressOutput = (): boolean => params.shouldSuppressOutput?.() === true;
-  let draftBuffer = "";
-  let lastDraftText = "";
+  const transcript = new StreamTranscript();
+  let lastRenderedDraft = "";
   let lastDraftAtMs: number | null = null;
   let draftDisabled = !params.sendDraft;
-  let lastAppendType: "text" | "tool" | null = null;
-
-  const deferredCommits: Array<{ text: string; origin: "assistant" | "system" }> = [];
 
   // Lifecycle signal state
   let acknowledged = false;
@@ -270,44 +268,13 @@ export async function dispatchTelegramTextMessage(params: {
     await params.sendReply(text, meta);
   };
 
-  const commitDraftBuffer = async (origin: "assistant" | "system"): Promise<void> => {
-    const text = draftBuffer.trim();
-    if (text.length === 0) {
-      return;
-    }
-
-    deferredCommits.push({ text, origin });
-    draftBuffer = "";
-    lastDraftText = "";
-    lastDraftAtMs = null;
-  };
-
-  const DRAFT_FLUSH_THRESHOLD = TELEGRAM_MESSAGE_LIMIT - 596;
-
-  const commitDraftMidStream = async (): Promise<void> => {
-    if (draftBuffer.length < DRAFT_FLUSH_THRESHOLD) return;
-
-    const splitIdx = findDraftSplitPoint(draftBuffer);
-    const breakPoint = splitIdx > 0 ? splitIdx : draftBuffer.length;
-
-    const committed = draftBuffer.slice(0, breakPoint).trim();
-    if (committed.length === 0) return;
-
-    const remainder = draftBuffer.slice(breakPoint);
-
-    deferredCommits.push({ text: committed, origin: lastAppendType === "tool" ? "system" : "assistant" });
-
-    draftBuffer = remainder;
-    lastDraftText = "";
-    lastDraftAtMs = null;
-  };
-
   const flushDraft = async (force: boolean): Promise<void> => {
     if (draftDisabled || !params.sendDraft || shouldSuppressOutput()) {
       return;
     }
 
-    if (draftBuffer.trim().length === 0 || draftBuffer === lastDraftText) {
+    const rendered = transcript.renderDraft(TELEGRAM_MESSAGE_LIMIT);
+    if (rendered.trim().length === 0 || rendered === lastRenderedDraft) {
       return;
     }
 
@@ -323,9 +290,6 @@ export async function dispatchTelegramTextMessage(params: {
 
     draftInflight = true;
     try {
-      const truncated = draftBuffer.length > TELEGRAM_MESSAGE_LIMIT
-        ? draftBuffer.slice(0, TELEGRAM_MESSAGE_LIMIT)
-        : draftBuffer;
       await params.observability?.record({
         event: "telegram.outbound.draft.sent",
         trace: createChildTraceContext(messageTrace, "telegram"),
@@ -333,11 +297,11 @@ export async function dispatchTelegramTextMessage(params: {
         chatId: params.message.chatId,
         messageId: params.message.messageId,
         senderId: params.message.senderId,
-        text: truncated,
+        text: rendered,
         forced: force
       });
-      await params.sendDraft(truncated);
-      lastDraftText = draftBuffer;
+      await params.sendDraft(rendered);
+      lastRenderedDraft = rendered;
       lastDraftAtMs = nowMs();
     } catch (error) {
       await disableDraft(error);
@@ -357,12 +321,7 @@ export async function dispatchTelegramTextMessage(params: {
             return;
           }
 
-          if (lastAppendType === "tool" && draftBuffer.length > 0) {
-            await commitDraftBuffer("system");
-          }
-          lastAppendType = "text";
-          draftBuffer += delta;
-          await commitDraftMidStream();
+          transcript.appendTextDelta(delta);
           await flushDraft(false);
           startTypingIndicator();
         } : undefined,
@@ -377,43 +336,14 @@ export async function dispatchTelegramTextMessage(params: {
           // Empty notice = tool-phase entry signal (tool execution starting).
           // Start typing indicator without adding content.
           if (notice.length === 0) {
+            transcript.setToolExecutionActive(true);
             startTypingIndicator();
             return;
           }
 
-          // Commit text buffer before entering tool content
-          if (lastAppendType === "text" && draftBuffer.length > 0) {
-            await commitDraftBuffer("assistant");
-          }
-
-          // Count-mode: replace the entire buffer instead of appending
-          if (notice.startsWith(VERBOSE_REPLACE_PREFIX)) {
-            const content = notice.slice(VERBOSE_REPLACE_PREFIX.length);
-            draftBuffer = content.length > TELEGRAM_MESSAGE_LIMIT
-              ? content.slice(0, TELEGRAM_MESSAGE_LIMIT)
-              : content;
-            lastAppendType = "tool";
-            await flushDraft(false);
-            startTypingIndicator();
-            return;
-          }
-
-          lastAppendType = "tool";
-          const delimiter = draftBuffer.length > 0 ? "\n\n" : "";
-          const candidate = draftBuffer + delimiter + notice;
-
-          if (candidate.length > TELEGRAM_MESSAGE_LIMIT) {
-            if (draftBuffer.trim().length > 0) {
-              await commitDraftBuffer("system");
-            }
-            draftBuffer = notice.length > TELEGRAM_MESSAGE_LIMIT
-              ? notice.slice(0, TELEGRAM_MESSAGE_LIMIT)
-              : notice;
-          } else {
-            draftBuffer = candidate;
-          }
-
-          await commitDraftMidStream();
+          const isReplace = notice.startsWith(VERBOSE_REPLACE_PREFIX);
+          const text = isReplace ? notice.slice(VERBOSE_REPLACE_PREFIX.length) : notice;
+          transcript.appendToolNotice(text, { replace: isReplace });
           await flushDraft(false);
           startTypingIndicator();
         } : undefined,
@@ -507,14 +437,15 @@ export async function dispatchTelegramTextMessage(params: {
 
           const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
           typingFrameIndex += 1;
-          const prefix = draftBuffer.length > 0 ? draftBuffer + "\n" : "";
+          const rendered = transcript.renderDraft(TELEGRAM_MESSAGE_LIMIT - frame.length - 1);
+          const prefix = rendered.length > 0 ? rendered + "\n" : "";
           const candidate = prefix + frame;
-          const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? draftBuffer : candidate;
+          const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? rendered : candidate;
 
           draftInflight = true;
           try {
             await params.sendDraft(draft);
-            lastDraftText = draft;
+            lastRenderedDraft = draft;
             lastDraftAtMs = nowMs();
             consecutiveErrors = 0;
           } catch {
@@ -550,7 +481,7 @@ export async function dispatchTelegramTextMessage(params: {
     try {
       await params.sendDraft(TYPING_FRAMES[0]!);
       lastDraftAtMs = nowMs();
-      lastDraftText = TYPING_FRAMES[0]!;
+      lastRenderedDraft = TYPING_FRAMES[0]!;
       typingFrameIndex = 1;
       startTypingIndicator();
     } catch (error) {
@@ -575,12 +506,10 @@ export async function dispatchTelegramTextMessage(params: {
     stopProcessingIndicator();
   }
   if (shouldSuppressOutput()) {
-    deferredCommits.length = 0;
-    draftBuffer = "";
     return { type: "ignore" };
   }
   await flushDraft(true);
-  await commitDraftBuffer(lastAppendType === "tool" ? "system" : "assistant");
+  transcript.commitLiveDraft();
 
   const sendExtractedAttachments = async (markerPaths: string[]): Promise<void> => {
     if (!params.sendAttachment || !params.logger || markerPaths.length === 0 || shouldSuppressOutput()) {
@@ -608,12 +537,19 @@ export async function dispatchTelegramTextMessage(params: {
       for (const extra of extras) {
         await sendOutbound(extra, result.type, true, origin);
       }
-      for (const commit of deferredCommits) {
-        if (commit.origin === "assistant" && cleanText.includes(commit.text)) continue;
-        if (commit.origin === "assistant" && extras.some((e) => e.includes(commit.text))) continue;
-        await sendOutbound(commit.text, result.type, true, commit.origin);
+      const hasTranscript = transcript.hasTranscriptContent();
+      const transcriptText = hasTranscript ? transcript.renderFullTranscript() : "";
+      if (hasTranscript && transcriptText.length > 0) {
+        const combined = transcriptText + "\n\n" + cleanText;
+        if (combined.length <= TELEGRAM_MESSAGE_LIMIT) {
+          await sendOutbound(combined, result.type, false, origin, result.inlineKeyboard);
+        } else {
+          await sendOutbound(transcriptText, result.type, true, "system");
+          await sendOutbound(cleanText, result.type, false, origin, result.inlineKeyboard);
+        }
+      } else {
+        await sendOutbound(cleanText, result.type, false, origin, result.inlineKeyboard);
       }
-      await sendOutbound(cleanText, result.type, false, origin, result.inlineKeyboard);
       await sendExtractedAttachments(markers);
       break;
     }
@@ -622,11 +558,6 @@ export async function dispatchTelegramTextMessage(params: {
       const { cleanText, markers } = extractAttachMarkers(result.text);
       for (const extra of extras) {
         await sendOutbound(extra, result.type, true, "system");
-      }
-      for (const commit of deferredCommits) {
-        if (commit.origin === "system") {
-          await sendOutbound(commit.text, result.type, true, "system");
-        }
       }
       await sendOutbound(cleanText, result.type, false, "system", result.inlineKeyboard);
       await sendExtractedAttachments(markers);

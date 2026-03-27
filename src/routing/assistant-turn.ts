@@ -88,7 +88,9 @@ export function createAssistantTurnHandler(params: {
 
     if (input.interruptedPreviousTurn) {
       const note = "Interrupted previous in-progress run and handling your latest message.";
-      verboseReplies.push(`⚠️ ${note}`);
+      if (!input.onTextDelta) {
+        verboseReplies.push(`⚠️ ${note}`);
+      }
       await input.onTextDelta?.(`${note}\n`);
     }
 

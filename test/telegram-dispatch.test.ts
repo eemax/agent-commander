@@ -310,7 +310,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(outboundEntries.map((entry) => entry.isExtra)).toEqual([true, true, false]);
   });
 
-  it("draft-streams tool call notices with double newline delimiter", async () => {
+  it("draft-streams tool call notices joined by newline", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -332,21 +332,21 @@ describe("dispatchTelegramTextMessage", () => {
 
     expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
       "◐",
-      "📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`"
+      "📖 Read: `foo.ts`\n✍️ Write: `bar.ts`"
     ]);
-    expect(sendReply).toHaveBeenCalledTimes(2);
-    expect(sendReply.mock.calls.map((call) => call[0])).toEqual([
-      "📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`",
-      "done"
-    ]);
+    // Transcript + divider + final in one message
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(
+      "📖 Read: `foo.ts`\n✍️ Write: `bar.ts`\n\ndone"
+    );
     expect(sendReply.mock.calls[0]?.[1]).toEqual({
       resultType: "reply",
-      isExtra: true,
+      isExtra: false,
       origin: "system"
     });
   });
 
-  it("commits tool call batch at 4096 limit and starts new draft", async () => {
+  it("splits transcript and final reply when combined exceeds 4096", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -369,19 +369,18 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // First notice exceeds mid-stream threshold, committed immediately; second committed at finalization
-    expect(sendReply).toHaveBeenCalledTimes(3);
-    expect(sendReply.mock.calls[0]?.[0]).toBe(longNotice);
+    // Combined transcript + divider + "done" exceeds 4096, so split into two messages
+    expect(sendReply).toHaveBeenCalledTimes(2);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(longNotice + "\n" + shortNotice);
     expect(sendReply.mock.calls[0]?.[1]).toEqual({
       resultType: "reply",
       isExtra: true,
       origin: "system"
     });
-    expect(sendReply.mock.calls[1]?.[0]).toBe(shortNotice);
-    expect(sendReply.mock.calls[2]?.[0]).toBe("done");
+    expect(sendReply.mock.calls[1]?.[0]).toBe("done");
   });
 
-  it("commits tool buffer when text streaming starts", async () => {
+  it("renders tool notice and text together in draft and final reply", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -402,21 +401,15 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Draft: typing indicator, then text drafts after tool buffer committed
+    // Draft: typing indicator, then tool+text rendered together
     expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
       "◐",
-      "Reply ",
-      "Reply text"
+      "📖 Read: `foo.ts`\n\nReply ",
+      "📖 Read: `foo.ts`\n\nReply text"
     ]);
-    // sendReply: committed tool buffer, then final reply
-    expect(sendReply).toHaveBeenCalledTimes(2);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
-    expect(sendReply.mock.calls[0]?.[1]).toEqual({
-      resultType: "reply",
-      isExtra: true,
-      origin: "system"
-    });
-    expect(sendReply.mock.calls[1]?.[0]).toBe("Reply text");
+    // Full transcript (tool notice + text block) + divider + final text
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`\nReply text\n\nReply text");
   });
 
   it("uses extraReplies when streaming is disabled (no sendDraft)", async () => {
@@ -440,7 +433,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply.mock.calls.map((call) => call[0])).toEqual(["tool-1", "tool-2", "final"]);
   });
 
-  it("commits tool call buffer as real message even when draft fails", async () => {
+  it("includes transcript in final reply even when draft fails", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi
       .fn<(...args: [string]) => Promise<void>>()
@@ -464,16 +457,17 @@ describe("dispatchTelegramTextMessage", () => {
     });
 
     // Typing indicator ("◐") fails, disabling all further drafts.
-    // Buffer is still committed as real message.
+    // Transcript is still included in the final reply.
     expect(sendDraft).toHaveBeenCalledTimes(1);
     expect(sendDraft.mock.calls[0]?.[0]).toBe("◐");
     expect(onDraftFailure).toHaveBeenCalledTimes(1);
-    expect(sendReply).toHaveBeenCalledTimes(2);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`");
-    expect(sendReply.mock.calls[1]?.[0]).toBe("done");
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(
+      "📖 Read: `foo.ts`\n✍️ Write: `bar.ts`\n\ndone"
+    );
   });
 
-  it("commits each phase on type transition (tools -> text -> tools)", async () => {
+  it("combines transcript from tools -> text -> tools into one final reply", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -494,14 +488,12 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Deferred tool1, deferred text "Reply" filtered (matches final), deferred tool2, final reply
-    expect(sendReply).toHaveBeenCalledTimes(3);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
-    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
-    expect(sendReply.mock.calls[1]?.[0]).toBe("✍️ Write: `bar.ts`");
-    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
-    expect(sendReply.mock.calls[2]?.[0]).toBe("Reply");
-    expect(sendReply.mock.calls[2]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
+    // Full transcript (including text_blocks) + divider + final text
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(
+      "📖 Read: `foo.ts`\nReply\n✍️ Write: `bar.ts`\n\nReply"
+    );
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
   });
 
   it("empty tool call notice enters tools mode with typing indicator", async () => {
@@ -531,14 +523,12 @@ describe("dispatchTelegramTextMessage", () => {
       "◐",
       "📖 Read: `foo.ts`"
     ]);
-    // Reply: tool notice committed, then final reply
-    expect(sendReply).toHaveBeenCalledTimes(2);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
-    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
-    expect(sendReply.mock.calls[1]?.[0]).toBe("done");
+    // Single final reply: transcript + divider + answer
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`\n\ndone");
   });
 
-  it("empty notice after text does not commit or reset buffer", async () => {
+  it("empty notice does not affect text accumulation", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -548,10 +538,9 @@ describe("dispatchTelegramTextMessage", () => {
       handleMessage: async (_message, stream) => {
         await stream?.onTextDelta?.("Hello");
         clock = 120;
-        // Flush the text draft within throttle window
         await stream?.onTextDelta?.(" there");
         clock = 240;
-        // Tool phase starts — should commit text and switch to tools mode
+        // Empty notice = tool phase entry signal, does not affect transcript
         await stream?.onToolCallNotice?.("");
         clock = 360;
         await stream?.onTextDelta?.(" world");
@@ -564,13 +553,13 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Draft: typing indicator, text flushed; empty notice is a no-op, text continues in same buffer
+    // Draft: typing indicator, text accumulates continuously
     expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
       "◐",
       "Hello there",
       "Hello there world"
     ]);
-    // Deferred "Hello there world" deduped (matches final reply)
+    // No tool entries, so final reply is just the answer text
     expect(sendReply).toHaveBeenCalledTimes(1);
     expect(sendReply.mock.calls[0]?.[0]).toBe("Hello there world");
   });
@@ -623,7 +612,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply).toHaveBeenCalledTimes(0);
   });
 
-  it("truncates single tool call notice exceeding 4096 chars", async () => {
+  it("draft uses rolling window for huge tool call notice", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
 
@@ -641,13 +630,20 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => 0
     });
 
-    // Typing indicator is the only draft; truncated notice is committed mid-stream before flush
+    // Typing indicator is the first draft
     expect(sendDraft.mock.calls[0]?.[0]).toBe("◐");
-    // The committed real message is truncated to 4096
-    expect(sendReply.mock.calls[0]?.[0]).toHaveLength(4096);
+    // Combined transcript + divider + "done" exceeds 4096, so split into transcript extra + final
+    expect(sendReply).toHaveBeenCalledTimes(2);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(hugeNotice);
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({
+      resultType: "reply",
+      isExtra: true,
+      origin: "system"
+    });
+    expect(sendReply.mock.calls[1]?.[0]).toBe("done");
   });
 
-  it("supports text -> tools -> text mode switching", async () => {
+  it("supports text -> tools -> text mode switching in single reply", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -668,17 +664,13 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Committed text, committed tool, final reply
-    expect(sendReply).toHaveBeenCalledTimes(3);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("Part 1");
-    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "assistant" });
-    expect(sendReply.mock.calls[1]?.[0]).toBe("📖 Read: `foo.ts`");
-    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
-    expect(sendReply.mock.calls[2]?.[0]).toBe("Part 2");
-    expect(sendReply.mock.calls[2]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
+    // Full transcript + divider + final text
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("Part 1\n📖 Read: `foo.ts`\nPart 2\n\nPart 2");
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
   });
 
-  it("supports multiple mode cycles (tools -> text -> tools -> text)", async () => {
+  it("supports multiple mode cycles in single combined reply", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -701,19 +693,15 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // 4 sendReply calls: tool commit, text commit, tool commit, final reply
-    expect(sendReply).toHaveBeenCalledTimes(4);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("🔍 Search");
-    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
-    expect(sendReply.mock.calls[1]?.[0]).toBe("Found it.");
-    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "assistant" });
-    expect(sendReply.mock.calls[2]?.[0]).toBe("📖 Read: `result.ts`");
-    expect(sendReply.mock.calls[2]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
-    expect(sendReply.mock.calls[3]?.[0]).toBe("Here are the results.");
-    expect(sendReply.mock.calls[3]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
+    // Full transcript + divider + final text
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(
+      "🔍 Search\nFound it.\n📖 Read: `result.ts`\nHere are the results.\n\nHere are the results."
+    );
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
   });
 
-  it("count-mode replace after text commits text first", async () => {
+  it("count-mode replace produces single transcript entry in final reply", async () => {
     const VERBOSE_REPLACE_PREFIX = "\x00REPLACE\x00";
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
@@ -736,17 +724,46 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Text committed on type transition, tool buffer committed at finalization, final reply
-    expect(sendReply).toHaveBeenCalledTimes(3);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("Thinking...");
-    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "assistant" });
-    expect(sendReply.mock.calls[1]?.[0]).toBe("📖 Read ×1");
-    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
-    expect(sendReply.mock.calls[2]?.[0]).toBe("Done.");
-    expect(sendReply.mock.calls[2]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
+    // Full transcript (including text_blocks) + divider + final text
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("Thinking...\n📖 Read ×1\nDone.\n\nDone.");
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
   });
 
-  it("discards deferred text on fallback, keeps tool notices", async () => {
+  it("count-mode replace updates earlier summary even when text intervenes", async () => {
+    const VERBOSE_REPLACE_PREFIX = "\x00REPLACE\x00";
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        // First count-mode summary
+        await stream?.onToolCallNotice?.(VERBOSE_REPLACE_PREFIX + "📖 Read ×1");
+        clock = 120;
+        // Text intervenes
+        await stream?.onTextDelta?.("thinking...");
+        clock = 240;
+        // Updated cumulative summary — should replace, not duplicate
+        await stream?.onToolCallNotice?.(VERBOSE_REPLACE_PREFIX + "📖 Read ×1\n✍️ Write ×1");
+        clock = 360;
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    // No duplication: full transcript shows updated summary + text + divider + final
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(
+      "📖 Read ×1\n✍️ Write ×1\nthinking...\n\ndone"
+    );
+  });
+
+  it("sends only fallback text without transcript on failure", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -766,15 +783,13 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Tool notice kept, text discarded, fallback message sent
-    expect(sendReply).toHaveBeenCalledTimes(2);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
-    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "fallback", isExtra: true, origin: "system" });
-    expect(sendReply.mock.calls[1]?.[0]).toBe("Provider error. Please try again.");
-    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "fallback", isExtra: false, origin: "system" });
+    // No transcript leaked on fallback — only the fallback message
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("Provider error. Please try again.");
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "fallback", isExtra: false, origin: "system" });
   });
 
-  it("discards all deferred text on ignore, keeps tool notices", async () => {
+  it("sends nothing on ignore even with transcript content", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -794,7 +809,7 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Stale turns emit no permanent messages — all deferred commits discarded
+    // Ignore discards everything — no permanent messages
     expect(sendReply).toHaveBeenCalledTimes(0);
   });
 
@@ -822,7 +837,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply).not.toHaveBeenCalled();
   });
 
-  it("filters duplicate text commit matching final reply", async () => {
+  it("transcript-based reply has no duplication issues", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -834,7 +849,6 @@ describe("dispatchTelegramTextMessage", () => {
         clock = 120;
         await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
         clock = 240;
-        // Final reply text matches the committed text fragment
         return { type: "reply", text: "Same text" };
       },
       sendReply,
@@ -843,15 +857,12 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Deferred text "Same text" filtered (matches final reply), tool notice kept
-    expect(sendReply).toHaveBeenCalledTimes(2);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`");
-    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
-    expect(sendReply.mock.calls[1]?.[0]).toBe("Same text");
-    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
+    // Full transcript + divider + final text
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("Same text\n📖 Read: `foo.ts`\n\nSame text");
   });
 
-  it("filters deferred text that duplicates an extraReply", async () => {
+  it("interrupted banner goes through transcript, not duplicated with extraReplies", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -861,19 +872,18 @@ describe("dispatchTelegramTextMessage", () => {
     await dispatchTelegramTextMessage({
       message: baseMessage,
       handleMessage: async (_message, stream) => {
-        // Banner streamed as text delta (like assistant-turn.ts:93)
+        // Banner streamed as text delta (with the fix in assistant-turn.ts,
+        // extraReplies is NOT populated when onTextDelta is available)
         await stream?.onTextDelta?.(`${bannerText}\n`);
         clock = 120;
-        // Tool call triggers text->tools commit, deferring the banner text
         await stream?.onToolCallNotice?.("📖 Read: `foo.ts`");
         clock = 240;
         await stream?.onTextDelta?.("Final answer");
         return {
           type: "reply",
           text: "Final answer",
-          origin: "assistant",
-          // Banner also in extraReplies (like assistant-turn.ts:92)
-          extraReplies: [`⚠️ ${bannerText}`]
+          origin: "assistant"
+          // No extraReplies — banner only goes through transcript
         };
       },
       sendReply,
@@ -882,15 +892,12 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // extraReply sent once, deferred banner text filtered (substring of extraReply),
-    // tool notice sent, final reply sent
-    expect(sendReply).toHaveBeenCalledTimes(3);
-    expect(sendReply.mock.calls[0]?.[0]).toBe(`⚠️ ${bannerText}`);
-    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "assistant" });
-    expect(sendReply.mock.calls[1]?.[0]).toBe("📖 Read: `foo.ts`");
-    expect(sendReply.mock.calls[1]?.[1]).toEqual({ resultType: "reply", isExtra: true, origin: "system" });
-    expect(sendReply.mock.calls[2]?.[0]).toBe("Final answer");
-    expect(sendReply.mock.calls[2]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "assistant" });
+    // Full transcript (including banner and final answer text_blocks) + divider + final text
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(
+      `${bannerText}\n📖 Read: \`foo.ts\`\nFinal answer\n\nFinal answer`
+    );
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "assistant" });
   });
 
   it("sends acknowledged reaction exactly once on first response_acknowledged", async () => {
@@ -1049,7 +1056,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendProcessingAction).toHaveBeenCalled();
   });
 
-  it("resets draft and continues streaming when text approaches 4096 limit", async () => {
+  it("uses rolling window for draft when text exceeds 4096 limit", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -1073,12 +1080,13 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Draft resets after mid-stream commit — post-commit draft has only the remainder
+    // All drafts stay within 4096 chars (rolling window applied when needed)
     const draftTexts = sendDraft.mock.calls.map((c: [string]) => c[0]);
-    const postCommitDrafts = draftTexts.filter((t: string) => t.includes(chunkB) && !t.includes(chunkA));
-    expect(postCommitDrafts.length).toBeGreaterThan(0);
+    for (const dt of draftTexts) {
+      expect(dt.length).toBeLessThanOrEqual(4096);
+    }
 
-    // Final reply contains the full text (deferred chunks are deduped as substrings)
+    // Final reply is the full text (no deferred commits, no mid-stream splits)
     expect(sendReply).toHaveBeenCalledWith(fullText, {
       resultType: "reply",
       isExtra: false,
@@ -1086,7 +1094,7 @@ describe("dispatchTelegramTextMessage", () => {
     });
   });
 
-  it("does not send deferred assistant text on fallback or ignore", async () => {
+  it("does not include assistant text in fallback or ignore final replies", async () => {
     for (const resultType of ["fallback", "ignore"] as const) {
       const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
       const sendDraft = vi.fn(async (_text: string) => {});
@@ -1110,32 +1118,28 @@ describe("dispatchTelegramTextMessage", () => {
         nowMs: () => clock
       });
 
-      // The deferred assistant chunk must NOT appear as a sent reply
+      // Text-only transcript is excluded from final replies
       const sentTexts = sendReply.mock.calls.map((c: unknown[]) => c[0]);
       expect(sentTexts).not.toContain(bigChunk);
-      // For fallback, only the error text is sent
       if (resultType === "fallback") {
         expect(sentTexts).toContain("Something went wrong");
       }
     }
   });
 
-  it("prefers paragraph break over line break over space for mid-stream split", async () => {
+  it("draft uses rolling window for long text without creating permanent messages", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
 
-    // Place \n\n earlier, \n later, space latest — should pick \n\n
-    const beforeParagraph = "x".repeat(3200);
-    const afterParagraph = "y".repeat(200) + "\n" + "z".repeat(100) + " " + "w".repeat(200);
-    const fullDelta = beforeParagraph + "\n\n" + afterParagraph;
+    const longText = "x".repeat(5000);
 
     await dispatchTelegramTextMessage({
       message: baseMessage,
       handleMessage: async (_message, stream) => {
-        await stream?.onTextDelta?.(fullDelta);
+        await stream?.onTextDelta?.(longText);
         clock = 200;
-        return { type: "reply", text: fullDelta.trim(), origin: "assistant" };
+        return { type: "reply", text: longText, origin: "assistant" };
       },
       sendReply,
       sendDraft,
@@ -1143,15 +1147,18 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Draft should reset to the portion after \n\n
+    // Draft should be capped at 4096 via rolling window
     const draftTexts = sendDraft.mock.calls.map((c: [string]) => c[0]);
-    const postCommitDrafts = draftTexts.filter((t: string) =>
-      t.includes(afterParagraph.slice(0, 10)) && !t.includes(beforeParagraph.slice(0, 10))
-    );
-    expect(postCommitDrafts.length).toBeGreaterThan(0);
+    for (const dt of draftTexts) {
+      expect(dt.length).toBeLessThanOrEqual(4096);
+    }
+
+    // No permanent mid-stream messages — only the final reply
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(longText);
   });
 
-  it("draft continues streaming after mid-stream commit", async () => {
+  it("draft continues accumulating after exceeding limit via rolling window", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -1174,9 +1181,9 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // After the mid-stream commit, sendDraft should be called with the short remainder
+    // Draft should include the small chunk (via rolling window showing latest content)
     const draftTexts = sendDraft.mock.calls.map((c: [string]) => c[0]);
-    const postCommitDrafts = draftTexts.filter((t: string) => t.includes(smallChunk));
-    expect(postCommitDrafts.length).toBeGreaterThan(0);
+    const draftsWithSmallChunk = draftTexts.filter((t: string) => t.includes(smallChunk));
+    expect(draftsWithSmallChunk.length).toBeGreaterThan(0);
   });
 });
