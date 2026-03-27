@@ -445,7 +445,7 @@ export async function dispatchTelegramTextMessage(params: {
       }
     : undefined;
 
-  const TYPING_FRAMES = ["🕐\u200B", "🕑\u200B", "🕒\u200B", "🕓\u200B", "🕔\u200B", "🕕\u200B"];
+  const TYPING_FRAMES = ["◐", "◓", "◑", "◒"];
   let typingFrameIndex = 0;
   let draftWorkerActive = false;
   let draftInflight = false;

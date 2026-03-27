@@ -54,7 +54,7 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual(["🕐\u200B", "Hello!"]);
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual(["◐", "Hello!"]);
     expect(sendReply).toHaveBeenCalledWith("Hello!", {
       resultType: "reply",
       isExtra: false,
@@ -81,7 +81,7 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual(["🕐\u200B", "Hello world"]);
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual(["◐", "Hello world"]);
     expect(sendReply).toHaveBeenCalledWith("Hello world", {
       resultType: "reply",
       isExtra: false,
@@ -112,9 +112,9 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Typing indicator ("🕐\u200B") is the first call which fails, disabling all further drafts
+    // Typing indicator ("◐") is the first call which fails, disabling all further drafts
     expect(sendDraft).toHaveBeenCalledTimes(1);
-    expect(sendDraft.mock.calls[0]?.[0]).toBe("🕐\u200B");
+    expect(sendDraft.mock.calls[0]?.[0]).toBe("◐");
     expect(onDraftFailure).toHaveBeenCalledTimes(1);
     expect(sendReply).toHaveBeenCalledWith("Hi there", {
       resultType: "reply",
@@ -331,7 +331,7 @@ describe("dispatchTelegramTextMessage", () => {
     });
 
     expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
-      "🕐\u200B",
+      "◐",
       "📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`"
     ]);
     expect(sendReply).toHaveBeenCalledTimes(2);
@@ -404,7 +404,7 @@ describe("dispatchTelegramTextMessage", () => {
 
     // Draft: typing indicator, then text drafts after tool buffer committed
     expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
-      "🕐\u200B",
+      "◐",
       "Reply ",
       "Reply text"
     ]);
@@ -463,10 +463,10 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Typing indicator ("🕐\u200B") fails, disabling all further drafts.
+    // Typing indicator ("◐") fails, disabling all further drafts.
     // Buffer is still committed as real message.
     expect(sendDraft).toHaveBeenCalledTimes(1);
-    expect(sendDraft.mock.calls[0]?.[0]).toBe("🕐\u200B");
+    expect(sendDraft.mock.calls[0]?.[0]).toBe("◐");
     expect(onDraftFailure).toHaveBeenCalledTimes(1);
     expect(sendReply).toHaveBeenCalledTimes(2);
     expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`\n\n✍️ Write: `bar.ts`");
@@ -528,7 +528,7 @@ describe("dispatchTelegramTextMessage", () => {
 
     // Draft: typing indicator from ensureTypingStarted, then tool notice
     expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
-      "🕐\u200B",
+      "◐",
       "📖 Read: `foo.ts`"
     ]);
     // Reply: tool notice committed, then final reply
@@ -566,7 +566,7 @@ describe("dispatchTelegramTextMessage", () => {
 
     // Draft: typing indicator, text flushed; empty notice is a no-op, text continues in same buffer
     expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
-      "🕐\u200B",
+      "◐",
       "Hello there",
       "Hello there world"
     ]);
@@ -642,7 +642,7 @@ describe("dispatchTelegramTextMessage", () => {
     });
 
     // Typing indicator is the only draft; truncated notice is committed mid-stream before flush
-    expect(sendDraft.mock.calls[0]?.[0]).toBe("🕐\u200B");
+    expect(sendDraft.mock.calls[0]?.[0]).toBe("◐");
     // The committed real message is truncated to 4096
     expect(sendReply.mock.calls[0]?.[0]).toHaveLength(4096);
   });
