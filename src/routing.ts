@@ -9,7 +9,8 @@ import type {
   NormalizedTelegramMessage,
   Provider,
   TelegramCommandDefinition,
-  ContentPart
+  ContentPart,
+  TurnRetentionRegistrar
 } from "./types.js";
 import type { AuthModeRegistry } from "./provider/auth-mode-contracts.js";
 import type { AttachmentResolver } from "./message-queue.js";
@@ -24,7 +25,8 @@ export type MessageRouter = {
     stream?: MessageStreamingSink,
     trace?: TraceContext,
     userContent?: string | ContentPart[],
-    attachmentResolver?: AttachmentResolver
+    attachmentResolver?: AttachmentResolver,
+    turnRetention?: TurnRetentionRegistrar
   ): Promise<MessageRouteResult>;
   handleIncomingCallbackQuery(query: NormalizedTelegramCallbackQuery, trace?: TraceContext): Promise<MessageRouteResult>;
 };
@@ -48,9 +50,25 @@ export function createMessageRouter(params: {
     message: NormalizedTelegramMessage,
     userContent: string | ContentPart[],
     trace: TraceContext,
-    stream?: MessageStreamingSink
+    stream?: MessageStreamingSink,
+    turnRetention?: TurnRetentionRegistrar
   ): Promise<MessageRouteResult> => {
     const turn = turns.beginTurn(message.chatId, message.messageId);
+    let finalized = false;
+    const finalizeTurn = async (): Promise<void> => {
+      if (finalized) {
+        return;
+      }
+      finalized = true;
+      turns.releaseTurn(message.chatId, turn.token);
+      try {
+        await processQueue(message.chatId);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        logger.error(`routing: failed to process queued messages for chat=${message.chatId}: ${msg}`);
+      }
+    };
+
     if (turn.interruptedPrevious) {
       await observability?.record({
         event: "routing.turn.interrupted",
@@ -75,24 +93,35 @@ export function createMessageRouter(params: {
         onToolCallNotice: stream?.onToolCallNotice,
         onLifecycleEvent: stream?.onLifecycleEvent
       });
-    } finally {
-      turns.releaseTurn(message.chatId, turn.token);
+    } catch (error) {
+      await finalizeTurn();
+      throw error;
     }
 
     if (!turns.isLatestTurn(message.chatId, turn.token)) {
-      return { type: "ignore" };
+      result = { type: "ignore" };
+    } else {
+      await observability?.record({
+        event: "routing.decision.made",
+        trace,
+        stage: "completed",
+        chatId: message.chatId,
+        messageId: message.messageId,
+        decision: "assistant_turn",
+        resultType: result.type,
+        result
+      });
     }
 
-    await observability?.record({
-      event: "routing.decision.made",
-      trace,
-      stage: "completed",
-      chatId: message.chatId,
-      messageId: message.messageId,
-      decision: "assistant_turn",
-      resultType: result.type,
-      result
-    });
+    if (turnRetention) {
+      turns.markTurnFinalizing(message.chatId, turn.token);
+      turnRetention.retain({
+        abortSignal: turn.controller.signal,
+        finalize: finalizeTurn
+      });
+    } else {
+      await finalizeTurn();
+    }
 
     return result;
   };
@@ -157,7 +186,6 @@ export function createMessageRouter(params: {
 
       const content = await resolveQueuedEntryContent(entry);
       await runSingleTurn(entry.message, content, entry.trace, entry.stream);
-      await processQueue(chatId);
     }
   };
 
@@ -165,14 +193,10 @@ export function createMessageRouter(params: {
     message: NormalizedTelegramMessage,
     userContent: string | ContentPart[],
     trace: TraceContext,
-    stream?: MessageStreamingSink
+    stream?: MessageStreamingSink,
+    turnRetention?: TurnRetentionRegistrar
   ): Promise<MessageRouteResult> => {
-    const result = await runSingleTurn(message, userContent, trace, stream);
-    void processQueue(message.chatId).catch((error) => {
-      const msg = error instanceof Error ? error.message : String(error);
-      logger.error(`routing: failed to process queued messages for chat=${message.chatId}: ${msg}`);
-    });
-    return result;
+    return runSingleTurn(message, userContent, trace, stream, turnRetention);
   };
 
   const handleAssistantTurn = createAssistantTurnHandler({
@@ -198,7 +222,8 @@ export function createMessageRouter(params: {
       stream?: MessageStreamingSink,
       trace?: TraceContext,
       resolvedUserContent?: string | ContentPart[],
-      attachmentResolver?: AttachmentResolver
+      attachmentResolver?: AttachmentResolver,
+      turnRetention?: TurnRetentionRegistrar
     ): Promise<MessageRouteResult> {
       const inboundTrace = trace ?? createTraceRootContext("routing");
       const routingTrace = createChildTraceContext(inboundTrace, "routing");
@@ -261,11 +286,11 @@ export function createMessageRouter(params: {
           }
         }
 
-        return await runTurnAndDrainQueue(message, finalUserContent, routingTrace, stream);
+        return await runTurnAndDrainQueue(message, finalUserContent, routingTrace, stream, turnRetention);
       }
 
       if (parsedCommand.command === "steer") {
-        const activeTurn = turns.getActiveTurn(message.chatId);
+        const activeTurn = turns.getSteerableTurn(message.chatId);
         if (!activeTurn) {
           return { type: "reply", text: "No active turn to steer." };
         }
@@ -367,7 +392,7 @@ export function createMessageRouter(params: {
       } else {
         skillUserContent = skillNotice;
       }
-      return await runTurnAndDrainQueue(message, skillUserContent, routingTrace, stream);
+      return await runTurnAndDrainQueue(message, skillUserContent, routingTrace, stream, turnRetention);
     },
 
     async handleIncomingCallbackQuery(

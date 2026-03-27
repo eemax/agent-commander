@@ -52,6 +52,18 @@ describe("TurnManager", () => {
     expect(handle.controller.signal.aborted).toBe(true);
   });
 
+  it("keeps finalizing turns active but no longer steerable", () => {
+    const tm = new TurnManager();
+    const handle = tm.beginTurn("chat-1", "msg-1");
+
+    tm.markTurnFinalizing("chat-1", handle.token);
+
+    expect(tm.getActiveTurn("chat-1")).toBeDefined();
+    expect(tm.getSteerableTurn("chat-1")).toBeUndefined();
+    expect(tm.abortActiveTurn("chat-1")).toBe(true);
+    expect(handle.controller.signal.aborted).toBe(true);
+  });
+
   it("manages message queues per chat", () => {
     const tm = new TurnManager();
     expect(tm.getQueue("chat-1")).toBeUndefined();

@@ -6,6 +6,7 @@ type ActiveTurn = {
   controller: AbortController;
   messageId: string;
   steerChannel: SteerChannel;
+  phase: "running" | "finalizing";
 };
 
 export type TurnHandle = {
@@ -32,9 +33,16 @@ export class TurnManager {
     const controller = new AbortController();
     const steerChannel = createSteerChannel();
     this.latestTurnTokenByChat.set(chatId, token);
-    this.activeTurns.set(chatId, { token, controller, messageId, steerChannel });
+    this.activeTurns.set(chatId, { token, controller, messageId, steerChannel, phase: "running" });
 
     return { token, controller, steerChannel, interruptedPrevious };
+  }
+
+  markTurnFinalizing(chatId: string, token: string): void {
+    const current = this.activeTurns.get(chatId);
+    if (current?.token === token) {
+      current.phase = "finalizing";
+    }
   }
 
   releaseTurn(chatId: string, token: string): void {
@@ -50,6 +58,14 @@ export class TurnManager {
 
   getActiveTurn(chatId: string): ActiveTurn | undefined {
     return this.activeTurns.get(chatId);
+  }
+
+  getSteerableTurn(chatId: string): ActiveTurn | undefined {
+    const active = this.activeTurns.get(chatId);
+    if (active?.phase !== "running") {
+      return undefined;
+    }
+    return active;
   }
 
   abortActiveTurn(chatId: string): boolean {

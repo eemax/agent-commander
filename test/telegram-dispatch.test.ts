@@ -798,6 +798,30 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply).toHaveBeenCalledTimes(0);
   });
 
+  it("suppresses draft flushes and final replies when output is canceled after generation", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let suppressOutput = false;
+
+    const result = await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onTextDelta?.("Hello");
+        suppressOutput = true;
+        return { type: "reply", text: "Hello" };
+      },
+      sendReply,
+      sendDraft,
+      shouldSuppressOutput: () => suppressOutput,
+      draftMinUpdateMs: 100,
+      nowMs: () => 0
+    });
+
+    expect(result).toEqual({ type: "ignore" });
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual(["◐"]);
+    expect(sendReply).not.toHaveBeenCalled();
+  });
+
   it("filters duplicate text commit matching final reply", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});

@@ -7,7 +7,12 @@ import { createObservabilitySink } from "../src/observability.js";
 import { ProviderError } from "../src/provider-error.js";
 import { createMessageRouter } from "../src/routing.js";
 import { createConversationStore } from "../src/state/conversations.js";
-import type { NormalizedTelegramCallbackQuery, NormalizedTelegramMessage, Provider } from "../src/types.js";
+import type {
+  NormalizedTelegramCallbackQuery,
+  NormalizedTelegramMessage,
+  Provider,
+  RetainedTurnHandle
+} from "../src/types.js";
 import { createWorkspaceManager } from "../src/workspace.js";
 import { makeConfig } from "./helpers.js";
 
@@ -1687,5 +1692,101 @@ describe("createMessageRouter", () => {
       type: "reply",
       text: "reply-first"
     });
+  });
+
+  it("retains completed turns through outbound cleanup so new messages queue", async () => {
+    const config = makeConfig();
+    const workspace = createWorkspaceManager(config);
+    await workspace.bootstrap();
+
+    const provider: Provider = {
+      generateReply: vi.fn(async () => "reply")
+    };
+
+    const router = createMessageRouter({
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      provider,
+      config,
+      conversations: createConversationStore({
+        conversationsDir: config.paths.conversationsDir,
+        stashedConversationsPath: config.paths.stashedConversationsPath
+      }),
+      workspace,
+      harness: makeHarnessMock()
+    });
+
+    let retainedTurn!: RetainedTurnHandle;
+    const first = await router.handleIncomingMessage(
+      sampleIncoming({ text: "first", messageId: "msg-1" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        retain: (handle) => {
+          retainedTurn = handle;
+        }
+      }
+    );
+
+    expect(first).toMatchObject({ type: "reply", text: "reply" });
+    expect(retainedTurn).toBeTruthy();
+
+    const queued = await router.handleIncomingMessage(sampleIncoming({ text: "second", messageId: "msg-2" }));
+    expect(queued).toEqual({ type: "reply", text: "Message queued (1 pending)" });
+
+    const steer = await router.handleIncomingMessage(sampleIncoming({ text: "/steer keep going", messageId: "msg-3" }));
+    expect(steer).toEqual({ type: "reply", text: "No active turn to steer." });
+
+    await retainedTurn.finalize();
+    expect(provider.generateReply).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets /stop abort a retained turn during outbound cleanup", async () => {
+    const config = makeConfig();
+    const workspace = createWorkspaceManager(config);
+    await workspace.bootstrap();
+
+    const provider: Provider = {
+      generateReply: vi.fn(async () => "reply")
+    };
+
+    const router = createMessageRouter({
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      provider,
+      config,
+      conversations: createConversationStore({
+        conversationsDir: config.paths.conversationsDir,
+        stashedConversationsPath: config.paths.stashedConversationsPath
+      }),
+      workspace,
+      harness: makeHarnessMock()
+    });
+
+    let retainedTurn!: RetainedTurnHandle;
+    await router.handleIncomingMessage(
+      sampleIncoming({ text: "first", messageId: "msg-1" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        retain: (handle) => {
+          retainedTurn = handle;
+        }
+      }
+    );
+
+    expect(retainedTurn).toBeTruthy();
+    expect(retainedTurn.abortSignal.aborted).toBe(false);
+
+    const stopped = await router.handleIncomingMessage(sampleIncoming({ text: "/stop", messageId: "msg-2" }));
+    expect(stopped.type).toBe("reply");
+    if (stopped.type === "reply") {
+      expect(stopped.text).toContain("stopped sessions: 0");
+    }
+    expect(retainedTurn.abortSignal.aborted).toBe(true);
+
+    await retainedTurn.finalize();
   });
 });

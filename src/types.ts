@@ -110,6 +110,15 @@ export type MessageStreamingSink = {
   onLifecycleEvent?: (event: ProviderLifecycleEvent) => void | Promise<void>;
 };
 
+export type RetainedTurnHandle = {
+  abortSignal: AbortSignal;
+  finalize: () => Promise<void>;
+};
+
+export type TurnRetentionRegistrar = {
+  retain: (handle: RetainedTurnHandle) => void;
+};
+
 export type ToolErrorCode =
   | "TOOL_VALIDATION_ERROR"
   | "TOOL_EXECUTION_ERROR"

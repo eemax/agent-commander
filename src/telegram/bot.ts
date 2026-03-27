@@ -12,9 +12,11 @@ import type {
   MessageStreamingSink,
   NormalizedTelegramCallbackQuery,
   NormalizedTelegramMessage,
+  RetainedTurnHandle,
   TelegramInlineKeyboard,
   TelegramCommandDefinition,
-  ContentPart
+  ContentPart,
+  TurnRetentionRegistrar
 } from "../types.js";
 import { downloadTelegramFile, FileTooLargeError } from "./file-download.js";
 import { resolveAttachmentContentParts } from "./attachment-resolve.js";
@@ -30,7 +32,8 @@ export type TelegramTextHandler = (
   stream?: MessageStreamingSink,
   trace?: TraceContext,
   userContent?: string | ContentPart[],
-  attachmentResolver?: import("../message-queue.js").AttachmentResolver
+  attachmentResolver?: import("../message-queue.js").AttachmentResolver,
+  turnRetention?: TurnRetentionRegistrar
 ) => Promise<MessageRouteResult>;
 
 export type TelegramCallbackQueryHandler = (
@@ -168,10 +171,13 @@ export async function dispatchTelegramTextMessage(params: {
   sendAcknowledgedReaction?: () => Promise<void>;
   sendProcessingAction?: () => Promise<void>;
   processingActionRefreshMs?: number;
+  shouldSuppressOutput?: () => boolean;
+  onSettled?: () => Promise<void>;
 }): Promise<MessageRouteResult> {
   const messageTrace = params.trace ?? createTraceRootContext("telegram");
   const nowMs = params.nowMs ?? Date.now;
   const draftMinUpdateMs = Math.max(1, params.draftMinUpdateMs ?? 100);
+  const shouldSuppressOutput = (): boolean => params.shouldSuppressOutput?.() === true;
   let draftBuffer = "";
   let lastDraftText = "";
   let lastDraftAtMs: number | null = null;
@@ -184,6 +190,8 @@ export async function dispatchTelegramTextMessage(params: {
   let acknowledged = false;
   let processingTimer: ReturnType<typeof setInterval> | null = null;
   const processingActionRefreshMs = params.processingActionRefreshMs ?? 4000;
+
+  try {
 
   const stopProcessingIndicator = (): void => {
     if (processingTimer !== null) {
@@ -236,6 +244,10 @@ export async function dispatchTelegramTextMessage(params: {
     origin: "assistant" | "system",
     inlineKeyboard?: TelegramInlineKeyboard
   ): Promise<void> => {
+    if (shouldSuppressOutput()) {
+      return;
+    }
+
     const meta: TelegramOutboundReplyMeta = {
       resultType,
       isExtra,
@@ -291,7 +303,7 @@ export async function dispatchTelegramTextMessage(params: {
   };
 
   const flushDraft = async (force: boolean): Promise<void> => {
-    if (draftDisabled || !params.sendDraft) {
+    if (draftDisabled || !params.sendDraft || shouldSuppressOutput()) {
       return;
     }
 
@@ -339,7 +351,7 @@ export async function dispatchTelegramTextMessage(params: {
     ? {
         onTextDelta: params.sendDraft ? async (delta: string) => {
           await ensureTypingStarted();
-          stopTypingIndicator();
+          await stopTypingIndicator();
 
           if (draftDisabled || typeof delta !== "string" || delta.length === 0) {
             return;
@@ -356,7 +368,7 @@ export async function dispatchTelegramTextMessage(params: {
         } : undefined,
         onToolCallNotice: params.sendDraft ? async (notice: string) => {
           await ensureTypingStarted();
-          stopTypingIndicator();
+          await stopTypingIndicator();
 
           if (typeof notice !== "string") {
             return;
@@ -449,51 +461,84 @@ export async function dispatchTelegramTextMessage(params: {
   let typingFrameIndex = 0;
   let draftWorkerActive = false;
   let draftInflight = false;
+  let draftWorkerPromise: Promise<void> | null = null;
+  let draftWorkerController: AbortController | null = null;
 
-  const stopTypingIndicator = (): void => {
+  const waitForDraftInterval = (signal: AbortSignal): Promise<void> =>
+    new Promise<void>((resolve) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, draftMinUpdateMs);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+
+  const stopTypingIndicator = async (): Promise<void> => {
     draftWorkerActive = false;
+    draftWorkerController?.abort();
+    const runningWorker = draftWorkerPromise;
+    if (runningWorker) {
+      await runningWorker;
+    }
   };
 
   const startTypingIndicator = (): void => {
-    if (draftDisabled || !params.sendDraft || draftWorkerActive) return;
+    if (draftDisabled || !params.sendDraft || draftWorkerPromise) return;
     draftWorkerActive = true;
     let consecutiveErrors = 0;
+    const workerController = new AbortController();
+    draftWorkerController = workerController;
 
+    let workerPromise: Promise<void> | null = null;
     const runWorker = async (): Promise<void> => {
-      while (draftWorkerActive && !draftDisabled && params.sendDraft) {
-        // Wait the minimum interval before sending a frame
-        await new Promise<void>((resolve) => setTimeout(resolve, draftMinUpdateMs));
-        if (!draftWorkerActive || draftDisabled || !params.sendDraft) break;
+      try {
+        while (draftWorkerActive && !draftDisabled && params.sendDraft && !workerController.signal.aborted) {
+          await waitForDraftInterval(workerController.signal);
+          if (!draftWorkerActive || draftDisabled || !params.sendDraft || workerController.signal.aborted) break;
 
-        // Skip if another send is in-flight or was sent recently
-        const now = nowMs();
-        if (draftInflight || (lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs)) continue;
+          // Skip if another send is in-flight or was sent recently
+          const now = nowMs();
+          if (draftInflight || (lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs)) continue;
 
-        const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
-        typingFrameIndex += 1;
-        const prefix = draftBuffer.length > 0 ? draftBuffer + "\n" : "";
-        const candidate = prefix + frame;
-        const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? draftBuffer : candidate;
+          const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
+          typingFrameIndex += 1;
+          const prefix = draftBuffer.length > 0 ? draftBuffer + "\n" : "";
+          const candidate = prefix + frame;
+          const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? draftBuffer : candidate;
 
-        draftInflight = true;
-        try {
-          await params.sendDraft(draft);
-          lastDraftText = draft;
-          lastDraftAtMs = nowMs();
-          consecutiveErrors = 0;
-        } catch {
-          consecutiveErrors += 1;
-          if (consecutiveErrors >= 3) {
-            draftWorkerActive = false;
-            return;
+          draftInflight = true;
+          try {
+            await params.sendDraft(draft);
+            lastDraftText = draft;
+            lastDraftAtMs = nowMs();
+            consecutiveErrors = 0;
+          } catch {
+            consecutiveErrors += 1;
+            if (consecutiveErrors >= 3) {
+              draftWorkerActive = false;
+              return;
+            }
+          } finally {
+            draftInflight = false;
           }
-        } finally {
-          draftInflight = false;
+        }
+      } finally {
+        if (draftWorkerPromise === workerPromise) {
+          draftWorkerPromise = null;
+        }
+        if (draftWorkerController === workerController) {
+          draftWorkerController = null;
         }
       }
     };
 
-    void runWorker();
+    workerPromise = runWorker();
+    draftWorkerPromise = workerPromise;
   };
 
   let initialTypingStarted = false;
@@ -517,7 +562,7 @@ export async function dispatchTelegramTextMessage(params: {
   try {
     result = await params.handleMessage(params.message, stream, messageTrace, params.userContent, params.attachmentResolver);
   } finally {
-    stopTypingIndicator();
+    await stopTypingIndicator();
     if (processingTimer !== null) {
       await params.observability?.record({
         event: "telegram.outbound.processing.stopped",
@@ -529,11 +574,16 @@ export async function dispatchTelegramTextMessage(params: {
     }
     stopProcessingIndicator();
   }
+  if (shouldSuppressOutput()) {
+    deferredCommits.length = 0;
+    draftBuffer = "";
+    return { type: "ignore" };
+  }
   await flushDraft(true);
   await commitDraftBuffer(lastAppendType === "tool" ? "system" : "assistant");
 
   const sendExtractedAttachments = async (markerPaths: string[]): Promise<void> => {
-    if (!params.sendAttachment || !params.logger || markerPaths.length === 0) {
+    if (!params.sendAttachment || !params.logger || markerPaths.length === 0 || shouldSuppressOutput()) {
       return;
     }
 
@@ -600,6 +650,9 @@ export async function dispatchTelegramTextMessage(params: {
       break;
   }
   return result;
+  } finally {
+    await params.onSettled?.();
+  }
 }
 
 export function createTelegramBot(params: {
@@ -657,6 +710,7 @@ export function createTelegramBot(params: {
 
     const inboundTrace = createTraceRootContext("telegram");
     void (async () => {
+      let retainedTurn: RetainedTurnHandle | null = null;
       try {
         // Create a lazy attachment resolver instead of downloading eagerly.
         // Attachments are only fetched when routing decides to execute the message.
@@ -719,7 +773,11 @@ export function createTelegramBot(params: {
         await dispatchTelegramTextMessage({
           message: normalized,
           handleMessage: (message, stream, trace, userContent, resolver) =>
-            params.handleMessage(message, stream, inboundTrace, userContent, resolver),
+            params.handleMessage(message, stream, inboundTrace, userContent, resolver, {
+              retain: (handle) => {
+                retainedTurn = handle;
+              }
+            }),
           attachmentResolver,
           sendReply: async (text, meta) => {
             const prepared = prepareTelegramReply({
@@ -802,7 +860,13 @@ export function createTelegramBot(params: {
           sendProcessingAction: async () => {
             await ctx.replyWithChatAction("typing");
           },
-          processingActionRefreshMs: 4000
+          processingActionRefreshMs: 4000,
+          shouldSuppressOutput: () => retainedTurn?.abortSignal.aborted ?? false,
+          onSettled: async () => {
+            const turn = retainedTurn;
+            retainedTurn = null;
+            await turn?.finalize();
+          }
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
