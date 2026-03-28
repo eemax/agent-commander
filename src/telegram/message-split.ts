@@ -188,6 +188,57 @@ export function findDraftSplitPoint(text: string, window: number = 596): number 
   return bestNewline > 0 ? bestNewline : bestSpace > 0 ? bestSpace : -1;
 }
 
+/**
+ * Split a final reply into chunks for sending as permanent Telegram messages.
+ *
+ * Each chunk targets at most `TELEGRAM_MESSAGE_LIMIT - 596` chars (3500) to
+ * leave headroom for HTML formatting expansion.  Break points are chosen
+ * within a 500-char search window (positions 3000–3500) with priority:
+ * `\n\n` > `\n` > space > hard split at 3500.
+ */
+export function splitFinalReply(text: string): string[] {
+  const MAX_CHUNK = TELEGRAM_MESSAGE_LIMIT - 596;          // 3500
+  const MIN_CHUNK = TELEGRAM_MESSAGE_LIMIT - 1096;         // 3000
+
+  if (text.length <= MAX_CHUNK) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > MAX_CHUNK) {
+    const slice = remaining.slice(0, MAX_CHUNK);
+
+    // Search backward from MAX_CHUNK to MIN_CHUNK for a natural break
+    let splitAt = -1;
+    let bestNewline = -1;
+    let bestSpace = -1;
+
+    for (let j = MAX_CHUNK - 1; j >= MIN_CHUNK; j -= 1) {
+      if (slice[j] === "\n" && j > 0 && slice[j - 1] === "\n") {
+        splitAt = j;  // split before the second \n
+        break;
+      }
+      if (slice[j] === "\n" && bestNewline < 0) bestNewline = j;
+      if (slice[j] === " " && bestSpace < 0) bestSpace = j;
+    }
+
+    if (splitAt < 0) splitAt = bestNewline;
+    if (splitAt < 0) splitAt = bestSpace;
+    if (splitAt < 0) splitAt = MAX_CHUNK;
+
+    chunks.push(remaining.slice(0, splitAt));
+    remaining = remaining.slice(splitAt).replace(/^\n/, "");
+  }
+
+  if (remaining.length > 0) {
+    chunks.push(remaining);
+  }
+
+  return chunks;
+}
+
 function findLastIndex<T>(arr: T[], predicate: (item: T) => boolean): number {
   for (let i = arr.length - 1; i >= 0; i -= 1) {
     if (predicate(arr[i])) return i;

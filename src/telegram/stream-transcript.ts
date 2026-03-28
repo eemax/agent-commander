@@ -1,4 +1,4 @@
-import { TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
+import { TELEGRAM_MESSAGE_LIMIT, findDraftSplitPoint } from "./message-split.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,6 +30,7 @@ export class StreamTranscript {
   private entries: TranscriptEntry[] = [];
   private liveDraftText = "";
   private toolExecutionActive = false;
+  private draftPageBreak = 0;
 
   // ---- Mutation ----------------------------------------------------------
 
@@ -100,6 +101,45 @@ export class StreamTranscript {
     return this.entries.some((e) => e.kind === "tool_notice" || e.kind === "system_note");
   }
 
+  /** True when the transcript contains at least one text_block entry. */
+  hasTextContent(): boolean {
+    return this.entries.some((e) => e.kind === "text_block");
+  }
+
+  /**
+   * Build the complete reply text for a "reply" result type.
+   *
+   * Deduplication: when the last entry is a `text_block` whose text
+   * matches `cleanText`, the transcript already contains the final
+   * answer and `cleanText` is not appended.  This is the common case
+   * when streaming is active — the provider's text deltas are captured
+   * as text_blocks and the router returns the same content.
+   *
+   * The check is intentionally strict: only a text_block (not a
+   * tool_notice or system_note) with an exact match triggers dedup.
+   * This prevents suffix collisions where a tool notice happens to
+   * end with the same string as the final answer.
+   */
+  buildFinalReplyText(cleanText: string): string {
+    const fullTranscript = this.renderFullTranscript();
+
+    if (fullTranscript.length === 0) {
+      return cleanText;
+    }
+
+    if (cleanText.length === 0) {
+      return fullTranscript;
+    }
+
+    // Only deduplicate when the last entry is a text_block that matches.
+    const lastEntry = this.entries[this.entries.length - 1];
+    if (lastEntry?.kind === "text_block" && lastEntry.text === cleanText) {
+      return fullTranscript;
+    }
+
+    return fullTranscript + "\n\n" + cleanText;
+  }
+
   /** Return an independent snapshot of the current state. */
   getSnapshot(): TranscriptSnapshot {
     return {
@@ -119,28 +159,39 @@ export class StreamTranscript {
    *   \n\n
    *   <liveDraftText>
    *
-   * If the rendered text exceeds `limit`, a rolling suffix is shown with a
-   * leading `"...\n"` prefix.
+   * Instead of a rolling window that shifts on every render, the draft
+   * uses a stable page-break: content grows until a threshold is reached,
+   * then a single clean page turn hides old content behind a `"...\n"`
+   * prefix, giving a long stable runway before the next turn.
    */
   renderDraft(limit: number = TELEGRAM_MESSAGE_LIMIT): string {
-    const entryTexts = this.entries.map((e) => e.text);
-    const hasEntries = entryTexts.length > 0;
-    const hasLive = this.liveDraftText.length > 0;
+    const full = this.buildDraftFullText();
+    if (full.length === 0) return "";
 
-    if (!hasEntries && !hasLive) return "";
+    const ELLIPSIS = "...\n";
+    const contentLimit = limit - ELLIPSIS.length;
 
-    let full: string;
-    if (hasEntries && hasLive) {
-      full = entryTexts.join("\n") + "\n\n" + this.liveDraftText;
-    } else if (hasEntries) {
-      full = entryTexts.join("\n");
-    } else {
-      full = this.liveDraftText;
+    let visible = full.slice(this.draftPageBreak);
+
+    // Happy path: fits without ellipsis (first page) or with ellipsis
+    if (this.draftPageBreak === 0 && visible.length <= limit) {
+      return visible;
+    }
+    if (this.draftPageBreak > 0 && visible.length <= contentLimit) {
+      return ELLIPSIS + visible;
     }
 
-    if (full.length <= limit) return full;
+    // Visible exceeds limit — advance the page break until it fits.
+    // Each advance finds a natural split point within the last 596 chars.
+    while (visible.length > contentLimit) {
+      const pageSlice = visible.slice(0, contentLimit);
+      const splitIdx = findDraftSplitPoint(pageSlice, 596);
+      const advance = splitIdx > 0 ? splitIdx : contentLimit;
+      this.draftPageBreak += advance;
+      visible = full.slice(this.draftPageBreak);
+    }
 
-    return this.computeRollingWindow(entryTexts, this.liveDraftText, limit);
+    return ELLIPSIS + visible;
   }
 
   /**
@@ -171,54 +222,15 @@ export class StreamTranscript {
 
   // ---- Internals ---------------------------------------------------------
 
-  /**
-   * Build a rolling-window suffix that fits within `budget`, drawn from
-   * `items` (entry texts) and an optional `suffix` (liveDraftText).
-   *
-   * When items must be dropped, the result is prefixed with `"...\n"`.
-   */
-  private computeRollingWindow(
-    items: string[],
-    suffix: string,
-    budget: number
-  ): string {
-    const ELLIPSIS = "...\n";
+  /** Build the full draft text from entries + liveDraftText. */
+  private buildDraftFullText(): string {
+    const entryTexts = this.entries.map((e) => e.text);
+    const hasEntries = entryTexts.length > 0;
+    const hasLive = this.liveDraftText.length > 0;
 
-    // Reserve space for the suffix (with the \n\n separator)
-    const hasSuffix = suffix.length > 0;
-    const suffixCost = hasSuffix ? 2 + suffix.length : 0; // "\n\n" + suffix
-
-    // If suffix alone exceeds the budget, just truncate it
-    if (suffixCost > budget) {
-      return suffix.slice(suffix.length - budget);
-    }
-
-    // Try to fit as many entries as possible from the end
-    const available = budget - suffixCost - ELLIPSIS.length;
-    let accumulated = 0;
-    let startIndex = items.length;
-
-    for (let i = items.length - 1; i >= 0; i--) {
-      const itemCost = items[i].length + (i < items.length - 1 ? 1 : 0); // +1 for \n separator
-      if (accumulated + itemCost > available && startIndex < items.length) break;
-      accumulated += itemCost;
-      startIndex = i;
-    }
-
-    const visibleItems = items.slice(startIndex);
-    const prefix = startIndex > 0 ? ELLIPSIS : "";
-    let entriesText = visibleItems.join("\n");
-
-    // If the entries still exceed the available budget (single oversized entry),
-    // truncate from the front to show the newest suffix.
-    const maxEntriesLen = budget - (prefix.length + suffixCost);
-    if (entriesText.length > maxEntriesLen) {
-      entriesText = entriesText.slice(entriesText.length - Math.max(0, maxEntriesLen));
-    }
-
-    if (hasSuffix) {
-      return prefix + entriesText + "\n\n" + suffix;
-    }
-    return prefix + entriesText;
+    if (!hasEntries && !hasLive) return "";
+    if (hasEntries && hasLive) return entryTexts.join("\n") + "\n\n" + this.liveDraftText;
+    if (hasEntries) return entryTexts.join("\n");
+    return this.liveDraftText;
   }
 }

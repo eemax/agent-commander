@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT, findDraftSplitPoint } from "../src/telegram/message-split.js";
+import { splitTelegramMessage, splitFinalReply, TELEGRAM_MESSAGE_LIMIT, findDraftSplitPoint } from "../src/telegram/message-split.js";
 
 describe("splitTelegramMessage", () => {
   it("returns a single chunk for short text", () => {
@@ -136,5 +136,72 @@ describe("findDraftSplitPoint", () => {
     // Should NOT find the \n\n (outside window), should find the space
     expect(idx).toBeGreaterThan(4);
     expect(text[idx - 1]).toBe(" ");
+  });
+});
+
+describe("splitFinalReply", () => {
+  const MAX_CHUNK = TELEGRAM_MESSAGE_LIMIT - 596; // 3500
+
+  it("returns a single chunk for short text", () => {
+    expect(splitFinalReply("hello")).toEqual(["hello"]);
+  });
+
+  it("returns a single chunk at exactly the limit", () => {
+    const text = "a".repeat(MAX_CHUNK);
+    expect(splitFinalReply(text)).toEqual([text]);
+  });
+
+  it("prefers paragraph break within search window", () => {
+    // Place a \n\n at position 3200 (within 3000-3500 window)
+    const before = "a".repeat(3200);
+    const after = "b".repeat(2000);
+    const text = before + "\n\n" + after;
+
+    const chunks = splitFinalReply(text);
+    expect(chunks.length).toBe(2);
+    expect(chunks[0]).toBe(before + "\n");
+    expect(chunks[1]).toBe(after);
+  });
+
+  it("falls back to newline when no paragraph break in window", () => {
+    // No \n\n in the search window, but a \n at position 3300
+    const before = "a".repeat(3300);
+    const after = "b".repeat(1500);
+    const text = before + "\n" + after;
+
+    const chunks = splitFinalReply(text);
+    expect(chunks.length).toBe(2);
+    expect(chunks[0]).toBe(before);
+    expect(chunks[1]).toBe(after);
+  });
+
+  it("falls back to space when no newlines in window", () => {
+    // No newlines in the window, but a space at position 3400
+    const before = "a".repeat(3400);
+    const after = "b".repeat(1500);
+    const text = before + " " + after;
+
+    const chunks = splitFinalReply(text);
+    expect(chunks.length).toBe(2);
+    expect(chunks[0]).toBe(before);
+    // Note: remaining starts with " b..." → space is part of next chunk
+    expect(chunks[1]).toBe(" " + after);
+  });
+
+  it("hard-splits at MAX_CHUNK when no break found", () => {
+    const text = "a".repeat(5000);
+    const chunks = splitFinalReply(text);
+    expect(chunks.length).toBe(2);
+    expect(chunks[0]).toBe("a".repeat(MAX_CHUNK));
+    expect(chunks[1]).toBe("a".repeat(1500));
+  });
+
+  it("splits into multiple chunks for very long text", () => {
+    const text = "a".repeat(10000);
+    const chunks = splitFinalReply(text);
+    expect(chunks.length).toBe(3);
+    expect(chunks[0]).toBe("a".repeat(MAX_CHUNK));
+    expect(chunks[1]).toBe("a".repeat(MAX_CHUNK));
+    expect(chunks[2]).toBe("a".repeat(10000 - 2 * MAX_CHUNK));
   });
 });

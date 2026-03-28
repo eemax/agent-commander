@@ -144,32 +144,52 @@ describe("StreamTranscript", () => {
     expect(t.renderDraft()).toBe("");
   });
 
-  it("applies rolling window when draft exceeds limit", () => {
+  it("advances page break when draft exceeds limit", () => {
     const t = new StreamTranscript();
     t.appendToolNotice("A".repeat(50));
     t.appendToolNotice("B".repeat(50));
     t.appendToolNotice("C".repeat(50));
-    // limit=60 should drop some entries from the front
+    // Full text = "AAA...AAA\nBBB...BBB\nCCC...CCC" = 152 chars
+    // limit=60 — page advances past the first entries
     const rendered = t.renderDraft(60);
-    expect(rendered.length).toBeLessThanOrEqual(60);
-    expect(rendered).toContain("C".repeat(50));
     expect(rendered.startsWith("...\n")).toBe(true);
+    // After page break, visible portion fits within limit
+    expect(rendered.length).toBeLessThanOrEqual(60);
   });
 
-  it("handles liveDraftText-only overflow by truncating from front", () => {
+  it("page-break gives stable runway after advance", () => {
+    const t = new StreamTranscript();
+    // Stream 100 chars, limit is 60
+    for (let i = 0; i < 100; i++) t.appendTextDelta("x");
+    const first = t.renderDraft(60);
+    expect(first.startsWith("...\n")).toBe(true);
+    expect(first.length).toBeLessThanOrEqual(60);
+
+    // Add a few more chars — should remain stable (no re-shift)
+    for (let i = 0; i < 5; i++) t.appendTextDelta("y");
+    const second = t.renderDraft(60);
+    // Visible grew by 5 chars but still within limit — no new page break
+    expect(second.startsWith("...\n")).toBe(true);
+    expect(second.length).toBeLessThanOrEqual(60);
+    expect(second.endsWith("yyyyy")).toBe(true);
+  });
+
+  it("handles liveDraftText-only overflow with page break", () => {
     const t = new StreamTranscript();
     t.appendTextDelta("x".repeat(100));
     const rendered = t.renderDraft(50);
+    // Page break advances, showing tail with ellipsis prefix
+    expect(rendered.startsWith("...\n")).toBe(true);
     expect(rendered.length).toBeLessThanOrEqual(50);
-    expect(rendered).toBe("x".repeat(50));
   });
 
-  it("caps a single oversized entry to the budget", () => {
+  it("caps a single oversized entry to the budget via page break", () => {
     const t = new StreamTranscript();
     t.appendToolNotice("x".repeat(5000));
     const rendered = t.renderDraft(4096);
     expect(rendered.length).toBeLessThanOrEqual(4096);
-    // Should show the newest suffix (end of the entry)
+    expect(rendered.startsWith("...\n")).toBe(true);
+    // Should show the newest portion of the entry
     expect(rendered.endsWith("x".repeat(100))).toBe(true);
   });
 
@@ -271,5 +291,64 @@ describe("StreamTranscript", () => {
 
     // Final transcript should show only the updated cumulative summary
     expect(t.renderSafeTranscript()).toBe("📖 Read ×1\n✍️ Write ×1");
+  });
+
+  // ---------- hasTextContent ------------------------------------------------
+
+  it("hasTextContent returns false when no text_block entries", () => {
+    const t = new StreamTranscript();
+    t.appendToolNotice("📖 Read: `a.ts`");
+    expect(t.hasTextContent()).toBe(false);
+  });
+
+  it("hasTextContent returns true after text is committed", () => {
+    const t = new StreamTranscript();
+    t.appendTextDelta("hello");
+    t.commitLiveDraft();
+    expect(t.hasTextContent()).toBe(true);
+  });
+
+  // ---------- buildFinalReplyText -------------------------------------------
+
+  it("buildFinalReplyText returns cleanText when transcript is empty", () => {
+    const t = new StreamTranscript();
+    expect(t.buildFinalReplyText("done")).toBe("done");
+  });
+
+  it("buildFinalReplyText deduplicates when transcript ends with cleanText", () => {
+    const t = new StreamTranscript();
+    t.appendToolNotice("📖 Read: `a.ts`");
+    t.appendTextDelta("Final answer");
+    t.commitLiveDraft();
+    // renderFullTranscript = "📖 Read: `a.ts`\nFinal answer"
+    expect(t.buildFinalReplyText("Final answer")).toBe(
+      "📖 Read: `a.ts`\nFinal answer"
+    );
+  });
+
+  it("buildFinalReplyText appends cleanText when transcript does not end with it", () => {
+    const t = new StreamTranscript();
+    t.appendTextDelta("thinking");
+    t.appendToolNotice("📖 Read: `a.ts`");
+    // Transcript ends with tool_notice, not cleanText
+    expect(t.buildFinalReplyText("done")).toBe(
+      "thinking\n📖 Read: `a.ts`\n\ndone"
+    );
+  });
+
+  it("buildFinalReplyText does not suppress reply on tool_notice suffix collision", () => {
+    const t = new StreamTranscript();
+    // Tool notice text that happens to end with the same string as cleanText
+    t.appendToolNotice("Tool log: Final answer");
+    // Must NOT treat this as deduplicated — the tool_notice is not a text_block
+    expect(t.buildFinalReplyText("Final answer")).toBe(
+      "Tool log: Final answer\n\nFinal answer"
+    );
+  });
+
+  it("buildFinalReplyText returns fullTranscript when cleanText is empty", () => {
+    const t = new StreamTranscript();
+    t.appendToolNotice("📖 Read: `a.ts`");
+    expect(t.buildFinalReplyText("")).toBe("📖 Read: `a.ts`");
   });
 });

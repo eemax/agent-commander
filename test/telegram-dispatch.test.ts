@@ -369,15 +369,9 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Combined transcript + divider + "done" exceeds 4096, so split into two messages
-    expect(sendReply).toHaveBeenCalledTimes(2);
-    expect(sendReply.mock.calls[0]?.[0]).toBe(longNotice + "\n" + shortNotice);
-    expect(sendReply.mock.calls[0]?.[1]).toEqual({
-      resultType: "reply",
-      isExtra: true,
-      origin: "system"
-    });
-    expect(sendReply.mock.calls[1]?.[0]).toBe("done");
+    // Single sendOutbound with full text — sendReply handles splitting internally
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(longNotice + "\n" + shortNotice + "\n\ndone");
   });
 
   it("renders tool notice and text together in draft and final reply", async () => {
@@ -407,9 +401,9 @@ describe("dispatchTelegramTextMessage", () => {
       "📖 Read: `foo.ts`\n\nReply ",
       "📖 Read: `foo.ts`\n\nReply text"
     ]);
-    // Full transcript (tool notice + text block) + divider + final text
+    // Transcript ends with "Reply text" which matches cleanText — no duplication
     expect(sendReply).toHaveBeenCalledTimes(1);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`\nReply text\n\nReply text");
+    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read: `foo.ts`\nReply text");
   });
 
   it("uses extraReplies when streaming is disabled (no sendDraft)", async () => {
@@ -632,15 +626,9 @@ describe("dispatchTelegramTextMessage", () => {
 
     // Typing indicator is the first draft
     expect(sendDraft.mock.calls[0]?.[0]).toBe("◐");
-    // Combined transcript + divider + "done" exceeds 4096, so split into transcript extra + final
-    expect(sendReply).toHaveBeenCalledTimes(2);
-    expect(sendReply.mock.calls[0]?.[0]).toBe(hugeNotice);
-    expect(sendReply.mock.calls[0]?.[1]).toEqual({
-      resultType: "reply",
-      isExtra: true,
-      origin: "system"
-    });
-    expect(sendReply.mock.calls[1]?.[0]).toBe("done");
+    // Single sendOutbound with full text — sendReply handles splitting internally
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(hugeNotice + "\n\ndone");
   });
 
   it("supports text -> tools -> text mode switching in single reply", async () => {
@@ -664,9 +652,9 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Full transcript + divider + final text
+    // Transcript ends with "Part 2" which matches cleanText — no duplication
     expect(sendReply).toHaveBeenCalledTimes(1);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("Part 1\n📖 Read: `foo.ts`\nPart 2\n\nPart 2");
+    expect(sendReply.mock.calls[0]?.[0]).toBe("Part 1\n📖 Read: `foo.ts`\nPart 2");
     expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
   });
 
@@ -693,10 +681,10 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Full transcript + divider + final text
+    // Transcript ends with "Here are the results." which matches cleanText — no duplication
     expect(sendReply).toHaveBeenCalledTimes(1);
     expect(sendReply.mock.calls[0]?.[0]).toBe(
-      "🔍 Search\nFound it.\n📖 Read: `result.ts`\nHere are the results.\n\nHere are the results."
+      "🔍 Search\nFound it.\n📖 Read: `result.ts`\nHere are the results."
     );
     expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
   });
@@ -724,9 +712,9 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Full transcript (including text_blocks) + divider + final text
+    // Transcript ends with "Done." which matches cleanText — no duplication
     expect(sendReply).toHaveBeenCalledTimes(1);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("Thinking...\n📖 Read ×1\nDone.\n\nDone.");
+    expect(sendReply.mock.calls[0]?.[0]).toBe("Thinking...\n📖 Read ×1\nDone.");
     expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "system" });
   });
 
@@ -892,10 +880,10 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Full transcript (including banner and final answer text_blocks) + divider + final text
+    // Transcript ends with "Final answer" which matches cleanText — no duplication
     expect(sendReply).toHaveBeenCalledTimes(1);
     expect(sendReply.mock.calls[0]?.[0]).toBe(
-      `${bannerText}\n📖 Read: \`foo.ts\`\nFinal answer\n\nFinal answer`
+      `${bannerText}\n📖 Read: \`foo.ts\`\nFinal answer`
     );
     expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "reply", isExtra: false, origin: "assistant" });
   });
@@ -1056,7 +1044,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendProcessingAction).toHaveBeenCalled();
   });
 
-  it("uses rolling window for draft when text exceeds 4096 limit", async () => {
+  it("uses page-break for draft when text exceeds 4096 limit", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -1080,14 +1068,16 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // All drafts stay within 4096 chars (rolling window applied when needed)
+    // All drafts stay within 4096 chars (page-break applied when needed)
     const draftTexts = sendDraft.mock.calls.map((c: [string]) => c[0]);
     for (const dt of draftTexts) {
       expect(dt.length).toBeLessThanOrEqual(4096);
     }
 
-    // Final reply is the full text (no deferred commits, no mid-stream splits)
-    expect(sendReply).toHaveBeenCalledWith(fullText, {
+    // Single sendOutbound with full text — sendReply handles formatting and splitting
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe(fullText);
+    expect(sendReply.mock.calls[0]?.[1]).toEqual({
       resultType: "reply",
       isExtra: false,
       origin: "assistant"
@@ -1127,7 +1117,7 @@ describe("dispatchTelegramTextMessage", () => {
     }
   });
 
-  it("draft uses rolling window for long text without creating permanent messages", async () => {
+  it("draft uses page-break for long text, final reply delegates to sendReply", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -1147,13 +1137,13 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Draft should be capped at 4096 via rolling window
+    // Draft should be capped at 4096 via page-break
     const draftTexts = sendDraft.mock.calls.map((c: [string]) => c[0]);
     for (const dt of draftTexts) {
       expect(dt.length).toBeLessThanOrEqual(4096);
     }
 
-    // No permanent mid-stream messages — only the final reply
+    // Single sendOutbound with full text — sendReply handles formatting and splitting
     expect(sendReply).toHaveBeenCalledTimes(1);
     expect(sendReply.mock.calls[0]?.[0]).toBe(longText);
   });

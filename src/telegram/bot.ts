@@ -537,19 +537,8 @@ export async function dispatchTelegramTextMessage(params: {
       for (const extra of extras) {
         await sendOutbound(extra, result.type, true, origin);
       }
-      const hasTranscript = transcript.hasTranscriptContent();
-      const transcriptText = hasTranscript ? transcript.renderFullTranscript() : "";
-      if (hasTranscript && transcriptText.length > 0) {
-        const combined = transcriptText + "\n\n" + cleanText;
-        if (combined.length <= TELEGRAM_MESSAGE_LIMIT) {
-          await sendOutbound(combined, result.type, false, origin, result.inlineKeyboard);
-        } else {
-          await sendOutbound(transcriptText, result.type, true, "system");
-          await sendOutbound(cleanText, result.type, false, origin, result.inlineKeyboard);
-        }
-      } else {
-        await sendOutbound(cleanText, result.type, false, origin, result.inlineKeyboard);
-      }
+      const finalText = transcript.buildFinalReplyText(cleanText);
+      await sendOutbound(finalText, result.type, false, origin, result.inlineKeyboard);
       await sendExtractedAttachments(markers);
       break;
     }
