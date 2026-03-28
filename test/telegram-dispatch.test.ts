@@ -751,6 +751,35 @@ describe("dispatchTelegramTextMessage", () => {
     );
   });
 
+  it("re-shows count-mode draft after a reset hides the previous summary", async () => {
+    const VERBOSE_REPLACE_PREFIX = "\x00REPLACE\x00";
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onToolCallNotice?.(VERBOSE_REPLACE_PREFIX + "x".repeat(100));
+        clock = 120;
+        await stream?.onToolCallNotice?.(VERBOSE_REPLACE_PREFIX + "📖 Read ×2");
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      draftBubbleMaxChars: 60,
+      nowMs: () => clock
+    });
+
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
+      "◐",
+      "📖 Read ×2"
+    ]);
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read ×2\n\ndone");
+  });
+
   it("sends only fallback text without transcript on failure", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});

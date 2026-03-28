@@ -1,4 +1,4 @@
-import { TELEGRAM_MESSAGE_LIMIT, findDraftSplitPoint } from "./message-split.js";
+import { TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,7 +30,9 @@ export class StreamTranscript {
   private entries: TranscriptEntry[] = [];
   private liveDraftText = "";
   private toolExecutionActive = false;
-  private draftPageBreak = 0;
+  private draftPageStart = 0;   // entries before this index are hidden
+  private draftLiveStart = 0;   // liveDraftText chars before this are hidden
+  private draftPinnedEntryIndex: number | null = null; // hidden replaced tool_notice shown on current page
 
   // ---- Mutation ----------------------------------------------------------
 
@@ -58,6 +60,9 @@ export class StreamTranscript {
       for (let i = this.entries.length - 1; i >= 0; i--) {
         if (this.entries[i].kind === "tool_notice") {
           this.entries[i].text = notice;
+          if (i < this.draftPageStart) {
+            this.draftPinnedEntryIndex = i;
+          }
           return;
         }
       }
@@ -90,8 +95,14 @@ export class StreamTranscript {
   commitLiveDraft(): void {
     const trimmed = this.liveDraftText.trim();
     if (trimmed.length === 0) return;
+    const hadHiddenLive = this.draftLiveStart > 0;
     this.entries.push({ kind: "text_block", text: trimmed });
     this.liveDraftText = "";
+    this.draftLiveStart = 0;
+    if (hadHiddenLive) {
+      this.draftPageStart = this.entries.length;
+      this.draftPinnedEntryIndex = null;
+    }
   }
 
   // ---- Queries -----------------------------------------------------------
@@ -154,44 +165,36 @@ export class StreamTranscript {
   /**
    * Render the draft bubble content.
    *
-   * Layout:
-   *   <committed entries joined by \n>
-   *   \n\n
-   *   <liveDraftText>
-   *
-   * Instead of a rolling window that shifts on every render, the draft
-   * uses a stable page-break: content grows until a threshold is reached,
-   * then a single clean page turn hides old content behind a `"...\n"`
-   * prefix, giving a long stable runway before the next turn.
+   * The bubble grows until it exceeds `limit` chars, then resets
+   * completely — all current content is hidden and the next render
+   * starts from 0.  This prevents the Telegram UI from scrolling;
+   * instead the bubble fills the screen and clears.
    */
   renderDraft(limit: number = TELEGRAM_MESSAGE_LIMIT): string {
-    const full = this.buildDraftFullText();
-    if (full.length === 0) return "";
+    const pinnedEntry = this.draftPinnedEntryIndex !== null && this.draftPinnedEntryIndex < this.draftPageStart
+      ? this.entries[this.draftPinnedEntryIndex]?.text ?? null
+      : null;
+    const visEntries = this.entries.slice(this.draftPageStart).map((e) => e.text);
+    const visLive = this.liveDraftText.slice(this.draftLiveStart);
+    const draftEntries = pinnedEntry ? [pinnedEntry, ...visEntries] : visEntries;
 
-    const ELLIPSIS = "...\n";
-    const contentLimit = limit - ELLIPSIS.length;
+    const hasEntries = draftEntries.length > 0;
+    const hasLive = visLive.length > 0;
 
-    let visible = full.slice(this.draftPageBreak);
+    let visible: string;
+    if (!hasEntries && !hasLive) return "";
+    else if (hasEntries && hasLive) visible = draftEntries.join("\n") + "\n\n" + visLive;
+    else if (hasEntries) visible = draftEntries.join("\n");
+    else visible = visLive;
 
-    // Happy path: fits without ellipsis (first page) or with ellipsis
-    if (this.draftPageBreak === 0 && visible.length <= limit) {
-      return visible;
-    }
-    if (this.draftPageBreak > 0 && visible.length <= contentLimit) {
-      return ELLIPSIS + visible;
-    }
-
-    // Visible exceeds limit — advance the page break until it fits.
-    // Each advance finds a natural split point within the last 596 chars.
-    while (visible.length > contentLimit) {
-      const pageSlice = visible.slice(0, contentLimit);
-      const splitIdx = findDraftSplitPoint(pageSlice, 596);
-      const advance = splitIdx > 0 ? splitIdx : contentLimit;
-      this.draftPageBreak += advance;
-      visible = full.slice(this.draftPageBreak);
+    if (visible.length > limit) {
+      this.draftPageStart = this.entries.length;
+      this.draftLiveStart = this.liveDraftText.length;
+      this.draftPinnedEntryIndex = null;
+      return "";
     }
 
-    return ELLIPSIS + visible;
+    return visible;
   }
 
   /**
@@ -220,17 +223,4 @@ export class StreamTranscript {
     return lines.join("\n");
   }
 
-  // ---- Internals ---------------------------------------------------------
-
-  /** Build the full draft text from entries + liveDraftText. */
-  private buildDraftFullText(): string {
-    const entryTexts = this.entries.map((e) => e.text);
-    const hasEntries = entryTexts.length > 0;
-    const hasLive = this.liveDraftText.length > 0;
-
-    if (!hasEntries && !hasLive) return "";
-    if (hasEntries && hasLive) return entryTexts.join("\n") + "\n\n" + this.liveDraftText;
-    if (hasEntries) return entryTexts.join("\n");
-    return this.liveDraftText;
-  }
 }

@@ -163,6 +163,7 @@ export async function dispatchTelegramTextMessage(params: {
   sendAttachment?: (attachment: OutboundAttachment) => Promise<void>;
   logger?: RuntimeLogger;
   draftMinUpdateMs?: number;
+  draftBubbleMaxChars?: number;
   onDraftFailure?: (error: unknown) => void | Promise<void>;
   nowMs?: () => number;
   trace?: TraceContext;
@@ -178,6 +179,7 @@ export async function dispatchTelegramTextMessage(params: {
   const messageTrace = params.trace ?? createTraceRootContext("telegram");
   const nowMs = params.nowMs ?? Date.now;
   const draftMinUpdateMs = Math.max(1, params.draftMinUpdateMs ?? 100);
+  const draftBubbleMaxChars = params.draftBubbleMaxChars ?? 750;
   const shouldSuppressOutput = (): boolean => params.shouldSuppressOutput?.() === true;
   const transcript = new StreamTranscript();
   let lastRenderedDraft = "";
@@ -273,7 +275,7 @@ export async function dispatchTelegramTextMessage(params: {
       return;
     }
 
-    const rendered = transcript.renderDraft(TELEGRAM_MESSAGE_LIMIT);
+    const rendered = transcript.renderDraft(draftBubbleMaxChars);
     if (rendered.trim().length === 0 || rendered === lastRenderedDraft) {
       return;
     }
@@ -437,7 +439,7 @@ export async function dispatchTelegramTextMessage(params: {
 
           const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
           typingFrameIndex += 1;
-          const rendered = transcript.renderDraft(TELEGRAM_MESSAGE_LIMIT - frame.length - 1);
+          const rendered = transcript.renderDraft(draftBubbleMaxChars - frame.length - 1);
           const prefix = rendered.length > 0 ? rendered + "\n" : "";
           const candidate = prefix + frame;
           const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? rendered : candidate;
@@ -579,6 +581,7 @@ export function createTelegramBot(params: {
   token: string;
   streamingEnabled: boolean;
   streamingMinUpdateMs: number;
+  draftBubbleMaxChars: number;
   assistantFormat: TelegramAssistantFormat;
   maxFileSizeBytes: number;
   fileDownloadTimeoutMs: number;
@@ -764,6 +767,7 @@ export function createTelegramBot(params: {
           },
           logger: params.logger,
           draftMinUpdateMs: params.streamingMinUpdateMs,
+          draftBubbleMaxChars: params.draftBubbleMaxChars,
           onDraftFailure: (error) => {
             const message = error instanceof Error ? error.message : String(error);
             params.logger.warn(

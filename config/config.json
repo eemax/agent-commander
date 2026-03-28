@@ -1,12 +1,13 @@
 {
   "telegram": {
     "streaming_enabled": true,
-    "streaming_min_update_ms": 1500,
+    "streaming_min_update_ms": 1250,
+    "draft_bubble_max_chars": 750,
     "assistant_format": "markdown_to_html",
     "max_file_size_mb": 10,
     "file_download_timeout_ms": 30000,
     "max_concurrent_downloads": 4,
-    "acknowledged_emoji": "👍"
+    "acknowledged_emoji": "👀"
   },
   "openai": {
     "auth_mode": "codex",

@@ -209,6 +209,7 @@ async function bootstrapAgentRuntime(
     token: config.telegram.botToken,
     streamingEnabled: config.telegram.streamingEnabled,
     streamingMinUpdateMs: config.telegram.streamingMinUpdateMs,
+    draftBubbleMaxChars: config.telegram.draftBubbleMaxChars,
     assistantFormat: config.telegram.assistantFormat,
     maxFileSizeBytes: config.telegram.maxFileSizeBytes,
     fileDownloadTimeoutMs: config.telegram.fileDownloadTimeoutMs,

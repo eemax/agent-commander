@@ -46,6 +46,7 @@ export type Config = {
     botToken: string;
     streamingEnabled: boolean;
     streamingMinUpdateMs: number;
+    draftBubbleMaxChars: number;
     assistantFormat: TelegramAssistantFormat;
     maxFileSizeBytes: number;
     fileDownloadTimeoutMs: number;

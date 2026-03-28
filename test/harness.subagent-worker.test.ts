@@ -47,6 +47,7 @@ function makeConfig(): Config {
       botToken: "test",
       streamingEnabled: false,
       streamingMinUpdateMs: 0,
+      draftBubbleMaxChars: 750,
       assistantFormat: "plain_text",
       maxFileSizeBytes: 10 * 1024 * 1024,
       fileDownloadTimeoutMs: 30_000,

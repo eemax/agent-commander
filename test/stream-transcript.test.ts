@@ -144,53 +144,76 @@ describe("StreamTranscript", () => {
     expect(t.renderDraft()).toBe("");
   });
 
-  it("advances page break when draft exceeds limit", () => {
+  it("resets to empty when draft exceeds limit", () => {
     const t = new StreamTranscript();
     t.appendToolNotice("A".repeat(50));
     t.appendToolNotice("B".repeat(50));
     t.appendToolNotice("C".repeat(50));
     // Full text = "AAA...AAA\nBBB...BBB\nCCC...CCC" = 152 chars
-    // limit=60 — page advances past the first entries
+    // limit=60 — exceeds, so bubble resets to empty
     const rendered = t.renderDraft(60);
-    expect(rendered.startsWith("...\n")).toBe(true);
-    // After page break, visible portion fits within limit
-    expect(rendered.length).toBeLessThanOrEqual(60);
+    expect(rendered).toBe("");
   });
 
-  it("page-break gives stable runway after advance", () => {
+  it("shows new content from 0 after reset", () => {
     const t = new StreamTranscript();
-    // Stream 100 chars, limit is 60
+    // Stream 100 chars, limit is 60 — triggers reset
     for (let i = 0; i < 100; i++) t.appendTextDelta("x");
-    const first = t.renderDraft(60);
-    expect(first.startsWith("...\n")).toBe(true);
-    expect(first.length).toBeLessThanOrEqual(60);
+    expect(t.renderDraft(60)).toBe("");
 
-    // Add a few more chars — should remain stable (no re-shift)
+    // New deltas after reset appear from 0
     for (let i = 0; i < 5; i++) t.appendTextDelta("y");
     const second = t.renderDraft(60);
-    // Visible grew by 5 chars but still within limit — no new page break
-    expect(second.startsWith("...\n")).toBe(true);
+    expect(second).toBe("yyyyy");
     expect(second.length).toBeLessThanOrEqual(60);
-    expect(second.endsWith("yyyyy")).toBe(true);
   });
 
-  it("handles liveDraftText-only overflow with page break", () => {
+  it("resets again when new content exceeds limit", () => {
     const t = new StreamTranscript();
     t.appendTextDelta("x".repeat(100));
-    const rendered = t.renderDraft(50);
-    // Page break advances, showing tail with ellipsis prefix
-    expect(rendered.startsWith("...\n")).toBe(true);
-    expect(rendered.length).toBeLessThanOrEqual(50);
+    expect(t.renderDraft(50)).toBe("");
+
+    // Fill up to limit again
+    t.appendTextDelta("y".repeat(60));
+    expect(t.renderDraft(50)).toBe("");
+
+    // New content after second reset
+    t.appendTextDelta("z".repeat(10));
+    expect(t.renderDraft(50)).toBe("z".repeat(10));
   });
 
-  it("caps a single oversized entry to the budget via page break", () => {
+  it("resets on oversized single entry", () => {
     const t = new StreamTranscript();
     t.appendToolNotice("x".repeat(5000));
-    const rendered = t.renderDraft(4096);
-    expect(rendered.length).toBeLessThanOrEqual(4096);
-    expect(rendered.startsWith("...\n")).toBe(true);
-    // Should show the newest portion of the entry
-    expect(rendered.endsWith("x".repeat(100))).toBe(true);
+    expect(t.renderDraft(4096)).toBe("");
+  });
+
+  it("does not leak old text after commitLiveDraft", () => {
+    const t = new StreamTranscript();
+    // Stream past limit → reset
+    t.appendTextDelta("x".repeat(100));
+    expect(t.renderDraft(60)).toBe("");
+
+    // Stream a bit more, then a tool notice triggers commitLiveDraft
+    t.appendTextDelta("y".repeat(10));
+    expect(t.renderDraft(60)).toBe("y".repeat(10));
+
+    // Tool notice commits the live draft and adds itself
+    t.appendToolNotice("🔧 Tool");
+    const rendered = t.renderDraft(60);
+    // Only the new tool notice should be visible — no old x's or y's
+    expect(rendered).toBe("🔧 Tool");
+  });
+
+  it("shows a hidden count-mode replacement after reset", () => {
+    const t = new StreamTranscript();
+    t.appendToolNotice("x".repeat(100));
+    expect(t.renderDraft(60)).toBe("");
+
+    t.appendToolNotice("📖 Read ×2", { replace: true });
+
+    expect(t.renderDraft(60)).toBe("📖 Read ×2");
+    expect(t.buildFinalReplyText("done")).toBe("📖 Read ×2\n\ndone");
   });
 
   // ---------- renderSafeTranscript ----------------------------------------

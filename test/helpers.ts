@@ -28,6 +28,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       botToken: "telegram-token",
       streamingEnabled: true,
       streamingMinUpdateMs: 100,
+      draftBubbleMaxChars: 750,
       assistantFormat: "plain_text",
       maxFileSizeBytes: 10 * 1024 * 1024,
       fileDownloadTimeoutMs: 30_000,
