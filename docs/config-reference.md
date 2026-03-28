@@ -24,7 +24,7 @@ This is the canonical `config/config.json` shape.
 ### `telegram`
 
 - `streaming_enabled`: boolean, default `true`
-- `streaming_min_update_ms`: positive integer, default `100`
+- `streaming_min_update_ms`: positive integer, default `1000`
 - `assistant_format`: `"plain_text" | "markdown_to_html"`, default `"plain_text"`
 - `max_file_size_mb`: positive float, default `10` — attachment size limit
 - `file_download_timeout_ms`: positive integer, default `30000` — timeout for Telegram file downloads

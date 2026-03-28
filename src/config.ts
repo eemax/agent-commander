@@ -17,7 +17,7 @@ const DEFAULT_PERPLEXITY_API_KEY_KEY = "DEFAULT_PERPLEXITY_API_KEY";
 const DEFAULT_CONFIG_TEMPLATE = {
   telegram: {
     streaming_enabled: true,
-    streaming_min_update_ms: 100,
+    streaming_min_update_ms: 1000,
     draft_bubble_max_chars: 750,
     assistant_format: "plain_text",
     max_file_size_mb: 10,

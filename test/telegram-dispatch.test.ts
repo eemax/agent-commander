@@ -139,23 +139,23 @@ describe("dispatchTelegramTextMessage", () => {
     });
   });
 
-  it("sends fallback messages", async () => {
+  it("sends fallback messages with provided origin", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
 
     await dispatchTelegramTextMessage({
       message: baseMessage,
-      handleMessage: async () => ({ type: "fallback", text: "fallback" }),
+      handleMessage: async () => ({ type: "fallback", text: "fallback", origin: "assistant" }),
       sendReply
     });
 
     expect(sendReply).toHaveBeenCalledWith("fallback", {
       resultType: "fallback",
       isExtra: false,
-      origin: "system"
+      origin: "assistant"
     });
   });
 
-  it("sends extra replies before final reply (non-streaming fallback)", async () => {
+  it("sends extra replies before final reply (non-streaming reply)", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
 
     await dispatchTelegramTextMessage({
@@ -780,7 +780,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply.mock.calls[0]?.[0]).toBe("📖 Read ×2\n\ndone");
   });
 
-  it("sends only fallback text without transcript on failure", async () => {
+  it("includes transcript in fallback final reply on failure", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -800,9 +800,10 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // No transcript leaked on fallback — only the fallback message
     expect(sendReply).toHaveBeenCalledTimes(1);
-    expect(sendReply.mock.calls[0]?.[0]).toBe("Provider error. Please try again.");
+    expect(sendReply.mock.calls[0]?.[0]).toBe(
+      "Draft answer\n📖 Read: `foo.ts`\n\nProvider error. Please try again."
+    );
     expect(sendReply.mock.calls[0]?.[1]).toEqual({ resultType: "fallback", isExtra: false, origin: "system" });
   });
 
@@ -1113,37 +1114,27 @@ describe("dispatchTelegramTextMessage", () => {
     });
   });
 
-  it("does not include assistant text in fallback or ignore final replies", async () => {
-    for (const resultType of ["fallback", "ignore"] as const) {
-      const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
-      const sendDraft = vi.fn(async (_text: string) => {});
-      let clock = 0;
+  it("does not include assistant text in ignore final replies", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
 
-      const bigChunk = "a".repeat(3600);
+    const bigChunk = "a".repeat(3600);
 
-      await dispatchTelegramTextMessage({
-        message: baseMessage,
-        handleMessage: async (_message, stream) => {
-          await stream?.onTextDelta?.(bigChunk);
-          clock = 200;
-          if (resultType === "fallback") {
-            return { type: "fallback", text: "Something went wrong" };
-          }
-          return { type: "ignore" };
-        },
-        sendReply,
-        sendDraft,
-        draftMinUpdateMs: 100,
-        nowMs: () => clock
-      });
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onTextDelta?.(bigChunk);
+        clock = 200;
+        return { type: "ignore" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
 
-      // Text-only transcript is excluded from final replies
-      const sentTexts = sendReply.mock.calls.map((c: unknown[]) => c[0]);
-      expect(sentTexts).not.toContain(bigChunk);
-      if (resultType === "fallback") {
-        expect(sentTexts).toContain("Something went wrong");
-      }
-    }
+    expect(sendReply).not.toHaveBeenCalled();
   });
 
   it("draft uses page-break for long text, final reply delegates to sendReply", async () => {

@@ -99,7 +99,7 @@ describe("loadConfig", () => {
 
     const config = loadConfigWithRequiredDefaults(root);
     expect(config.telegram.streamingEnabled).toBe(true);
-    expect(config.telegram.streamingMinUpdateMs).toBe(100);
+    expect(config.telegram.streamingMinUpdateMs).toBe(1000);
     expect(config.telegram.assistantFormat).toBe("plain_text");
     expect(config.openai.model).toBe("gpt-5.4-mini");
     expect(config.openai.models.map((item) => item.id)).toContain("gpt-5.4-mini");

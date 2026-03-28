@@ -52,7 +52,7 @@ export async function dispatchTelegramTextMessage(params: {
 }): Promise<MessageRouteResult> {
   const messageTrace = params.trace ?? createTraceRootContext("telegram");
   const nowMs = params.nowMs ?? Date.now;
-  const draftMinUpdateMs = Math.max(1, params.draftMinUpdateMs ?? 100);
+  const draftMinUpdateMs = Math.max(1, params.draftMinUpdateMs ?? 1000);
   const draftBubbleMaxChars = params.draftBubbleMaxChars ?? 750;
   const shouldSuppressOutput = (): boolean => params.shouldSuppressOutput?.() === true;
   const transcript = new StreamTranscript();
@@ -412,7 +412,8 @@ export async function dispatchTelegramTextMessage(params: {
     };
 
     switch (result.type) {
-      case "reply": {
+      case "reply":
+      case "fallback": {
         const extras = result.extraReplies?.filter((item) => item.trim().length > 0) ?? [];
         const origin = result.origin ?? "system";
         const { cleanText, markers } = extractAttachMarkers(result.text);
@@ -421,16 +422,6 @@ export async function dispatchTelegramTextMessage(params: {
         }
         const finalText = transcript.buildFinalReplyText(cleanText);
         await sendOutbound(finalText, result.type, false, origin, result.inlineKeyboard);
-        await sendExtractedAttachments(markers);
-        break;
-      }
-      case "fallback": {
-        const extras = result.extraReplies?.filter((item) => item.trim().length > 0) ?? [];
-        const { cleanText, markers } = extractAttachMarkers(result.text);
-        for (const extra of extras) {
-          await sendOutbound(extra, result.type, true, "system");
-        }
-        await sendOutbound(cleanText, result.type, false, "system", result.inlineKeyboard);
         await sendExtractedAttachments(markers);
         break;
       }

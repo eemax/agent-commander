@@ -209,7 +209,7 @@ Common optional fields:
 - `openai.default_transport` (`http|wss`, default `http`)
 - `runtime.default_verbose` (default `"full"`, applied to new conversations)
 - `telegram.streaming_enabled` (default `true`)
-- `telegram.streaming_min_update_ms` (default `100`)
+- `telegram.streaming_min_update_ms` (default `1000`)
 - `telegram.assistant_format` (`plain_text` by default, `markdown_to_html` to enable Markdown->HTML formatting for final assistant replies)
 - `telegram.acknowledged_emoji` (default `"off"`, set to an emoji like `"👍"` to react to messages when OpenAI accepts the request)
 - `observability.enabled` (default `false`)

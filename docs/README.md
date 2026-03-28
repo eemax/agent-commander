@@ -14,12 +14,7 @@
 |----------|---------------|
 | [../AGENTS.md](../AGENTS.md) | AI agent bootstrap — constraints, file map, key patterns |
 | [architecture.md](architecture.md) | System design, component layout, message flow, persistence model |
+| [telegram/architecture.md](telegram/architecture.md) | Telegram transport deep dive — polling, routing handoff, streaming drafts, callbacks, queueing |
+| [telegram/draft-streaming-and-final-reply.md](telegram/draft-streaming-and-final-reply.md) | Deep dive on the Telegram draft bubble and permanent final reply contract, edge cases, and future vision |
 | [tools.md](tools.md) | Tool harness reference — every tool's schema, parameters, and behavior |
 | [subagents.md](subagents.md) | Subagent system — inheritance, system message, lifecycle, observability |
-| [contributing.md](contributing.md) | Coding standards, scope guardrails, testing expectations |
-
-## For maintainers
-
-| Document | What it covers |
-|----------|---------------|
-| [status.md](status.md) | Non-obvious gotchas, external constraints, operational notes |

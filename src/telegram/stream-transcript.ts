@@ -118,7 +118,7 @@ export class StreamTranscript {
   }
 
   /**
-   * Build the complete reply text for a "reply" result type.
+   * Build the complete reply text for a final `reply` or `fallback` result.
    *
    * Deduplication: when the last entry is a `text_block` whose text
    * matches `cleanText`, the transcript already contains the final
@@ -199,7 +199,7 @@ export class StreamTranscript {
 
   /**
    * Render the full transcript timeline — all entry kinds included.
-   * Used for the success path where the complete assistant timeline
+   * Used for final reply assembly where the complete assistant timeline
    * (tool activity + draft text fragments) should be preserved.
    *
    * Returns `""` when there are no entries.
@@ -207,20 +207,6 @@ export class StreamTranscript {
   renderFullTranscript(): string {
     if (this.entries.length === 0) return "";
     return this.entries.map((e) => e.text).join("\n");
-  }
-
-  /**
-   * Render a safe transcript — only tool_notice and system_note entries.
-   * text_block entries are excluded to prevent leaking partial assistant
-   * text on fallback/failure paths.
-   *
-   * Returns `""` when there is no transcript content.
-   */
-  renderSafeTranscript(): string {
-    const lines = this.entries
-      .filter((e) => e.kind === "tool_notice" || e.kind === "system_note")
-      .map((e) => e.text);
-    return lines.join("\n");
   }
 
 }

@@ -75,10 +75,11 @@ npm test             # vitest run
 | [docs/](docs/README.md) | Everyone | Documentation index |
 | [docs/architecture.md](docs/architecture.md) | Developers | System design and message flow |
 | [docs/config-reference.md](docs/config-reference.md) | Everyone | Full config/config.json schema |
+| [docs/telegram/architecture.md](docs/telegram/architecture.md) | Developers | Telegram transport deep dive and reply flow |
+| [docs/telegram/draft-streaming-and-final-reply.md](docs/telegram/draft-streaming-and-final-reply.md) | Developers | Draft bubble and final reply behavior details |
 | [docs/tools.md](docs/tools.md) | Developers | Tool harness reference |
 | [docs/user-guide.md](docs/user-guide.md) | Users | Setup, commands, observability, troubleshooting |
-| [docs/contributing.md](docs/contributing.md) | Contributors | Coding standards and scope guardrails |
-| [docs/status.md](docs/status.md) | Maintainers | Non-obvious gotchas, external constraints, operational notes |
+
 ## License
 
 MIT

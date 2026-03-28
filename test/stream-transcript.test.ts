@@ -216,26 +216,6 @@ describe("StreamTranscript", () => {
     expect(t.buildFinalReplyText("done")).toBe("📖 Read ×2\n\ndone");
   });
 
-  // ---------- renderSafeTranscript ----------------------------------------
-
-  it("includes only tool_notice and system_note entries", () => {
-    const t = new StreamTranscript();
-    t.appendTextDelta("draft text");
-    t.appendToolNotice("📖 Read: `a.ts`");
-    t.appendTextDelta("more text");
-    t.appendSystemNote("🎯 Steer");
-    t.appendTextDelta("final draft");
-    t.commitLiveDraft();
-    expect(t.renderSafeTranscript()).toBe("📖 Read: `a.ts`\n🎯 Steer");
-  });
-
-  it("returns empty string when no tool/system entries", () => {
-    const t = new StreamTranscript();
-    t.appendTextDelta("just text");
-    t.commitLiveDraft();
-    expect(t.renderSafeTranscript()).toBe("");
-  });
-
   // ---------- renderFullTranscript -----------------------------------------
 
   it("includes all entry kinds in full transcript", () => {
@@ -285,7 +265,9 @@ describe("StreamTranscript", () => {
       { kind: "text_block", text: "Here are the results." }
     ]);
 
-    expect(t.renderSafeTranscript()).toBe("🔍 Search\n📖 Read: `result.ts`");
+    expect(t.renderFullTranscript()).toBe(
+      "🔍 Search\nFound it.\n📖 Read: `result.ts`\nHere are the results."
+    );
   });
 
   it("count-mode replace sequence produces single entry", () => {
@@ -312,8 +294,7 @@ describe("StreamTranscript", () => {
       { kind: "text_block", text: "thinking..." }
     ]);
 
-    // Final transcript should show only the updated cumulative summary
-    expect(t.renderSafeTranscript()).toBe("📖 Read ×1\n✍️ Write ×1");
+    expect(t.renderFullTranscript()).toBe("📖 Read ×1\n✍️ Write ×1\nthinking...");
   });
 
   // ---------- hasTextContent ------------------------------------------------

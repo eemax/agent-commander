@@ -215,6 +215,7 @@ export type MessageRouteResult =
       type: "fallback";
       text: string;
       extraReplies?: string[];
+      origin?: "assistant" | "system";
       inlineKeyboard?: TelegramInlineKeyboard;
     }
   | {
