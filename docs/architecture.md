@@ -103,9 +103,9 @@ Agent Commander is intentionally small:
 ### Telegram
 
 - `src/telegram/commands.ts`
-  Typed command registry + parsing (`/start`, `/new`, `/new from`, `/stash`, `/status` with optional `full` flag, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`, `/search`, `/transport`, `/auth`, `/steer`, dynamic skill commands).
+  Typed command registry + parsing (`/start`, `/new`, `/new from`, `/stash`, `/status` with optional `full` flag, `/cwd`, `/stop`, `/bash`, `/thinking`, `/cache`, `/model`, `/models`, `/search`, `/transport`, `/auth`, `/steer`, dynamic skill commands).
 - `src/telegram/bot.ts`
-  Telegram wiring, command registration sync (`setMyCommands`), text message + callback query dispatch (including inline keyboards and extra verbose replies), and safe error replies.
+  Telegram wiring, command registration sync (`setMyCommands`), text message + callback query dispatch (including inline keyboards and extra replies), and safe error replies.
 - `src/telegram/text-dispatch.ts`
   Telegram reply UX coordinator for streaming drafts, reactions, transcript-backed final assembly, outbound ordering, and stale-turn suppression.
 - `src/telegram/stream-transcript.ts`
@@ -124,7 +124,7 @@ Agent Commander is intentionally small:
 3. Bot syncs command catalog at startup and on workspace catalog changes.
 4. Router checks sender allowlist (`config/agents.json` → `telegram_allowlist` for the active agent).
 5. Router handles command or normal turn:
-- Core command (`/new`, `/new from`, `/stash`, `/status`, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`, `/search`, `/transport`, `/auth`, `/steer`) handled directly.
+- Core command (`/new`, `/new from`, `/stash`, `/status`, `/cwd`, `/stop`, `/bash`, `/thinking`, `/cache`, `/model`, `/models`, `/search`, `/transport`, `/auth`, `/steer`) handled directly.
 - Conversation-menu callbacks are validated and handled via single-use menu tokens.
 - Skill command (`/<skill_slug>`) triggers one-shot skill invocation.
 - Normal text uses an atomic append+prompt-context read from conversation store and requests provider reply.
@@ -145,7 +145,7 @@ Agent Commander is intentionally small:
 
 - JSON object mapping `chatId -> current conversation record`.
 - Each record contains `conversationId`, optional `alias`, and a conversation runtime profile.
-- Runtime profile fields: `workingDirectory`, `verboseMode`, `thinkingEffort`, `cacheRetention`, `transportMode`, `authMode`, `activeModelOverride`, `activeWebSearchModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, `lastProviderFailure`.
+- Runtime profile fields: `workingDirectory`, `thinkingEffort`, `cacheRetention`, `transportMode`, `authMode`, `activeModelOverride`, `activeWebSearchModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, `lastProviderFailure`.
 - Default filenames are `.agent-commander/stashed-conversations.json` and `.agent-commander/active-conversations.json`.
 - No automatic migration is performed from the previous filename layout.
 

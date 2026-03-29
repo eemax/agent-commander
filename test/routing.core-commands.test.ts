@@ -63,7 +63,6 @@ function makeConversations(): StateStore {
       runtime: makeSwitchRuntime()
     }),
     getWorkingDirectory: vi.fn().mockResolvedValue("/tmp"),
-    getVerboseMode: vi.fn().mockResolvedValue("full"),
     getThinkingEffort: vi.fn().mockResolvedValue("medium"),
     getCacheRetention: vi.fn().mockResolvedValue("in_memory"),
     getTransportMode: vi.fn().mockResolvedValue("http"),
@@ -74,7 +73,6 @@ function makeConversations(): StateStore {
     getToolResultStats: vi.fn().mockResolvedValue({ successCount: 0, failureCount: 0 }),
     getCompactionCount: vi.fn().mockResolvedValue(0),
     getLastProviderFailure: vi.fn().mockResolvedValue(null),
-    setVerboseMode: vi.fn().mockResolvedValue(undefined),
     setThinkingEffort: vi.fn().mockResolvedValue(undefined),
     setCacheRetention: vi.fn().mockResolvedValue(undefined),
     setTransportMode: vi.fn().mockResolvedValue(undefined),
@@ -205,22 +203,6 @@ describe("core-commands – handleCommand", () => {
     assertHasText(result);
     expect(result.type).toBe("reply");
     expect(result.text).toContain("gpt-5.4-mini");
-  });
-
-  it("/verbose sets mode", async () => {
-    const conversations = makeConversations();
-    const handler = createHandler({ conversations });
-    const result = await handler.handleCommand("verbose", "count", makeMessage());
-    assertHasText(result);
-    expect(result.text).toContain("count");
-    expect(conversations.setVerboseMode).toHaveBeenCalledWith("chat-1", "count", expect.anything());
-  });
-
-  it("/verbose without valid arg shows usage", async () => {
-    const handler = createHandler();
-    const result = await handler.handleCommand("verbose", "", makeMessage());
-    assertHasText(result);
-    expect(result.text).toContain("Usage");
   });
 
   it("/thinking sets effort", async () => {

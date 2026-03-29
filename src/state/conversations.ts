@@ -15,10 +15,9 @@ import {
   type ThinkingEffort,
   type CacheRetention,
   type TransportMode,
-  type AuthMode,
-  type VerboseMode
+  type AuthMode
 } from "../types.js";
-import { isPlainObject, normalizeNonEmptyString, isThinkingEffort, isCacheRetention, isTransportMode, isAuthMode, isVerboseMode } from "../utils.js";
+import { isPlainObject, normalizeNonEmptyString, isThinkingEffort, isCacheRetention, isTransportMode, isAuthMode } from "../utils.js";
 import {
   type ConversationArchiveEvent,
   type ConversationCreatedEvent,
@@ -31,7 +30,6 @@ import {
 
 type ConversationRuntimeProfile = {
   workingDirectory: string;
-  verboseMode: VerboseMode;
   thinkingEffort: ThinkingEffort;
   cacheRetention: CacheRetention;
   transportMode: TransportMode;
@@ -72,7 +70,6 @@ type ConversationStoreParams = {
   stashedConversationsPath: string;
   activeConversationsPath?: string;
   defaultWorkingDirectory?: string;
-  defaultVerboseMode?: VerboseMode;
   defaultThinkingEffort?: ThinkingEffort;
   defaultCacheRetention?: CacheRetention;
   defaultAuthMode?: AuthMode;
@@ -230,7 +227,6 @@ function cloneProviderFailureSummary(value: ProviderFailureSummary): ProviderFai
 
 function createDefaultRuntimeProfile(params: {
   defaultWorkingDirectory: string;
-  defaultVerboseMode: VerboseMode;
   defaultThinkingEffort: ThinkingEffort;
   defaultCacheRetention: CacheRetention;
   defaultAuthMode: AuthMode;
@@ -238,7 +234,6 @@ function createDefaultRuntimeProfile(params: {
 }): ConversationRuntimeProfile {
   return {
     workingDirectory: params.defaultWorkingDirectory,
-    verboseMode: params.defaultVerboseMode,
     thinkingEffort: params.defaultThinkingEffort,
     cacheRetention: params.defaultCacheRetention,
     transportMode: params.defaultTransportMode,
@@ -255,7 +250,6 @@ function createDefaultRuntimeProfile(params: {
 function cloneRuntimeProfile(profile: ConversationRuntimeProfile): ConversationRuntimeProfile {
   return {
     workingDirectory: profile.workingDirectory,
-    verboseMode: profile.verboseMode,
     thinkingEffort: profile.thinkingEffort,
     cacheRetention: profile.cacheRetention,
     transportMode: profile.transportMode,
@@ -273,7 +267,6 @@ function normalizeRuntimeProfile(
   value: unknown,
   defaults: {
     defaultWorkingDirectory: string;
-    defaultVerboseMode: VerboseMode;
     defaultThinkingEffort: ThinkingEffort;
     defaultCacheRetention: CacheRetention;
     defaultAuthMode: AuthMode;
@@ -298,11 +291,6 @@ function normalizeRuntimeProfile(
 
   return {
     workingDirectory: normalizeNonEmptyString(value.workingDirectory) ?? defaults.defaultWorkingDirectory,
-    verboseMode: isVerboseMode(value.verboseMode)
-      ? value.verboseMode
-      : value.verboseMode === true ? "full"
-      : value.verboseMode === false ? "off"
-      : defaults.defaultVerboseMode,
     thinkingEffort: isThinkingEffort(value.thinkingEffort) ? value.thinkingEffort : defaults.defaultThinkingEffort,
     cacheRetention: isCacheRetention(value.cacheRetention) ? value.cacheRetention : defaults.defaultCacheRetention,
     transportMode: isTransportMode(value.transportMode) ? value.transportMode : defaults.defaultTransportMode,
@@ -322,7 +310,6 @@ function parseCurrentConversationsIndex(
   raw: string,
   defaults: {
     defaultWorkingDirectory: string;
-    defaultVerboseMode: VerboseMode;
     defaultThinkingEffort: ThinkingEffort;
     defaultCacheRetention: CacheRetention;
     defaultAuthMode: AuthMode;
@@ -366,7 +353,6 @@ function parseActiveConversationsIndex(
   raw: string,
   defaults: {
     defaultWorkingDirectory: string;
-    defaultVerboseMode: VerboseMode;
     defaultThinkingEffort: ThinkingEffort;
     defaultCacheRetention: CacheRetention;
     defaultAuthMode: AuthMode;
@@ -468,7 +454,6 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     path.join(path.dirname(params.stashedConversationsPath), "active-conversations.json");
   const defaults = {
     defaultWorkingDirectory: params.defaultWorkingDirectory ?? process.cwd(),
-    defaultVerboseMode: params.defaultVerboseMode ?? "full",
     defaultThinkingEffort: params.defaultThinkingEffort ?? "medium",
     defaultCacheRetention: params.defaultCacheRetention ?? "in_memory",
     defaultAuthMode: params.defaultAuthMode ?? "api",
@@ -801,7 +786,6 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       if (!record) return null;
       const rt = record.runtime;
       return {
-        verboseMode: rt.verboseMode,
         thinkingEffort: rt.thinkingEffort,
         cacheRetention: rt.cacheRetention,
         transportMode: rt.transportMode,
@@ -849,13 +833,6 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       });
     },
 
-    async getVerboseMode(chatId): Promise<VerboseMode> {
-      return enqueueMutation(async () => {
-        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
-        return ensured.record.runtime.verboseMode;
-      });
-    },
-
     async getThinkingEffort(chatId): Promise<ThinkingEffort> {
       return enqueueMutation(async () => {
         const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
@@ -867,37 +844,6 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       return enqueueMutation(async () => {
         const ensured = await ensureCurrentConversationRecord(chatId, "auto_start");
         return ensured.record.runtime.cacheRetention;
-      });
-    },
-
-    async setVerboseMode(chatId, mode, options): Promise<void> {
-      await enqueueMutation(async () => {
-        const ensured = await ensureCurrentConversationRecord(chatId, "auto_start", options?.trace);
-        if (ensured.record.runtime.verboseMode === mode) {
-          return;
-        }
-
-        const nextCurrent = {
-          ...ensured.index,
-          [chatId]: {
-            ...ensured.record,
-            runtime: {
-              ...ensured.record.runtime,
-              verboseMode: mode
-            }
-          }
-        };
-
-        await saveCurrentConversations(nextCurrent);
-        await params.observability?.record({
-          event: "runtime.setting.updated",
-          trace: options?.trace ? createChildTraceContext(options.trace, "state") : createTraceRootContext("state"),
-          stage: "completed",
-          chatId,
-          conversationId: ensured.record.conversationId,
-          setting: "verboseMode",
-          value: mode
-        });
       });
     },
 

@@ -132,14 +132,12 @@ describe("conversation store", () => {
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
       stashedConversationsPath: path.join(root, "active.json"),
-      defaultVerboseMode: "full",
       defaultThinkingEffort: "medium"
     });
 
     const chatId = "chat-1";
     const conversationA = await store.ensureActiveConversation(chatId);
 
-    await store.setVerboseMode(chatId, "off");
     await store.setWorkingDirectory(chatId, "/tmp/project-focus");
     await store.setThinkingEffort(chatId, "high");
     await store.setCacheRetention(chatId, "24h");
@@ -157,7 +155,6 @@ describe("conversation store", () => {
     expect(stashResult.stashedAlias).toBe("focus");
 
     expect(await store.getWorkingDirectory(chatId)).toBe(process.cwd());
-    expect(await store.getVerboseMode(chatId)).toBe("full");
     expect(await store.getThinkingEffort(chatId)).toBe("medium");
     expect(await store.getCacheRetention(chatId)).toBe("in_memory");
     expect(await store.getActiveModelOverride(chatId)).toBeNull();
@@ -173,7 +170,6 @@ describe("conversation store", () => {
 
     expect(await store.getActiveConversation(chatId)).toBe(conversationA);
     expect(await store.getWorkingDirectory(chatId)).toBe("/tmp/project-focus");
-    expect(await store.getVerboseMode(chatId)).toBe("off");
     expect(await store.getThinkingEffort(chatId)).toBe("high");
     expect(await store.getCacheRetention(chatId)).toBe("24h");
     expect(await store.getActiveModelOverride(chatId)).toBe("gpt-5.3-codex");
@@ -336,7 +332,6 @@ describe("conversation store", () => {
     const chatId = "chat-1";
     const conversationA = await firstStore.ensureActiveConversation(chatId);
     await firstStore.setWorkingDirectory(chatId, "/tmp/project-alpha");
-    await firstStore.setVerboseMode(chatId, "off");
     await firstStore.setCacheRetention(chatId, "24h");
 
     await firstStore.completeStashSelection(chatId, "alpha", { type: "new" }, "manual_stash");
@@ -353,7 +348,6 @@ describe("conversation store", () => {
 
     await secondStore.completeNewSelection(chatId, { type: "stash", conversationId: conversationA }, "manual_new");
     expect(await secondStore.getWorkingDirectory(chatId)).toBe("/tmp/project-alpha");
-    expect(await secondStore.getVerboseMode(chatId)).toBe("off");
     expect(await secondStore.getCacheRetention(chatId)).toBe("24h");
   });
 
@@ -423,7 +417,6 @@ describe("conversation store", () => {
       path.join(root, "runtime-settings.json"),
       JSON.stringify(
         {
-          verboseMode: "off",
           thinkingEffort: "high"
         },
         null,
@@ -436,13 +429,11 @@ describe("conversation store", () => {
       conversationsDir,
       stashedConversationsPath,
       activeConversationsPath,
-      defaultVerboseMode: "full",
       defaultThinkingEffort: "medium"
     });
 
     const conversationId = await store.ensureActiveConversation("chat-1");
     expect(conversationId).not.toBe("conv_legacy");
-    expect(await store.getVerboseMode("chat-1")).toBe("full");
     expect(await store.getThinkingEffort("chat-1")).toBe("medium");
   });
 
@@ -454,7 +445,6 @@ describe("conversation store", () => {
     const oldCurrentPath = path.join(root, ".agent-commander", "current-conversations.json");
 
     const runtime = {
-      verboseMode: "off",
       thinkingEffort: "high",
       activeModelOverride: "gpt-5.3-codex",
       latestUsage: {
@@ -512,7 +502,6 @@ describe("conversation store", () => {
       conversationsDir,
       stashedConversationsPath: newStashedPath,
       activeConversationsPath: newCurrentPath,
-      defaultVerboseMode: "full",
       defaultThinkingEffort: "medium"
     });
 
@@ -520,7 +509,6 @@ describe("conversation store", () => {
     expect(conversationId).not.toBe("conv_old_stash");
     expect(conversationId).not.toBe("conv_old_current");
     expect(await store.listStashedConversations("chat-1")).toEqual([]);
-    expect(await store.getVerboseMode("chat-1")).toBe("full");
     expect(await store.getThinkingEffort("chat-1")).toBe("medium");
   });
 
@@ -538,7 +526,6 @@ describe("conversation store", () => {
             conversationId: "conv_existing",
             alias: "existing",
             runtime: {
-              verboseMode: "off",
               thinkingEffort: "high",
               activeModelOverride: null,
               latestUsage: null,
@@ -563,7 +550,6 @@ describe("conversation store", () => {
     });
 
     expect(await store.ensureActiveConversation("chat-1")).toBe("conv_existing");
-    expect(await store.getVerboseMode("chat-1")).toBe("off");
     expect(await store.getThinkingEffort("chat-1")).toBe("high");
   });
 
@@ -573,13 +559,11 @@ describe("conversation store", () => {
       conversationsDir: path.join(root, "conversations"),
       stashedConversationsPath: path.join(root, "active.json"),
       defaultWorkingDirectory: "/tmp/default-cwd",
-      defaultVerboseMode: "off",
       defaultThinkingEffort: "xhigh"
     });
 
     await store.ensureActiveConversation("chat-1");
     expect(await store.getWorkingDirectory("chat-1")).toBe("/tmp/default-cwd");
-    expect(await store.getVerboseMode("chat-1")).toBe("off");
     expect(await store.getThinkingEffort("chat-1")).toBe("xhigh");
     expect(await store.getCacheRetention("chat-1")).toBe("in_memory");
   });
@@ -626,74 +610,6 @@ describe("conversation store", () => {
       })
     );
     expect((messageEntry as { payload: { content?: string } }).payload.content).toBe("hello observability");
-  });
-
-  it("normalizes legacy boolean verboseMode from persisted data", async () => {
-    const root = createTempDir("acmd-conv-verbose-compat-");
-    const conversationsDir = path.join(root, "conversations");
-    const stashedConversationsPath = path.join(root, "stashed.json");
-    const activeConversationsPath = path.join(root, "active.json");
-
-    // Write a current-conversations index with boolean verboseMode values
-    await fs.promises.mkdir(path.dirname(activeConversationsPath), { recursive: true });
-    fs.writeFileSync(
-      activeConversationsPath,
-      JSON.stringify(
-        {
-          "chat-bool-true": {
-            conversationId: "conv_true",
-            alias: null,
-            runtime: {
-              verboseMode: true,
-              thinkingEffort: "medium"
-            }
-          },
-          "chat-bool-false": {
-            conversationId: "conv_false",
-            alias: null,
-            runtime: {
-              verboseMode: false,
-              thinkingEffort: "medium"
-            }
-          },
-          "chat-string-count": {
-            conversationId: "conv_count",
-            alias: null,
-            runtime: {
-              verboseMode: "count",
-              thinkingEffort: "medium"
-            }
-          },
-          "chat-garbage": {
-            conversationId: "conv_garbage",
-            alias: null,
-            runtime: {
-              verboseMode: "garbage",
-              thinkingEffort: "medium"
-            }
-          }
-        },
-        null,
-        2
-      ),
-      "utf8"
-    );
-
-    const store = createConversationStore({
-      conversationsDir,
-      stashedConversationsPath,
-      activeConversationsPath,
-      defaultVerboseMode: "full"
-    });
-
-    // true → "full"
-    expect(await store.getVerboseMode("chat-bool-true")).toBe("full");
-    // false → "off"
-    expect(await store.getVerboseMode("chat-bool-false")).toBe("off");
-    // "count" → "count" (valid string passes through)
-    expect(await store.getVerboseMode("chat-string-count")).toBe("count");
-    // "garbage" → default ("full")
-    expect(await store.getVerboseMode("chat-garbage")).toBe("full");
   });
 
   it("skips malformed JSONL lines instead of failing to load", async () => {

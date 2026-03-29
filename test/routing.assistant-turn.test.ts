@@ -30,14 +30,12 @@ function makeConversations(): StateStore {
   return {
     ensureActiveConversation: vi.fn().mockResolvedValue("conv-1"),
     getConversationRuntimeProfile: vi.fn().mockResolvedValue({
-      verboseMode: "off",
       thinkingEffort: "medium",
       cacheRetention: "in_memory",
       transportMode: "http",
       authMode: "api",
       activeModelOverride: null
     }),
-    getVerboseMode: vi.fn().mockResolvedValue("off"),
     getThinkingEffort: vi.fn().mockResolvedValue("medium"),
     getCacheRetention: vi.fn().mockResolvedValue("in_memory"),
     getTransportMode: vi.fn().mockResolvedValue("http"),

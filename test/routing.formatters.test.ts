@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallReport } from "../src/types.js";
 import type { CountAccumulatorEntry } from "../src/routing/formatters.js";
-import { buildStatusReply, extractCountUpdate, formatCountModeBuffer, VERBOSE_REPLACE_PREFIX } from "../src/routing/formatters.js";
+import { buildStatusReply, extractCountUpdate, formatCountModeBuffer } from "../src/routing/formatters.js";
 
 const baseParams = {
   conversationId: "conv_1",
@@ -11,7 +11,6 @@ const baseParams = {
   workspaceRoot: "/tmp/workspace",
   skillsCount: 2,
   fullObservabilityEnabled: false,
-  verboseMode: "off" as const,
   thinkingEffort: "medium" as const,
   cwd: "/tmp/workspace",
   sessions: [],
@@ -73,7 +72,6 @@ describe("buildStatusReply", () => {
   it("shows budget context summary and cache details when usage is available", () => {
     const text = buildStatusReply({
       ...baseParams,
-      verboseMode: "full" as const,
       thinkingEffort: "high",
       latestUsage: {
         inputTokens: 8_700,
@@ -92,7 +90,6 @@ describe("buildStatusReply", () => {
     expect(text).toContain("🗄️Cache: 8.3k hit (95%)");
     expect(text).toContain("🧠gpt-5.3-codex · t: high · api:http");
     expect(text).toContain("📁`/tmp/workspace`");
-    expect(text).not.toContain("verbose: on");
     expect(text).not.toContain("observability: off");
     expect(text).not.toContain("conversation:");
   });
@@ -178,7 +175,6 @@ describe("buildStatusReply", () => {
     });
 
     expect(text).toContain("conversation: conv...nv_1");
-    expect(text).toContain("verbose: off");
     expect(text).toContain("observability: off");
     expect(text).toContain("provider.last_failure_kind: none");
     expect(text).toContain("provider.last_failure_status: none");
@@ -513,18 +509,5 @@ describe("formatCountModeBuffer", () => {
     ]);
     const output = formatCountModeBuffer(entries);
     expect(output).toContain("2.5m chars");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// VERBOSE_REPLACE_PREFIX
-// ---------------------------------------------------------------------------
-
-describe("VERBOSE_REPLACE_PREFIX", () => {
-  it("is a non-empty string that can be detected with startsWith", () => {
-    expect(VERBOSE_REPLACE_PREFIX.length).toBeGreaterThan(0);
-    const prefixed = VERBOSE_REPLACE_PREFIX + "📖 Read ×1";
-    expect(prefixed.startsWith(VERBOSE_REPLACE_PREFIX)).toBe(true);
-    expect(prefixed.slice(VERBOSE_REPLACE_PREFIX.length)).toBe("📖 Read ×1");
   });
 });

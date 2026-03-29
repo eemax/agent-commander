@@ -13,12 +13,18 @@ import {
   formatVerboseToolCallNotice,
   extractCountUpdate,
   formatCountModeBuffer,
-  VERBOSE_REPLACE_PREFIX,
   type CountAccumulatorEntry
 } from "./formatters.js";
 import { buildProviderFallbackText } from "./provider-fallback.js";
 import type { SteerChannel } from "../steer-channel.js";
-import type { MessageRouteResult, NormalizedTelegramMessage, Provider, ContentPart } from "../types.js";
+import type {
+  MessageRouteResult,
+  NormalizedTelegramMessage,
+  Provider,
+  ContentPart,
+  ToolCallNoticeEvent
+} from "../types.js";
+import { StreamTranscript } from "../telegram/stream-transcript.js";
 
 export type AssistantTurnHandlerInput = {
   message: NormalizedTelegramMessage;
@@ -28,7 +34,7 @@ export type AssistantTurnHandlerInput = {
   steerChannel?: SteerChannel;
   interruptedPreviousTurn?: boolean;
   onTextDelta?: (delta: string) => void | Promise<void>;
-  onToolCallNotice?: (notice: string) => void | Promise<void>;
+  onToolCallNotice?: (notice: ToolCallNoticeEvent) => void | Promise<void>;
   onLifecycleEvent?: (event: import("../types.js").ProviderLifecycleEvent) => void | Promise<void>;
 };
 
@@ -75,23 +81,51 @@ export function createAssistantTurnHandler(params: {
     if (!runtimeProfile) {
       throw new Error(`BUG: conversation runtime profile missing after ensureActiveConversation for chat=${input.message.chatId}`);
     }
-    const { verboseMode, thinkingEffort, cacheRetention, transportMode, authMode, activeModelOverride } = runtimeProfile;
+    const { thinkingEffort, cacheRetention, transportMode, authMode, activeModelOverride } = runtimeProfile;
     const activeModel = resolveActiveModel({
       models: config.openai.models,
       defaultModelId: config.openai.model,
       overrideModelId: activeModelOverride
     });
-    const verboseReplies: string[] = [];
+    const transcript = new StreamTranscript();
+    const hasExternalTranscriptSink = Boolean(input.onTextDelta || input.onToolCallNotice);
     const toolCallAccumulator = new Map<string, CountAccumulatorEntry>();
-    let countModeBufferIndex = -1;
     const turnStats = { toolResults: [] as Array<{ tool: string; success: boolean }>, compactionIncrements: 0 };
+
+    const emitTextDelta = async (delta: string): Promise<void> => {
+      transcript.appendTextDelta(delta);
+      await input.onTextDelta?.(delta);
+    };
+
+    const emitToolNotice = async (notice: ToolCallNoticeEvent): Promise<void> => {
+      switch (notice.kind) {
+        case "activity":
+          transcript.setToolExecutionActive(true);
+          break;
+        case "summary":
+          transcript.setToolSummary(notice.text);
+          transcript.setToolExecutionActive(false);
+          break;
+        case "latest_success":
+          transcript.setLatestSuccessfulToolNotice(notice.text);
+          transcript.setToolExecutionActive(false);
+          break;
+        case "persistent":
+          if (notice.text.startsWith("🎯 Steer:")) {
+            transcript.appendSystemNote(notice.text);
+          } else {
+            transcript.appendToolNotice(notice.text);
+          }
+          transcript.setToolExecutionActive(false);
+          break;
+      }
+
+      await input.onToolCallNotice?.(notice);
+    };
 
     if (input.interruptedPreviousTurn) {
       const note = "Interrupted previous in-progress run and handling your latest message.";
-      if (!input.onTextDelta) {
-        verboseReplies.push(`⚠️ ${note}`);
-      }
-      await input.onTextDelta?.(`${note}\n`);
+      await emitTextDelta(`${note}\n`);
     }
 
     const promptContext = await conversations.appendUserMessageAndGetPromptContext({
@@ -141,57 +175,44 @@ export function createAssistantTurnHandler(params: {
         abortSignal: input.abortSignal,
         steerChannel: input.steerChannel,
         trace: createChildTraceContext(input.trace, "provider"),
-        onTextDelta: input.onTextDelta,
+        onTextDelta: emitTextDelta,
         onLifecycleEvent: input.onLifecycleEvent,
         onToolCall: async (event) => {
           turnStats.toolResults.push({ tool: event.tool, success: event.success });
-          if (verboseMode === "full") {
-            const notice = formatVerboseToolCallNotice(event);
-            if (input.onToolCallNotice) {
-              await input.onToolCallNotice(notice);
-            } else {
-              verboseReplies.push(notice);
-            }
-          } else if (verboseMode === "count") {
-            const update = extractCountUpdate(event);
-            const existing = toolCallAccumulator.get(update.key);
-            if (existing) {
-              existing.count += 1;
-              existing.chars += update.chars;
-              if (!update.success) existing.failed += 1;
-            } else {
-              toolCallAccumulator.set(update.key, {
-                emoji: update.emoji,
-                label: update.label,
-                count: 1,
-                failed: update.success ? 0 : 1,
-                chars: update.chars,
-                trackChars: update.trackChars
-              });
-            }
-            const buffer = formatCountModeBuffer(toolCallAccumulator);
-            if (input.onToolCallNotice) {
-              await input.onToolCallNotice(VERBOSE_REPLACE_PREFIX + buffer);
-            } else {
-              if (countModeBufferIndex >= 0) {
-                verboseReplies[countModeBufferIndex] = buffer;
-              } else {
-                countModeBufferIndex = verboseReplies.length;
-                verboseReplies.push(buffer);
-              }
-            }
+          const notice = formatVerboseToolCallNotice(event);
+          const update = extractCountUpdate(event);
+          const existing = toolCallAccumulator.get(update.key);
+          if (existing) {
+            existing.count += 1;
+            existing.chars += update.chars;
+            if (!update.success) existing.failed += 1;
+          } else {
+            toolCallAccumulator.set(update.key, {
+              emoji: update.emoji,
+              label: update.label,
+              count: 1,
+              failed: update.success ? 0 : 1,
+              chars: update.chars,
+              trackChars: update.trackChars
+            });
+          }
+
+          const buffer = formatCountModeBuffer(toolCallAccumulator);
+          if (buffer.length > 0) {
+            await emitToolNotice({ kind: "summary", text: buffer });
+          }
+
+          if (event.success) {
+            await emitToolNotice({ kind: "latest_success", text: notice });
+          } else {
+            await emitToolNotice({ kind: "persistent", text: notice });
           }
         },
         onToolProgress: async (event) => {
-          if (event.type === "steer" && verboseMode !== "off") {
-            const notice = formatSteerNotice(event.message);
-            if (input.onToolCallNotice) {
-              await input.onToolCallNotice(notice);
-            } else {
-              verboseReplies.push(notice);
-            }
-          } else if (event.type === "tool" && input.onToolCallNotice) {
-            await input.onToolCallNotice("");
+          if (event.type === "steer") {
+            await emitToolNotice({ kind: "persistent", text: formatSteerNotice(event.message) });
+          } else if (event.type === "tool") {
+            await emitToolNotice({ kind: "activity" });
           }
         },
         onUsage: (usage) => conversations.setLatestUsageSnapshot(input.message.chatId, usage),
@@ -220,9 +241,8 @@ export function createAssistantTurnHandler(params: {
       );
       return {
         type: "reply",
-        text: reply,
-        origin: "assistant",
-        ...(verboseReplies.length > 0 ? { extraReplies: [...verboseReplies] } : {})
+        text: hasExternalTranscriptSink ? reply : transcript.buildFinalReplyText(reply),
+        origin: "assistant"
       };
     } catch (error) {
       if (error instanceof ToolWorkflowAbortError && error.payload.errorCode === "WORKFLOW_INTERRUPTED") {
@@ -261,14 +281,14 @@ export function createAssistantTurnHandler(params: {
       logger.warn(
         `routing: provider failure chat=${input.message.chatId} conversation=${conversationId} message=${input.message.messageId} kind=${error.kind} status=${error.statusCode ?? "none"} attempts=${error.attempts} retryable=${error.retryable} reason="${reason}" openai_type=${sanitizeLogToken(detail?.openaiErrorType)} openai_code=${sanitizeLogToken(detail?.openaiErrorCode)} openai_param=${sanitizeLogToken(detail?.openaiErrorParam)} request_id=${sanitizeLogToken(detail?.requestId)}`
       );
+      const fallbackText = buildProviderFallbackText({
+        kind: error.kind,
+        detail: error.detail,
+        includeDetail: true
+      });
       return {
         type: "fallback",
-        text: buildProviderFallbackText({
-          kind: error.kind,
-          detail: error.detail,
-          includeDetail: verboseMode !== "off"
-        }),
-        ...(verboseReplies.length > 0 ? { extraReplies: [...verboseReplies] } : {})
+        text: hasExternalTranscriptSink ? fallbackText : transcript.buildFinalReplyText(fallbackText)
       };
     }
     } finally {

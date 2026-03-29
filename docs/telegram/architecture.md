@@ -380,7 +380,7 @@ The typing action is refreshed on an interval until the provider call settles.
 
 It serves two outputs:
 
-1. a compact draft bubble that shows chronological tool/system status plus a short preview of the current text phase, and can reset explicitly when it gets too large
+1. a compact draft bubble that shows chronological tool/system status plus a whole-turn assistant character counter, and can reset explicitly when it gets too large
 2. a final reply that can include the already-streamed text without duplication
 
 Conceptually:
@@ -432,8 +432,10 @@ On the text-message dispatch path, `reply` and `fallback` share the same final-t
 Important current behavior:
 
 - the draft bubble is a compact status surface, not a verbatim stream of the full assistant text buffer
-- tool/system notices stay chronological in the draft, while assistant text is reduced to a short preview of the current text phase
-- `telegram.draft_preview_max_sentences` and `telegram.draft_preview_max_chars` tune that assistant preview, while `telegram.draft_bubble_max_chars` remains the outer reset cap for the whole bubble
+- successful-tool activity contributes both a cumulative summary and the latest successful tool call in full inside the draft bubble
+- assistant text in the draft bubble is reduced to a whole-turn character counter that updates on throttled ticks
+- raw non-empty string tool notices are normalized conservatively as persistent transcript entries; draft-only latest-success behavior requires an explicit structured event
+- `telegram.draft_bubble_max_chars` remains the outer reset cap for the whole bubble
 - draft resets are now a safety valve for unusually long tool/status runs; when reset happens, the overflowing content seeds the next page instead of being dropped
 - formatting happens before chunking, so the splitter sees the final rendered text
 - the Markdown renderer preserves visible blank lines between block-level elements

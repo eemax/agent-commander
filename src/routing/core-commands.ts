@@ -384,7 +384,6 @@ export function createCoreCommandHandler(params: {
           const conversationId = await conversations.ensureActiveConversation(message.chatId);
           const [
             conversationCwd,
-            verboseMode,
             thinkingEffort,
             cacheRetention,
             transportMode,
@@ -397,7 +396,6 @@ export function createCoreCommandHandler(params: {
             lastProviderFailure
           ] = await Promise.all([
             conversations.getWorkingDirectory(message.chatId),
-            conversations.getVerboseMode(message.chatId),
             conversations.getThinkingEffort(message.chatId),
             conversations.getCacheRetention(message.chatId),
             conversations.getTransportMode(message.chatId),
@@ -444,7 +442,6 @@ export function createCoreCommandHandler(params: {
               workspaceRoot: config.paths.workspaceRoot,
               skillsCount: snapshot.skills.length,
               fullObservabilityEnabled: config.observability.enabled,
-              verboseMode,
               thinkingEffort,
               cwd: conversationCwd,
               latestUsage,
@@ -574,20 +571,6 @@ export function createCoreCommandHandler(params: {
           return {
             type: "reply",
             text: parts.join("\n\n")
-          };
-        }
-        case "verbose": {
-          const state = args.trim().toLowerCase();
-
-          if (state === "full" || state === "count" || state === "off") {
-            await conversations.setVerboseMode(message.chatId, state, { trace });
-            return { type: "reply", text: `verbose mode: ${state}` };
-          }
-
-          const current = await conversations.getVerboseMode(message.chatId);
-          return {
-            type: "reply",
-            text: [`Usage: /verbose <full|count|off>`, `verbose mode: ${current}`].join("\n")
           };
         }
         case "thinking": {

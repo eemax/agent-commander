@@ -8,7 +8,6 @@ import type {
   CacheRetention,
   TransportMode,
   AuthMode,
-  VerboseMode,
   SkillDefinition,
   WorkspaceSnapshot
 } from "../types.js";
@@ -47,8 +46,6 @@ export type Config = {
     streamingEnabled: boolean;
     streamingMinUpdateMs: number;
     draftBubbleMaxChars: number;
-    draftPreviewMaxSentences: number;
-    draftPreviewMaxChars: number;
     assistantFormat: TelegramAssistantFormat;
     maxFileSizeBytes: number;
     fileDownloadTimeoutMs: number;
@@ -70,7 +67,6 @@ export type Config = {
   runtime: {
     logLevel: LogLevel;
     promptHistoryLimit: number | null;
-    defaultVerbose: VerboseMode;
     toolLoopMaxSteps: number | null;
     toolWorkflowTimeoutMs: number | null;
     toolCommandTimeoutMs: number | null;
@@ -176,7 +172,6 @@ export type StateStore = {
   ensureActiveConversation(chatId: string): Promise<string>;
   getActiveConversation(chatId: string): Promise<string | null>;
   getConversationRuntimeProfile(chatId: string): Promise<{
-    verboseMode: VerboseMode;
     thinkingEffort: ThinkingEffort;
     cacheRetention: CacheRetention;
     transportMode: TransportMode;
@@ -185,8 +180,6 @@ export type StateStore = {
   } | null>;
   getWorkingDirectory(chatId: string): Promise<string>;
   setWorkingDirectory(chatId: string, cwd: string, options?: { trace?: TraceContext }): Promise<void>;
-  getVerboseMode(chatId: string): Promise<VerboseMode>;
-  setVerboseMode(chatId: string, mode: VerboseMode, options?: { trace?: TraceContext }): Promise<void>;
   getThinkingEffort(chatId: string): Promise<ThinkingEffort>;
   setThinkingEffort(chatId: string, effort: ThinkingEffort, options?: { trace?: TraceContext }): Promise<void>;
   getCacheRetention(chatId: string): Promise<CacheRetention>;

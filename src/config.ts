@@ -6,7 +6,7 @@ import type { EnvSecrets } from "./env.js";
 import type { Config, LogLevel, TelegramAssistantFormat } from "./runtime/contracts.js";
 import type { WebSearchModelCatalogEntry } from "./web-search-catalog.js";
 import { DEFAULT_OBSERVABILITY_REDACTION } from "./observability.js";
-import { THINKING_EFFORT_VALUES, CACHE_RETENTION_VALUES, VERBOSE_MODE_VALUES, type ThinkingEffort, type CacheRetention, type TransportMode } from "./types.js";
+import { THINKING_EFFORT_VALUES, CACHE_RETENTION_VALUES, type ThinkingEffort, type CacheRetention, type TransportMode } from "./types.js";
 
 const LOG_LEVEL_VALUES = ["debug", "info", "warn", "error"] as const;
 const TELEGRAM_ASSISTANT_FORMAT_VALUES = ["plain_text", "markdown_to_html"] as const;
@@ -19,8 +19,6 @@ const DEFAULT_CONFIG_TEMPLATE = {
     streaming_enabled: true,
     streaming_min_update_ms: 1000,
     draft_bubble_max_chars: 1500,
-    draft_preview_max_sentences: 3,
-    draft_preview_max_chars: 280,
     assistant_format: "plain_text",
     max_file_size_mb: 10,
     file_download_timeout_ms: 30_000,
@@ -62,7 +60,6 @@ const DEFAULT_CONFIG_TEMPLATE = {
   runtime: {
     log_level: "info",
     prompt_history_limit: 20,
-    default_verbose: "full",
     tool_loop_max_steps: 30,
     tool_workflow_timeout_ms: 120_000 as number | null,
     tool_command_timeout_ms: 15_000 as number | null,
@@ -174,8 +171,6 @@ export const configSchema = z
         streaming_enabled: z.boolean().default(DEFAULT_CONFIG_TEMPLATE.telegram.streaming_enabled),
         streaming_min_update_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.streaming_min_update_ms),
         draft_bubble_max_chars: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.draft_bubble_max_chars),
-        draft_preview_max_sentences: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.draft_preview_max_sentences),
-        draft_preview_max_chars: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.draft_preview_max_chars),
         assistant_format: z
           .enum(TELEGRAM_ASSISTANT_FORMAT_VALUES)
           .default(DEFAULT_CONFIG_TEMPLATE.telegram.assistant_format as TelegramAssistantFormat),
@@ -202,10 +197,6 @@ export const configSchema = z
       .object({
         log_level: z.enum(LOG_LEVEL_VALUES).default(DEFAULT_CONFIG_TEMPLATE.runtime.log_level as LogLevel),
         prompt_history_limit: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.runtime.prompt_history_limit),
-        default_verbose: z.union([
-          z.enum(VERBOSE_MODE_VALUES),
-          z.boolean().transform((v): "full" | "off" => v ? "full" : "off")
-        ]).default(DEFAULT_CONFIG_TEMPLATE.runtime.default_verbose),
         tool_loop_max_steps: z.number().int().positive().nullable().default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_loop_max_steps),
         tool_workflow_timeout_ms: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_workflow_timeout_ms),
         tool_command_timeout_ms: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_command_timeout_ms),
@@ -584,8 +575,6 @@ export function buildConfigFromParsed(
       streamingEnabled: config.telegram.streaming_enabled,
       streamingMinUpdateMs: config.telegram.streaming_min_update_ms,
       draftBubbleMaxChars: config.telegram.draft_bubble_max_chars,
-      draftPreviewMaxSentences: config.telegram.draft_preview_max_sentences,
-      draftPreviewMaxChars: config.telegram.draft_preview_max_chars,
       assistantFormat: config.telegram.assistant_format,
       maxFileSizeBytes: Math.round(config.telegram.max_file_size_mb * 1024 * 1024),
       fileDownloadTimeoutMs: config.telegram.file_download_timeout_ms,
@@ -607,7 +596,6 @@ export function buildConfigFromParsed(
     runtime: {
       logLevel: config.runtime.log_level,
       promptHistoryLimit: config.runtime.prompt_history_limit,
-      defaultVerbose: config.runtime.default_verbose,
       toolLoopMaxSteps: config.runtime.tool_loop_max_steps,
       toolWorkflowTimeoutMs: config.runtime.tool_workflow_timeout_ms,
       toolCommandTimeoutMs: config.runtime.tool_command_timeout_ms,

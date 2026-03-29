@@ -31,8 +31,6 @@ export const TRANSPORT_MODE_VALUES = ["http", "wss"] as const;
 export type TransportMode = (typeof TRANSPORT_MODE_VALUES)[number];
 export const AUTH_MODE_VALUES = ["api", "codex"] as const;
 export type AuthMode = (typeof AUTH_MODE_VALUES)[number];
-export const VERBOSE_MODE_VALUES = ["full", "count", "off"] as const;
-export type VerboseMode = (typeof VERBOSE_MODE_VALUES)[number];
 
 export type TelegramAttachment = {
   fileId: string;
@@ -104,9 +102,15 @@ export type Provider = {
   generateReply(input: ProviderRequest): Promise<string>;
 };
 
+export type ToolCallNoticeEvent =
+  | { kind: "activity" }
+  | { kind: "summary"; text: string }
+  | { kind: "latest_success"; text: string }
+  | { kind: "persistent"; text: string };
+
 export type MessageStreamingSink = {
   onTextDelta?: (delta: string) => void | Promise<void>;
-  onToolCallNotice?: (notice: string) => void | Promise<void>;
+  onToolCallNotice?: (notice: ToolCallNoticeEvent | string) => void | Promise<void>;
   onLifecycleEvent?: (event: ProviderLifecycleEvent) => void | Promise<void>;
 };
 

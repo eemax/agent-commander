@@ -43,7 +43,6 @@ npm run dev
 | `/stop` | Graceful shutdown |
 | `/bash <cmd>` | Execute shell command in workspace |
 | `/cwd <path>` | Set working directory for this conversation |
-| `/verbose <full\|count\|off>` | Set tool-call trace verbosity |
 | `/thinking <level>` | Set reasoning effort (`none\|minimal\|low\|medium\|high\|xhigh`) |
 | `/cache <in_memory\|24h>` | Set prompt cache retention mode |
 | `/model <id-or-alias>` | Switch active model |

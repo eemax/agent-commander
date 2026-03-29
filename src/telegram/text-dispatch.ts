@@ -10,11 +10,10 @@ import type {
   MessageRouteResult,
   MessageStreamingSink,
   NormalizedTelegramMessage,
-  ProviderLifecycleEvent,
+  ToolCallNoticeEvent,
   TurnRetentionRegistrar
 } from "../types.js";
 import type { AttachmentResolver } from "../message-queue.js";
-import { VERBOSE_REPLACE_PREFIX } from "../routing/formatters.js";
 import { extractAttachMarkers, resolveOutboundAttachment, type OutboundAttachment } from "./outbound-attachments.js";
 import { TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
 import { StreamTranscript } from "./stream-transcript.js";
@@ -29,6 +28,20 @@ export type TelegramTextHandler = (
   turnRetention?: TurnRetentionRegistrar
 ) => Promise<MessageRouteResult>;
 
+function normalizeToolCallNotice(notice: ToolCallNoticeEvent | string): ToolCallNoticeEvent {
+  if (typeof notice !== "string") {
+    return notice;
+  }
+
+  if (notice.length === 0) {
+    return { kind: "activity" };
+  }
+
+  // Raw string notices are treated conservatively so they are never
+  // downgraded to draft-only status by transport-level heuristics.
+  return { kind: "persistent", text: notice };
+}
+
 export async function dispatchTelegramTextMessage(params: {
   message: NormalizedTelegramMessage;
   handleMessage: TelegramTextHandler;
@@ -38,8 +51,6 @@ export async function dispatchTelegramTextMessage(params: {
   logger?: RuntimeLogger;
   draftMinUpdateMs?: number;
   draftBubbleMaxChars?: number;
-  draftPreviewMaxSentences?: number;
-  draftPreviewMaxChars?: number;
   onDraftFailure?: (error: unknown) => void | Promise<void>;
   nowMs?: () => number;
   trace?: TraceContext;
@@ -56,18 +67,14 @@ export async function dispatchTelegramTextMessage(params: {
   const nowMs = params.nowMs ?? Date.now;
   const draftMinUpdateMs = Math.max(1, params.draftMinUpdateMs ?? 1000);
   const draftBubbleMaxChars = params.draftBubbleMaxChars ?? 1500;
-  const draftPreviewMaxSentences = Math.max(1, params.draftPreviewMaxSentences ?? 3);
-  const draftPreviewMaxChars = Math.max(1, params.draftPreviewMaxChars ?? 280);
   const shouldSuppressOutput = (): boolean => params.shouldSuppressOutput?.() === true;
-  const transcript = new StreamTranscript({
-    draftPreviewMaxSentences,
-    draftPreviewMaxChars
-  });
+  const transcript = new StreamTranscript();
   let lastRenderedDraft = "";
   let lastDraftMode: "content" | "typing" | "reset" | null = null;
   let lastDraftAtMs: number | null = null;
   let draftDisabled = !params.sendDraft;
   let draftInflight = false;
+  let draftDirtySinceLastTick = false;
 
   let acknowledged = false;
   let processingTimer: ReturnType<typeof setInterval> | null = null;
@@ -200,6 +207,7 @@ export async function dispatchTelegramTextMessage(params: {
         lastRenderedDraft = draft;
         lastDraftMode = isReset ? "reset" : "content";
         lastDraftAtMs = nowMs();
+        draftDirtySinceLastTick = false;
       } catch (error) {
         await disableDraft(error);
       } finally {
@@ -247,20 +255,28 @@ export async function dispatchTelegramTextMessage(params: {
             const now = nowMs();
             if (draftInflight || (lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs)) continue;
 
+            const shouldRenderSpinner = !draftDirtySinceLastTick;
             const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
-            typingFrameIndex += 1;
-            const rendered = transcript.renderDraft(draftBubbleMaxChars - frame.length - 1);
+            const rendered = transcript.renderDraft(
+              shouldRenderSpinner ? draftBubbleMaxChars - frame.length - 1 : draftBubbleMaxChars
+            );
 
             let draft: string | null = null;
-            let draftMode: "typing" | "reset" = "typing";
+            let draftMode: "content" | "typing" | "reset" = shouldRenderSpinner ? "typing" : "content";
             if (rendered.kind === "reset") {
               draft = RESET_DRAFT_FRAME;
               draftMode = "reset";
             } else if (rendered.kind === "content") {
-              const prefix = rendered.text.length > 0 ? rendered.text + "\n" : "";
-              const candidate = prefix + frame;
-              draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? rendered.text : candidate;
-            } else if (lastDraftMode !== "reset") {
+              if (shouldRenderSpinner) {
+                typingFrameIndex += 1;
+                const prefix = rendered.text.length > 0 ? rendered.text + "\n" : "";
+                const candidate = prefix + frame;
+                draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? rendered.text : candidate;
+              } else {
+                draft = rendered.text;
+              }
+            } else if (shouldRenderSpinner && lastDraftMode !== "reset") {
+              typingFrameIndex += 1;
               draft = frame;
             }
 
@@ -274,6 +290,7 @@ export async function dispatchTelegramTextMessage(params: {
               lastRenderedDraft = draft;
               lastDraftMode = draftMode;
               lastDraftAtMs = nowMs();
+              draftDirtySinceLastTick = false;
               consecutiveErrors = 0;
             } catch {
               consecutiveErrors += 1;
@@ -317,46 +334,66 @@ export async function dispatchTelegramTextMessage(params: {
     };
 
     const hasLifecycleCallbacks = Boolean(params.sendAcknowledgedReaction || params.sendProcessingAction);
-    const stream: MessageStreamingSink | undefined = (params.sendDraft || hasLifecycleCallbacks)
-      ? {
-          onTextDelta: params.sendDraft
-            ? async (delta: string) => {
-                await ensureTypingStarted();
-                await stopTypingIndicator();
+    const stream: MessageStreamingSink = {
+      onTextDelta: async (delta: string) => {
+        if (typeof delta !== "string" || delta.length === 0) {
+          return;
+        }
 
-                if (draftDisabled || typeof delta !== "string" || delta.length === 0) {
-                  return;
-                }
+        if (params.sendDraft) {
+          await ensureTypingStarted();
+          await stopTypingIndicator();
+        }
 
-                transcript.appendTextDelta(delta);
-                await flushDraft(false);
-                startTypingIndicator();
-              }
-            : undefined,
-          onToolCallNotice: params.sendDraft
-            ? async (notice: string) => {
-                await ensureTypingStarted();
-                await stopTypingIndicator();
+        transcript.appendTextDelta(delta);
+        draftDirtySinceLastTick = true;
 
-                if (typeof notice !== "string") {
-                  return;
-                }
+        if (params.sendDraft) {
+          await flushDraft(false);
+          startTypingIndicator();
+        }
+      },
+      onToolCallNotice: async (notice) => {
+        if (notice === undefined || notice === null) {
+          return;
+        }
 
-                if (notice.length === 0) {
-                  transcript.setToolExecutionActive(true);
-                  startTypingIndicator();
-                  return;
-                }
+        const normalizedNotice = normalizeToolCallNotice(notice);
 
-                const isReplace = notice.startsWith(VERBOSE_REPLACE_PREFIX);
-                const text = isReplace ? notice.slice(VERBOSE_REPLACE_PREFIX.length) : notice;
-                transcript.appendToolNotice(text, { replace: isReplace });
-                await flushDraft(false);
-                startTypingIndicator();
-              }
-            : undefined,
-          onLifecycleEvent: hasLifecycleCallbacks
-            ? async (event: ProviderLifecycleEvent) => {
+        if (params.sendDraft) {
+          await ensureTypingStarted();
+          await stopTypingIndicator();
+        }
+
+        switch (normalizedNotice.kind) {
+          case "activity":
+            transcript.setToolExecutionActive(true);
+            break;
+          case "summary":
+            transcript.setToolSummary(normalizedNotice.text);
+            draftDirtySinceLastTick = true;
+            break;
+          case "latest_success":
+            transcript.setLatestSuccessfulToolNotice(normalizedNotice.text);
+            draftDirtySinceLastTick = true;
+            break;
+          case "persistent":
+            if (normalizedNotice.text.startsWith("🎯 Steer:")) {
+              transcript.appendSystemNote(normalizedNotice.text);
+            } else {
+              transcript.appendToolNotice(normalizedNotice.text);
+            }
+            draftDirtySinceLastTick = true;
+            break;
+        }
+
+        if (params.sendDraft) {
+          await flushDraft(false);
+          startTypingIndicator();
+        }
+      },
+      onLifecycleEvent: hasLifecycleCallbacks
+        ? async (event) => {
                 if (event.type === "response_acknowledged") {
                   if (!acknowledged && params.sendAcknowledgedReaction) {
                     acknowledged = true;
@@ -394,8 +431,7 @@ export async function dispatchTelegramTextMessage(params: {
                 }
               }
             : undefined
-        }
-      : undefined;
+    };
 
     let result: MessageRouteResult;
     try {

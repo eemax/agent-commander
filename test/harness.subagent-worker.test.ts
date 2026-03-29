@@ -48,8 +48,6 @@ function makeConfig(): Config {
       streamingEnabled: false,
       streamingMinUpdateMs: 0,
       draftBubbleMaxChars: 1500,
-      draftPreviewMaxSentences: 3,
-      draftPreviewMaxChars: 280,
       assistantFormat: "plain_text",
       maxFileSizeBytes: 10 * 1024 * 1024,
       fileDownloadTimeoutMs: 30_000,
@@ -71,7 +69,6 @@ function makeConfig(): Config {
     runtime: {
       logLevel: "error",
       promptHistoryLimit: null,
-      defaultVerbose: "off",
       toolLoopMaxSteps: 50,
       toolWorkflowTimeoutMs: 300_000,
       toolCommandTimeoutMs: 60_000,

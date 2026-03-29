@@ -21,7 +21,6 @@ describe("telegram command registry", () => {
     expect(catalog.map((item) => item.command)).toContain("new");
     expect(catalog.map((item) => item.command)).toContain("stash");
     expect(catalog.map((item) => item.command)).toContain("cwd");
-    expect(catalog.map((item) => item.command)).toContain("verbose");
     expect(catalog.map((item) => item.command)).toContain("thinking");
     expect(catalog.map((item) => item.command)).toContain("cache");
     expect(catalog.map((item) => item.command)).toContain("model");
@@ -47,9 +46,9 @@ describe("telegram command registry", () => {
       command: "bash",
       args: "echo hi"
     });
-    expect(parseTelegramCommand("/verbose on")).toEqual({
-      command: "verbose",
-      args: "on"
+    expect(parseTelegramCommand("/thinking high")).toEqual({
+      command: "thinking",
+      args: "high"
     });
     expect(parseTelegramCommand("/model codex")).toEqual({
       command: "model",

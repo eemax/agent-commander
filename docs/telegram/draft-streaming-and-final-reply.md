@@ -49,9 +49,9 @@ user sends message
 optional spinner-only draft
    |
    v
-draft bubble with tool notices and/or streamed text
+draft bubble with tool notices and assistant char counter
    |
-   +--> maybe compacts assistant text into a tiny preview
+   +--> maybe updates `Assistant: <n> chars`
    +--> maybe resets when too large
    +--> maybe fails and gets disabled
    +--> maybe gets suppressed by interruption
@@ -79,7 +79,7 @@ This doc uses these terms consistently:
 - `draft bubble`: the ephemeral Telegram bubble sent via `ctx.replyWithDraft(...)`
 - `spinner frame`: one of the rotating symbols `◐`, `◓`, `◑`, `◒`
 - `final reply`: the permanent Telegram reply path sent via `ctx.reply(...)`
-- `extra reply`: a permanent reply sent before the main final reply, usually verbose/tool-oriented text when streaming is not the transport for that information
+- `extra reply`: a permanent reply sent before the main final reply; the Telegram dispatcher still supports this shape, but model tool activity currently stays in the transcript-backed main reply path
 - `transcript`: the internal ordered record of streamed tool notices, system notes, and committed text blocks
 - `cleanText`: the router's returned `result.text` after outbound attachment markers are stripped
 - `success path`: `MessageRouteResult.type === "reply"`
@@ -94,7 +94,7 @@ If we strip away implementation details, the intended contract is:
 - The draft bubble is optional UX, not the source of truth.
 - It should appear quickly so the user feels the turn is alive.
 - It should preserve tool and system progress chronologically.
-- It should show assistant text only as a compact preview of the current text phase, not as a verbatim wall of streamed output.
+- It should show assistant progress without streaming assistant prose verbatim; the current design uses a whole-turn character counter.
 - It may disappear, reset, or stop updating without breaking the turn.
 - If it fails, the turn should still try to deliver a correct final reply.
 
@@ -116,8 +116,8 @@ That last rule is especially important. It is better to lose a stale draft than 
 
 ### 3.4 Current headline rules
 
-- Draft assistant text is compacted to a short preview of the current text phase; the bubble is no longer a verbatim stream of the whole answer.
-- That preview is tuned separately from paging: `telegram.draft_preview_max_sentences` and `telegram.draft_preview_max_chars` bound the assistant snippet, while `telegram.draft_bubble_max_chars` remains the outer reset cap for the whole bubble.
+- Draft assistant text is never rendered verbatim; the bubble shows `Assistant: <n> chars` for the whole turn instead.
+- `telegram.draft_bubble_max_chars` remains the outer reset cap for the whole bubble.
 - Draft overflow is explicit: the visible bubble resets to a spinner-only `◐` frame instead of silently failing.
 - When reset happens, the overflowing content seeds the next draft page instead of being dropped.
 - `reply` and `fallback` share the same transcript-backed final-text assembly through `buildFinalReplyText(cleanText)`.
@@ -233,9 +233,9 @@ So the bubble is not a faithful frame-by-frame mirror. It is a throttled renderi
 
 Tool activity goes through `onToolCallNotice(notice)`.
 
-There are three cases:
+There are four cases:
 
-### Case A: normal notice
+### Case A: persistent notice
 
 Example:
 
@@ -245,11 +245,11 @@ Example:
 
 This becomes a `tool_notice` transcript entry.
 
-### Case B: replace notice
+Raw non-empty string notices are normalized into this persistent case by default. That conservative fallback means transport-level heuristics cannot accidentally downgrade a notice into draft-only behavior. Draft-only latest-success rendering happens only when the caller explicitly sends a structured `{ kind: "latest_success", text }` event.
 
-If the notice starts with `VERBOSE_REPLACE_PREFIX`, it replaces the most recent tool notice instead of appending.
+### Case B: cumulative summary update
 
-This is used for count-mode summaries like:
+Successful tool calls update a cumulative count summary such as:
 
 ```text
 📖 Read x1
@@ -262,9 +262,19 @@ then later:
 ✍️ Write x1
 ```
 
-The point is to keep the draft and transcript cumulative rather than duplicative.
+This summary is stored separately from chronological notices so the draft can keep one running count block while the final reply includes only the cumulative summary.
 
-### Case C: empty notice
+### Case C: latest successful tool notice
+
+Successful tool calls also refresh a draft-only "latest successful tool notice" block such as:
+
+```text
+📖 Read: `foo.ts`
+```
+
+Only the newest successful tool notice stays visible in full inside the draft bubble; it does not get copied into the permanent final reply.
+
+### Case D: empty notice
 
 An empty string means "tool execution is in flight" but does not itself add visible transcript content.
 
@@ -336,7 +346,7 @@ That means mode switches like `text -> tool -> text` become explicit transcript 
 Its key rule is:
 
 - tool notices and system notes remain chronological
-- assistant text is reduced to a short preview of the current text phase
+- assistant text is reduced to a whole-turn `Assistant: <n> chars` counter
 - if the compact draft would still exceed the configured draft limit, the bubble resets and older content becomes hidden from draft rendering
 - the overflow is reported explicitly so the dispatch layer can replace the bubble with a spinner-only reset frame
 
@@ -421,15 +431,17 @@ Current shape:
 
 ```text
 status section:
-  chronological tool_notice/system_note entries
+  cumulative successful-tool count summary
+  latest successful tool notice in full
+  chronological steer/failure notices
 
-preview section:
-  a short preview of the current assistant text phase
+assistant section:
+  Assistant: <n> chars
 
 final draft bubble:
   status section
   blank line (if both sections exist)
-  preview section
+  assistant section
 ```
 
 This creates recognizable user-facing patterns:
@@ -439,9 +451,10 @@ This creates recognizable user-facing patterns:
 ```text
 draft bubble
 -------------------------
+📖 Read ×1
 📖 Read: `foo.ts`
 
-Reply text preview
+Assistant: 42 chars
 -------------------------
 ```
 
@@ -450,7 +463,8 @@ Reply text preview
 ```text
 draft bubble
 -------------------------
-📖 Read: `foo.ts`
+📖 Read ×1
+✍️ Write ×1
 ✍️ Write: `bar.ts`
 -------------------------
 ```
@@ -460,7 +474,7 @@ draft bubble
 ```text
 draft bubble
 -------------------------
-Hello there
+Assistant: 11 chars
 -------------------------
 ```
 
@@ -680,7 +694,7 @@ There are two relevant limits:
 - draft rendering target: `draftBubbleMaxChars`, default `1500`
 - `bot.ts` also truncates draft text to `TELEGRAM_MESSAGE_LIMIT` before sending
 
-The draft bubble is therefore intentionally much smaller than Telegram's maximum, and the renderer usually stays far below the cap because assistant text is compacted before paging is considered.
+The draft bubble is therefore intentionally much smaller than Telegram's maximum, and the renderer usually stays far below the cap because assistant text contributes only a character counter before paging is considered.
 
 ### Final reply
 
@@ -730,7 +744,7 @@ These are the rules future changes should preserve unless there is an explicit p
 - The draft bubble is a small, compact status surface, not a permanent log.
 - Bubble resets should be explicit: overflow becomes a spinner-only `◐` frame.
 - The next visible page starts with the overflow-triggering content instead of dropping it.
-- Count-mode replacements should remain visible even after resets when they are still relevant to the current page.
+- The cumulative summary and latest successful tool notice remain pinned when they still fit on the current page.
 
 ## 16. Known conceptual pain points
 

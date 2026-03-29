@@ -79,7 +79,7 @@ Startup fails if frontmatter is missing/invalid, slug generation is invalid, or 
 - Current conversation per chat is tracked in `paths.active_conversations_path` (default `.agent-commander/active-conversations.json`).
 - Stashed conversations per chat are tracked in `paths.stashed_conversations_path` (default `.agent-commander/stashed-conversations.json`).
 - Conversation events are JSONL files in `paths.conversations_dir/<chatId>/<conversationId>.jsonl`.
-- Conversation runtime profiles persist `verboseMode`, `thinkingEffort`, `cacheRetention`, `transportMode`, `authMode`, `activeModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, and `lastProviderFailure`.
+- Conversation runtime profiles persist `thinkingEffort`, `cacheRetention`, `transportMode`, `authMode`, `activeModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, and `lastProviderFailure`.
 - `/new` immediately creates a fresh conversation (archiving the current one) and displays conversation defaults.
 - `/new from` opens an inline menu to restore a stashed conversation or start fresh.
 - `/stash <name>` stashes current conversation under an alias, then switches to selected stash or a new conversation.
@@ -114,7 +114,6 @@ Core commands:
 - `/cwd <absolute-path>`
 - `/stop`
 - `/bash <command>`
-- `/verbose <full|count|off>`
 - `/thinking <none|minimal|low|medium|high|xhigh>`
 - `/cache <in_memory|24h>`
 - `/model <id-or-alias>`
@@ -126,7 +125,7 @@ Core commands:
 
 `/auth <api|codex>` switches the authentication mode for the current conversation. `api` uses a standard OpenAI API key; `codex` uses ChatGPT OAuth tokens from `~/.codex/auth.json`. Fails immediately if the selected mode's credentials are unavailable. Persisted in the conversation runtime profile.
 
-`/steer <message>` injects guidance into an active tool loop without aborting the turn. The steer text is added as a user message before the model's next tool-loop iteration. When verbose mode is on, steer events appear in Telegram chat as `🎯 Steer: <message>`. If no turn is active, `/steer` returns an error.
+`/steer <message>` injects guidance into an active tool loop without aborting the turn. The steer text is added as a user message before the model's next tool-loop iteration. Steer events appear in Telegram as `🎯 Steer: <message>` in the draft bubble and the final reply transcript. If no turn is active, `/steer` returns an error.
 
 `/new` immediately archives the current conversation and starts fresh, displaying conversation defaults (model, search model, thinking, cwd, cache, transport).
 `/new from` and `/stash <name>` open Telegram inline-button menus listing stashed conversations plus `New`.
@@ -139,7 +138,7 @@ Menus are single-use; stale callback clicks are rejected and require reopening t
 `/transport <http|wss>` switches the API transport for the current conversation. Default is set by `openai.default_transport` config (falls back to `http`). See [architecture.md](architecture.md#transport-modes) for details on each mode.
 `/cwd <absolute-path>` sets the working directory for the current conversation. New conversations start with the configured default cwd.
 
-`/status` returns the model/runtime emoji summary block (model, latest turn token usage including reasoning tokens, budget context-window pressure summary, prompt-cache hit metrics, runtime thinking/verbose mode, running process count, and active cwd).
+`/status` returns the model/runtime emoji summary block (model, latest turn token usage including reasoning tokens, budget context-window pressure summary, prompt-cache hit metrics, runtime thinking mode, running process count, and active cwd).
 Use `/status full` to include observability state and runtime health counters for process output truncation, tool-result aggregates, running/completed processes, and state/workspace counters:
 - `tool.results_total`
 - `tool.results_success`
@@ -166,7 +165,7 @@ Normalization rules:
 - empty/noise fields are omitted (for example empty `stderr`, zero truncation counters).
 These payloads are intended for model context, not user-facing Telegram replies.
 
-When verbose mode is on, model-triggered tool calls are surfaced in Telegram. With draft streaming enabled, the live draft bubble keeps the tool/status chronology but collapses assistant text into a compact preview instead of streaming the whole answer verbatim. Those tool notices are still preserved in the final transcript-backed `reply`/`fallback` message. When streaming is unavailable, they may still be emitted as extra Telegram replies before the main final reply. Failed tool calls use `⚠️` and include a short error summary.
+Model-triggered tool activity is surfaced in Telegram with one fixed mixed-mode behavior. The live draft bubble shows a cumulative successful-tool count summary, the latest successful tool call in full, full steer/failure notices, and an `Assistant: <n> chars` counter instead of streaming assistant prose. The permanent final `reply`/`fallback` keeps the cumulative tool summary plus full steer/failure notices, but omits the draft-only latest successful tool notice. This stays transcript-backed even when live draft streaming is disabled. Failed tool calls use `⚠️` and include a short error summary.
 Workflow-progress events (`tool.workflow.progress`) are recorded to the observability JSONL log when `observability.enabled` is `true`, but are not surfaced in Telegram (no draft streaming or extra replies). Check `observability.log_path` directly for workflow diagnostics.
 
 ## Message Queueing
@@ -207,12 +206,9 @@ Common optional fields:
 - `runtime.log_level` (`debug|info|warn|error`)
 - `openai.auth_mode` (`api|codex`, default `api`)
 - `openai.default_transport` (`http|wss`, default `http`)
-- `runtime.default_verbose` (default `"full"`, applied to new conversations)
 - `telegram.streaming_enabled` (default `true`)
 - `telegram.streaming_min_update_ms` (default `1000`)
 - `telegram.draft_bubble_max_chars` (default `1500`, reset safety cap for the compact draft bubble)
-- `telegram.draft_preview_max_sentences` (default `3`, maximum number of sentence-like units kept in the assistant-text preview within the draft bubble)
-- `telegram.draft_preview_max_chars` (default `280`, hard character cap for that assistant-text preview)
 - `telegram.assistant_format` (`plain_text` by default, `markdown_to_html` to enable Markdown->HTML formatting for final assistant replies; `fallback`/`unauthorized` stay plain text)
 - `telegram.acknowledged_emoji` (default `"off"`, set to an emoji like `"👍"` to react to messages when OpenAI accepts the request)
 - `observability.enabled` (default `false`)

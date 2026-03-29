@@ -26,8 +26,6 @@ This is the canonical `config/config.json` shape.
 - `streaming_enabled`: boolean, default `true` — enables the Telegram draft bubble and streaming callbacks used to build transcript-backed final replies
 - `streaming_min_update_ms`: positive integer, default `1000` — minimum interval between non-forced draft-bubble updates
 - `draft_bubble_max_chars`: positive integer, default `1500` — reset safety cap for the compact draft bubble; long tool/status runs page when the rendered draft exceeds this size
-- `draft_preview_max_sentences`: positive integer, default `3` — maximum number of complete sentence-like units kept in the assistant-text preview inside the draft bubble
-- `draft_preview_max_chars`: positive integer, default `280` — hard character cap for the assistant-text preview inside the draft bubble after sentence selection
 - `assistant_format`: `"plain_text" | "markdown_to_html"`, default `"plain_text"` — formatting mode for final `reply` messages; `fallback` and `unauthorized` remain plain text
 - `max_file_size_mb`: positive float, default `10` — attachment size limit
 - `file_download_timeout_ms`: positive integer, default `30000` — timeout for Telegram file downloads
@@ -71,7 +69,6 @@ This is the canonical `config/config.json` shape.
 - `log_level`: `"debug" | "info" | "warn" | "error"`, default `"info"`
 - `prompt_history_limit`: positive integer or `null`, default `20`
   - when set to `null`, the full conversation message history is sent (no count-based truncation)
-- `default_verbose`: `"off" | "count" | "full"`, default `"full"` (applied to newly created conversations)
 - `tool_loop_max_steps`: positive integer or `null`, default `30`
 - `tool_workflow_timeout_ms`: positive integer, default `120000`
 - `tool_command_timeout_ms`: positive integer, default `15000`

@@ -113,9 +113,9 @@ When `observability.enabled` is `true`, the following events are emitted to `obs
 
 All events include trace context (`traceId`, `spanId`) for correlation. Content fields are subject to the observability sink's truncation (`max_string_chars`) and redaction rules.
 
-## Telegram Verbose Messages
+## Telegram Tool Notices
 
-When verbose mode is on, subagent tool calls show action-specific messages instead of generic "Tool: subagents":
+Subagent tool calls use action-specific messages instead of a generic "Tool: subagents" notice:
 
 - `🤖 Spawn subagent: \`{title}\``
 - `📥 Recv: {count} task(s)`

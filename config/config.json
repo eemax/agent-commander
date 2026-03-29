@@ -3,8 +3,6 @@
     "streaming_enabled": true,
     "streaming_min_update_ms": 1250,
     "draft_bubble_max_chars": 1500,
-    "draft_preview_max_sentences": 3,
-    "draft_preview_max_chars": 280,
     "assistant_format": "markdown_to_html",
     "max_file_size_mb": 10,
     "file_download_timeout_ms": 30000,
@@ -52,7 +50,6 @@
   "runtime": {
     "log_level": "info",
     "prompt_history_limit": null,
-    "default_verbose": "count",
     "tool_loop_max_steps": null,
     "tool_workflow_timeout_ms": null,
     "tool_command_timeout_ms": null,

@@ -1,5 +1,5 @@
 import * as os from "node:os";
-import type { ProviderUsageSnapshot, ThinkingEffort, CacheRetention, TransportMode, AuthMode, VerboseMode, ToolCallReport, ToolProgressEvent } from "../types.js";
+import type { ProviderUsageSnapshot, ThinkingEffort, CacheRetention, TransportMode, AuthMode, ToolCallReport, ToolProgressEvent } from "../types.js";
 import { formatConversationIdForUi } from "./conversation-id.js";
 
 function collapseTilde(p: string): string {
@@ -465,9 +465,6 @@ export function formatCountModeBuffer(entries: Map<string, CountAccumulatorEntry
   return lines.join("\n");
 }
 
-/** Prefix used to signal the Telegram bot to replace the buffer instead of appending. */
-export const VERBOSE_REPLACE_PREFIX = "\x00REPLACE\x00";
-
 export function formatToolProgressNotice(event: ToolProgressEvent): string {
   const elapsedSeconds = Math.max(0, Math.floor(event.elapsedMs / 1000));
   const prefix = `⏳ [${elapsedSeconds}s]`;
@@ -600,7 +597,6 @@ export function buildStatusReply(params: {
   workspaceRoot: string;
   skillsCount: number;
   fullObservabilityEnabled: boolean;
-  verboseMode: VerboseMode;
   thinkingEffort: ThinkingEffort;
   cwd: string;
   latestUsage: ProviderUsageSnapshot | null;
@@ -684,7 +680,6 @@ export function buildStatusReply(params: {
     `skills: ${params.skillsCount}`,
     `search_model: ${params.webSearchModel ?? "none"}`,
     `cache_retention: ${params.cacheRetention}`,
-    `verbose: ${params.verboseMode}`,
     `observability: ${params.fullObservabilityEnabled ? "on" : "off"}`,
     `tool.success_count: ${params.toolRuntime.toolSuccessCount}`,
     `tool.failure_count: ${params.toolRuntime.toolFailureCount}`,

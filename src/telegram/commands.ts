@@ -8,7 +8,6 @@ export type CoreCommandName =
   | "cwd"
   | "stop"
   | "bash"
-  | "verbose"
   | "thinking"
   | "cache"
   | "model"
@@ -51,11 +50,6 @@ export const CORE_COMMANDS: ReadonlyArray<TelegramCommandDefinition> = [
   {
     command: "bash",
     description: "Run a shell command: /bash <command>",
-    kind: "core"
-  },
-  {
-    command: "verbose",
-    description: "Tool-call updates: /verbose full|count|off",
     kind: "core"
   },
   {

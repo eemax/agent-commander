@@ -673,91 +673,6 @@ describe("createMessageRouter", () => {
     });
   });
 
-  it("toggles verbose mode through core commands", async () => {
-    const config = makeConfig();
-    const workspace = createWorkspaceManager(config);
-    await workspace.bootstrap();
-
-    const conversations = createConversationStore({
-      conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath
-    });
-
-    const router = createMessageRouter({
-      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      provider: { generateReply: vi.fn(async () => "unused") },
-      config,
-      conversations,
-      workspace,
-      harness: makeHarnessMock()
-    });
-
-    const usage = await router.handleIncomingMessage(sampleIncoming({ text: "/verbose" }));
-    expect(usage).toEqual({
-      type: "reply",
-      text: "Usage: /verbose <full|count|off>\nverbose mode: full"
-    });
-
-    const enabled = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "/verbose full" }));
-    expect(enabled).toEqual({
-      type: "reply",
-      text: "verbose mode: full"
-    });
-    expect(await conversations.getVerboseMode("chat-1")).toBe("full");
-
-    const status = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-3", text: "/status full" }));
-    expect(status.type).toBe("reply");
-    if (status.type === "reply") {
-      expect(status.text).toContain("verbose: full");
-    }
-  });
-
-  it("sets verbose count mode and reflects it in status", async () => {
-    const config = makeConfig();
-    const workspace = createWorkspaceManager(config);
-    await workspace.bootstrap();
-
-    const conversations = createConversationStore({
-      conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath
-    });
-
-    const router = createMessageRouter({
-      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      provider: { generateReply: vi.fn(async () => "unused") },
-      config,
-      conversations,
-      workspace,
-      harness: makeHarnessMock()
-    });
-
-    const countResult = await router.handleIncomingMessage(sampleIncoming({ text: "/verbose count" }));
-    expect(countResult).toEqual({
-      type: "reply",
-      text: "verbose mode: count"
-    });
-    expect(await conversations.getVerboseMode("chat-1")).toBe("count");
-
-    const offResult = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "/verbose off" }));
-    expect(offResult).toEqual({
-      type: "reply",
-      text: "verbose mode: off"
-    });
-    expect(await conversations.getVerboseMode("chat-1")).toBe("off");
-
-    const invalidResult = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-3", text: "/verbose on" }));
-    expect(invalidResult).toEqual({
-      type: "reply",
-      text: "Usage: /verbose <full|count|off>\nverbose mode: off"
-    });
-
-    const status = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-4", text: "/status full" }));
-    expect(status.type).toBe("reply");
-    if (status.type === "reply") {
-      expect(status.text).toContain("verbose: off");
-    }
-  });
-
   it("updates thinking effort through core commands", async () => {
     const config = makeConfig();
     const workspace = createWorkspaceManager(config);
@@ -765,8 +680,7 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath,
-      defaultVerboseMode: "off"
+      stashedConversationsPath: config.paths.stashedConversationsPath
     });
 
     const router = createMessageRouter({
@@ -1063,7 +977,7 @@ describe("createMessageRouter", () => {
     }
   });
 
-  it("attaches verbose tool-call messages to assistant replies when enabled", async () => {
+  it("includes the tool count summary in assistant replies without a draft stream", async () => {
     const config = makeConfig();
     const workspace = createWorkspaceManager(config);
     await workspace.bootstrap();
@@ -1107,24 +1021,25 @@ describe("createMessageRouter", () => {
       harness: makeHarnessMock()
     });
 
-    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose full" }));
     const result = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "hello" }));
 
     expect(result.type).toBe("reply");
     if (result.type === "reply") {
-      expect(result.text).toBe("assistant-reply");
+      expect(result.text).toBe(
+        [
+          "📖 Read ×1 (3 chars)",
+          "✍️ Write ×1 (4 chars)",
+          "🐚 Bash ×1",
+          "",
+          "assistant-reply"
+        ].join("\n")
+      );
       expect(result.origin).toBe("assistant");
-      expect(result.extraReplies).toEqual([
-        "📖 Read: `scripts/refresh-lazy-skills.py` (3 chars)",
-        "✍️ Write: `refresh_lazy.py` (4 chars)",
-        "🐚 Bash: `echo hi`"
-      ]);
-      expect(result.extraReplies?.some((line) => line.includes("<tool_call>"))).toBe(false);
-      expect(result.extraReplies?.some((line) => line.includes("<tool_result"))).toBe(false);
+      expect(result.extraReplies).toBeUndefined();
     }
   });
 
-  it("does not stream workflow progress when observability is off, even if verbose is on", async () => {
+  it("does not stream workflow progress when observability is off", async () => {
     const config = makeConfig({
       observability: { enabled: false },
       runtime: { toolHeartbeatIntervalMs: 20 }
@@ -1163,7 +1078,6 @@ describe("createMessageRouter", () => {
       harness: makeHarnessMock()
     });
 
-    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose full" }));
     const onTextDelta = vi.fn();
     const result = await router.handleIncomingMessage(
       sampleIncoming({ messageId: "msg-2", text: "hello" }),
@@ -1171,11 +1085,7 @@ describe("createMessageRouter", () => {
     );
 
     expect(onTextDelta).not.toHaveBeenCalled();
-    expect(result.type).toBe("reply");
-    if (result.type === "reply") {
-      expect(result.extraReplies).toEqual(["📖 Read: `README.md` (5 chars)"]);
-      expect(result.extraReplies?.some((line) => line.includes("⏳"))).toBe(false);
-    }
+    expect(result).toEqual({ type: "reply", text: "assistant-reply", origin: "assistant" });
   });
 
   it("does not stream workflow progress to draft even when observability is on", async () => {
@@ -1219,7 +1129,7 @@ describe("createMessageRouter", () => {
     expect(onTextDelta).not.toHaveBeenCalled();
   });
 
-  it("does not leak workflow progress into extraReplies when verbose and observability are both on", async () => {
+  it("does not leak workflow progress into direct router replies when observability is on", async () => {
     const config = makeConfig({
       observability: { enabled: true },
       runtime: { toolHeartbeatIntervalMs: 20 }
@@ -1259,7 +1169,6 @@ describe("createMessageRouter", () => {
       harness: makeHarnessMock()
     });
 
-    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose full" }));
     const onTextDelta = vi.fn();
     const result = await router.handleIncomingMessage(
       sampleIncoming({ messageId: "msg-2", text: "hello" }),
@@ -1267,14 +1176,10 @@ describe("createMessageRouter", () => {
     );
 
     expect(onTextDelta).not.toHaveBeenCalled();
-    expect(result.type).toBe("reply");
-    if (result.type === "reply") {
-      expect(result.extraReplies).toEqual(["📖 Read: `README.md` (5 chars)"]);
-      expect(result.extraReplies?.some((line) => line.includes("⏳"))).toBe(false);
-    }
+    expect(result).toEqual({ type: "reply", text: "assistant-reply", origin: "assistant" });
   });
 
-  it("keeps verbose warning messages on fallback when tool calls fail", async () => {
+  it("keeps tool failure notices in fallback replies", async () => {
     const config = makeConfig();
     const workspace = createWorkspaceManager(config);
     await workspace.bootstrap();
@@ -1311,17 +1216,22 @@ describe("createMessageRouter", () => {
       harness: makeHarnessMock()
     });
 
-    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose full" }));
     const result = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "run" }));
     expect(result.type).toBe("fallback");
     if (result.type === "fallback") {
-      expect(result.text).toBe("Temporary provider error. Please try again.");
-      expect(result.extraReplies).toEqual(["⚠️ Read failed: `missing.txt` - File not found"]);
+      expect(result.text).toBe(
+        [
+          "📖 Read ×1 · 1 failed",
+          "⚠️ Read failed: `missing.txt` - File not found",
+          "",
+          "Temporary provider error. Please try again."
+        ].join("\n")
+      );
     }
   });
 
   it("logs structured provider failure diagnostics and reports them in /status full", async () => {
-    const config = makeConfig({ runtime: { defaultVerbose: "off" } });
+    const config = makeConfig();
     const workspace = createWorkspaceManager(config);
     await workspace.bootstrap();
     const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -1349,8 +1259,7 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath,
-      defaultVerboseMode: "off"
+      stashedConversationsPath: config.paths.stashedConversationsPath
     });
 
     const router = createMessageRouter({
@@ -1365,7 +1274,7 @@ describe("createMessageRouter", () => {
     const fallback = await router.handleIncomingMessage(sampleIncoming({ messageId: "msg-2", text: "run" }));
     expect(fallback).toEqual({
       type: "fallback",
-      text: "Provider rate limit reached. Please retry shortly."
+      text: "Provider rate limit reached. Please retry shortly.\nDetails: OpenAI HTTP 429 (rate limit) type=rate_limit_error: Try again."
     });
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -1390,8 +1299,8 @@ describe("createMessageRouter", () => {
     expect(status.text).toContain("provider.last_failure_reason: OpenAI HTTP 429 (rate limit) type=rate_limit_error: Try again.");
   });
 
-  it("appends safe provider failure details in verbose mode fallback messages", async () => {
-    const config = makeConfig({ runtime: { defaultVerbose: "full" } });
+  it("appends safe provider failure details in fallback messages", async () => {
+    const config = makeConfig();
     const workspace = createWorkspaceManager(config);
     await workspace.bootstrap();
 
@@ -1439,7 +1348,7 @@ describe("createMessageRouter", () => {
     );
   });
 
-  it("records tool result stats even when verbose mode is off and shows them in /status full", async () => {
+  it("records tool result stats and shows them in /status full", async () => {
     const config = makeConfig();
     const workspace = createWorkspaceManager(config);
     await workspace.bootstrap();
@@ -1471,13 +1380,12 @@ describe("createMessageRouter", () => {
       harness: makeHarnessMock()
     });
 
-    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose off", messageId: "msg-1" }));
     const reply = await router.handleIncomingMessage(sampleIncoming({ text: "hello", messageId: "msg-2" }));
-    expect(reply).toEqual({
-      type: "reply",
-      text: "assistant-reply",
-      origin: "assistant"
-    });
+    expect(reply.type).toBe("reply");
+    if (reply.type === "reply") {
+      expect(reply.text).toBe("📖 Read ×1 (5 chars)\n\nassistant-reply");
+      expect(reply.origin).toBe("assistant");
+    }
 
     const status = await router.handleIncomingMessage(sampleIncoming({ text: "/status full", messageId: "msg-3" }));
     expect(status.type).toBe("reply");
@@ -1526,13 +1434,14 @@ describe("createMessageRouter", () => {
       harness: makeHarnessMock()
     });
 
-    await router.handleIncomingMessage(sampleIncoming({ text: "/verbose off", messageId: "msg-1" }));
     const reply = await router.handleIncomingMessage(sampleIncoming({ text: "hello", messageId: "msg-2" }));
-    expect(reply).toEqual({
-      type: "reply",
-      text: "assistant-reply",
-      origin: "assistant"
-    });
+    expect(reply.type).toBe("reply");
+    if (reply.type === "reply") {
+      expect(reply.text).toContain("🐚 Bash ×1 · 1 failed");
+      expect(reply.text).toContain("⚠️ Bash failed: `grep missing` - Command exited with status 2");
+      expect(reply.text).toContain("assistant-reply");
+      expect(reply.origin).toBe("assistant");
+    }
 
     const status = await router.handleIncomingMessage(sampleIncoming({ text: "/status full", messageId: "msg-3" }));
     expect(status.type).toBe("reply");

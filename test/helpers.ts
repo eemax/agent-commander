@@ -29,8 +29,6 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       streamingEnabled: true,
       streamingMinUpdateMs: 100,
       draftBubbleMaxChars: 1500,
-      draftPreviewMaxSentences: 3,
-      draftPreviewMaxChars: 280,
       assistantFormat: "plain_text",
       maxFileSizeBytes: 10 * 1024 * 1024,
       fileDownloadTimeoutMs: 30_000,
@@ -73,7 +71,6 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
     runtime: {
       logLevel: "info",
       promptHistoryLimit: 20,
-      defaultVerbose: "full",
       toolLoopMaxSteps: 30,
       toolWorkflowTimeoutMs: 120_000,
       toolCommandTimeoutMs: 15_000,
