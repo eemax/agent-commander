@@ -109,6 +109,7 @@ Delete a completed session record. Fails if the process is still running.
 **Process lifecycle:**
 - Sessions are owner-scoped — only the creating owner can access them
 - Completed sessions auto-prune after `tools.completed_session_retention_ms` or when exceeding `tools.max_completed_sessions`
+- Running sessions are never pruned by that retention pass
 - Output per stream (stdout, stderr, combined) is independently bounded by `tools.max_output_chars`
 - Timed-out processes receive SIGKILL and are flagged as timed out
 

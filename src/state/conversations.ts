@@ -59,7 +59,6 @@ type ActiveConversationsIndex = Record<string, StashedConversationRecord[]>;
 type CurrentConversationsIndex = Record<string, CurrentConversationRecord>;
 
 type ConversationSessionCache = {
-  events: ConversationEvent[];
   promptMessages: PromptMessage[];
   promptMessageCount: number;
   lastAccessMs: number;
@@ -498,6 +497,43 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     return session;
   };
 
+  const evictCachedSession = (cacheKey: string): void => {
+    if (sessionCache.delete(cacheKey)) {
+      evictedSessions += 1;
+    }
+  };
+
+  const collectEligibleSessionCacheKeys = async (
+    currentIndex?: CurrentConversationsIndex,
+    activeIndex?: ActiveConversationsIndex
+  ): Promise<Set<string>> => {
+    const resolvedCurrent = currentIndex ?? await loadCurrentConversations();
+    const resolvedActive = activeIndex ?? await loadActiveConversations();
+    const eligible = new Set<string>();
+
+    for (const [chatId, record] of Object.entries(resolvedCurrent)) {
+      eligible.add(toCacheKey(chatId, record.conversationId));
+    }
+
+    for (const [chatId, stashes] of Object.entries(resolvedActive)) {
+      for (const stash of stashes) {
+        eligible.add(toCacheKey(chatId, stash.conversationId));
+      }
+    }
+
+    return eligible;
+  };
+
+  const isSessionCacheEligible = async (
+    chatId: string,
+    conversationId: string,
+    currentIndex?: CurrentConversationsIndex,
+    activeIndex?: ActiveConversationsIndex
+  ): Promise<boolean> => {
+    const eligibleCacheKeys = await collectEligibleSessionCacheKeys(currentIndex, activeIndex);
+    return eligibleCacheKeys.has(toCacheKey(chatId, conversationId));
+  };
+
   const pruneSessionCache = (): void => {
     if (sessionCache.size <= sessionCacheMaxEntries) {
       return;
@@ -521,13 +557,24 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       if (!target) {
         continue;
       }
-      sessionCache.delete(target.key);
-      evictedSessions += 1;
+      evictCachedSession(target.key);
     }
   };
 
+  const synchronizeSessionCacheEligibility = async (
+    currentIndex?: CurrentConversationsIndex,
+    activeIndex?: ActiveConversationsIndex
+  ): Promise<void> => {
+    const eligibleCacheKeys = await collectEligibleSessionCacheKeys(currentIndex, activeIndex);
+    for (const cacheKey of Array.from(sessionCache.keys())) {
+      if (!eligibleCacheKeys.has(cacheKey)) {
+        evictCachedSession(cacheKey);
+      }
+    }
+    pruneSessionCache();
+  };
+
   const applyEventToSession = (session: ConversationSessionCache, event: ConversationEvent): void => {
-    session.events.push(event);
     if (event.type === "message") {
       session.promptMessageCount += 1;
       session.promptMessages.push(toPromptMessage(event));
@@ -592,6 +639,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       return touchSession(cacheKey);
     }
 
+    const cacheable = await isSessionCacheEligible(chatId, conversationId);
     const target = conversationPath(chatId, conversationId);
     let raw: string;
 
@@ -601,19 +649,19 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       const nodeError = error as NodeJS.ErrnoException;
       if (nodeError.code === "ENOENT") {
         const emptySession: ConversationSessionCache = {
-          events: [],
           promptMessages: [],
           promptMessageCount: 0,
           lastAccessMs: Date.now()
         };
-        sessionCache.set(cacheKey, emptySession);
-        pruneSessionCache();
+        if (cacheable) {
+          sessionCache.set(cacheKey, emptySession);
+          pruneSessionCache();
+        }
         return emptySession;
       }
       throw error;
     }
 
-    const events: ConversationEvent[] = [];
     const promptMessages: PromptMessage[] = [];
     for (const line of raw.split(/\r?\n/)) {
       const trimmed = line.trim();
@@ -622,7 +670,6 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       }
       try {
         const event = parseConversationEvent(trimmed, target);
-        events.push(event);
         if (event.type === "message") {
           promptMessages.push(toPromptMessage(event));
         }
@@ -640,13 +687,14 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     }
 
     const session: ConversationSessionCache = {
-      events,
       promptMessages,
       promptMessageCount: promptMessages.length,
       lastAccessMs: Date.now()
     };
-    sessionCache.set(cacheKey, session);
-    pruneSessionCache();
+    if (cacheable) {
+      sessionCache.set(cacheKey, session);
+      pruneSessionCache();
+    }
     return session;
   };
 
@@ -748,14 +796,18 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       [chatId]: record
     };
     await saveCurrentConversations(next);
+    await synchronizeSessionCacheEligibility(next);
     return {
       index: next,
       record
     };
   };
 
-  const saveStashesForChat = async (chatId: string, stashes: StashedConversationRecord[]): Promise<void> => {
-    const index = await loadActiveConversations();
+  const withStashesForChat = (
+    index: ActiveConversationsIndex,
+    chatId: string,
+    stashes: StashedConversationRecord[]
+  ): ActiveConversationsIndex => {
     const next = {
       ...index
     };
@@ -764,7 +816,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     } else {
       next[chatId] = sortStashes(stashes);
     }
-    await saveActiveConversations(next);
+    return next;
   };
 
   return {
@@ -1312,8 +1364,10 @@ export function createConversationStore(params: ConversationStoreParams): Conver
           ...currentIndex,
           [chatId]: nextCurrent
         };
+        const nextActiveIndex = withStashesForChat(activeIndex, chatId, nextStashes);
         await saveCurrentConversations(nextCurrentIndex);
-        await saveStashesForChat(chatId, nextStashes);
+        await saveActiveConversations(nextActiveIndex);
+        await synchronizeSessionCacheEligibility(nextCurrentIndex, nextActiveIndex);
 
         return {
           archivedConversationId,
@@ -1397,8 +1451,10 @@ export function createConversationStore(params: ConversationStoreParams): Conver
           ...ensured.index,
           [chatId]: nextCurrent
         };
+        const nextActiveIndex = withStashesForChat(activeIndex, chatId, nextStashes);
         await saveCurrentConversations(nextCurrentIndex);
-        await saveStashesForChat(chatId, nextStashes);
+        await saveActiveConversations(nextActiveIndex);
+        await synchronizeSessionCacheEligibility(nextCurrentIndex, nextActiveIndex);
 
         return {
           stashedConversationId: stashedRecord.conversationId,
@@ -1423,6 +1479,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       historyAfterAppend: PromptMessage[];
     }> {
       return enqueueConversationAppend(paramsInput.chatId, paramsInput.conversationId, async () => {
+        const cacheKey = toCacheKey(paramsInput.chatId, paramsInput.conversationId);
         const session = await loadConversationSession(paramsInput.chatId, paramsInput.conversationId);
         const promptCountBeforeAppend = session.promptMessageCount;
 
@@ -1439,6 +1496,9 @@ export function createConversationStore(params: ConversationStoreParams): Conver
         };
 
         await appendEventInternal(paramsInput.chatId, paramsInput.conversationId, event, paramsInput.trace);
+        if (sessionCache.get(cacheKey) !== session) {
+          applyEventToSession(session, event);
+        }
         const historyAfterAppend = getBoundedHistory(session.promptMessages, paramsInput.historyLimit);
         return {
           promptCountBeforeAppend,

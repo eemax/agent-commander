@@ -113,6 +113,13 @@ When `observability.enabled` is `true`, the following events are emitted to `obs
 
 All events include trace context (`traceId`, `spanId`) for correlation. Content fields are subject to the observability sink's truncation (`max_string_chars`) and redaction rules.
 
+## Terminal Retention
+
+- Terminal tasks (`completed`, `failed`, `cancelled`, `timed_out`) are retained in memory for up to 10 minutes.
+- The manager also caps retained terminal tasks at 20 and drops the oldest terminal entries first.
+- Non-terminal tasks are never pruned by this retention pass, including `running`, `needs_steer`, `needs_input`, and `stalled`.
+- When a terminal task is pruned, its task record, event stream, trace context, and latest progress snapshot are all removed together.
+
 ## Telegram Tool Notices
 
 Subagent tool calls use action-specific messages instead of a generic "Tool: subagents" notice:

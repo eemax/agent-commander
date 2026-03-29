@@ -79,6 +79,9 @@ This is the canonical `config/config.json` shape.
 - `tool_cleanup_grace_ms`: positive integer, default `3000`
 - `tool_failure_breaker_threshold`: positive integer, default `4`
 - `session_cache_max_entries`: positive integer, default `200`
+  - maximum in-memory conversation sessions across the current active conversation plus any stashed conversations
+  - when `/stash <name>` moves the current conversation into the stash pool, that conversation remains cache-eligible through the transition
+  - archived, non-stashed conversations are read from JSONL on demand and are not retained in the session cache
 - `app_log_flush_interval_ms`: positive integer, default `1000`
 - `message_queue_mode`: `"batch" | "multi_turn"`, default `"batch"`
   - controls how messages sent during an active turn are processed after the turn completes
@@ -101,8 +104,8 @@ This is the canonical `config/config.json` shape.
 - `exec_yield_ms`: positive integer, default `10000`
 - `process_log_tail_lines`: positive integer, default `200`
 - `log_path`: path string, default `".agent-commander/tool-calls.jsonl"`
-- `completed_session_retention_ms`: positive integer, default `3600000`
-- `max_completed_sessions`: positive integer, default `500`
+- `completed_session_retention_ms`: positive integer, default `900000`
+- `max_completed_sessions`: positive integer, default `50`
 - `max_output_chars`: positive integer, default `200000`
 - `web_search`: object (optional, defaults shown)
   - API key source: `DEFAULT_PERPLEXITY_API_KEY` (optional)

@@ -83,6 +83,7 @@ Startup fails if frontmatter is missing/invalid, slug generation is invalid, or 
 - `/new` immediately creates a fresh conversation (archiving the current one) and displays conversation defaults.
 - `/new from` opens an inline menu to restore a stashed conversation or start fresh.
 - `/stash <name>` stashes current conversation under an alias, then switches to selected stash or a new conversation.
+- A conversation moved by `/stash <name>` stays eligible for the in-memory session cache as a stashed conversation; archived non-stashed conversations do not.
 - `/stash list` shows stashed conversations with alias, conversation tail, and relative stash age.
 - No automatic migration is performed from the previous filename layout; move/rename old files manually if you want to keep prior state.
 - New conversation and process session IDs are ULID-based (`conv_<ulid>`, `proc_<ulid>`), so they are lexically time-ordered.

@@ -36,6 +36,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const TERMINAL_TASK_RETENTION_MS = 10 * 60 * 1000;
+const MAX_RETAINED_TERMINAL_TASKS = 20;
+
 export class SubagentManager {
   private readonly tasks = new Map<string, SubagentTask>();
   private readonly events = new Map<string, SubagentEvent[]>();
@@ -107,6 +110,55 @@ export class SubagentManager {
     }
   }
 
+  private deleteTaskState(taskId: string): void {
+    const task = this.tasks.get(taskId);
+    if (task) {
+      this.clearTimers(task);
+    }
+    this.tasks.delete(taskId);
+    this.events.delete(taskId);
+    this.taskTraces.delete(taskId);
+    this.latestProgress.delete(taskId);
+  }
+
+  private pruneTerminalTasks(): void {
+    const nowMs = Date.now();
+    const retained: Array<{ taskId: string; finishedAtMs: number }> = [];
+
+    for (const task of this.tasks.values()) {
+      if (!isTerminal(task.state)) {
+        continue;
+      }
+
+      const finishedAtMs = task.finishedAt ? Date.parse(task.finishedAt) : Date.parse(task.updatedAt);
+      if (Number.isFinite(finishedAtMs) && nowMs - finishedAtMs > TERMINAL_TASK_RETENTION_MS) {
+        this.deleteTaskState(task.taskId);
+        continue;
+      }
+
+      retained.push({
+        taskId: task.taskId,
+        finishedAtMs: Number.isFinite(finishedAtMs) ? finishedAtMs : Number.MAX_SAFE_INTEGER
+      });
+    }
+
+    const overflow = retained.length - MAX_RETAINED_TERMINAL_TASKS;
+    if (overflow <= 0) {
+      return;
+    }
+
+    retained.sort((left, right) => {
+      if (left.finishedAtMs !== right.finishedAtMs) {
+        return left.finishedAtMs - right.finishedAtMs;
+      }
+      return left.taskId.localeCompare(right.taskId);
+    });
+
+    for (let index = 0; index < overflow; index += 1) {
+      this.deleteTaskState(retained[index].taskId);
+    }
+  }
+
   private appendEvent(
     taskId: string,
     kind: EventKind,
@@ -151,6 +203,7 @@ export class SubagentManager {
         elapsedSec: (Date.now() - task.startedAtMs) / 1000,
         errorCode: event.error?.code ?? null
       });
+      this.pruneTerminalTasks();
     } else if (state === "needs_steer" || state === "needs_input" || state === "stalled") {
       this.emitObs("subagent.task.state_change", taskId, {
         state,
@@ -419,6 +472,8 @@ export class SubagentManager {
   // ── Public action methods ──────────────────────────────────────────────────
 
   spawn(ownerId: string, params: SpawnTaskParams): SpawnResponse {
+    this.pruneTerminalTasks();
+
     // Check concurrency limit
     let runningCount = 0;
     for (const t of this.tasks.values()) {
@@ -531,6 +586,8 @@ export class SubagentManager {
     tasks: Record<string, string>,
     maxEvents?: number
   ): RecvResponse {
+    this.pruneTerminalTasks();
+
     // Filter to only tasks owned by the caller
     const ownedTasks: Record<string, string> = {};
     for (const [taskId, cursor] of Object.entries(tasks)) {
@@ -601,6 +658,7 @@ export class SubagentManager {
   }
 
   send(ownerId: string, taskId: string, message: SupervisorMessage): SendResponse {
+    this.pruneTerminalTasks();
     const task = this.requireTaskForOwner(taskId, ownerId);
 
     if (isTerminal(task.state)) {
@@ -640,6 +698,7 @@ export class SubagentManager {
   }
 
   inspect(ownerId: string, taskId: string): TaskSnapshot {
+    this.pruneTerminalTasks();
     const task = this.requireTaskForOwner(taskId, ownerId);
     return this.toSnapshot(task);
   }
@@ -648,6 +707,7 @@ export class SubagentManager {
     states?: TaskState[];
     labels?: Record<string, string>;
   }): ListTaskSummary[] {
+    this.pruneTerminalTasks();
     const results: ListTaskSummary[] = [];
 
     for (const task of this.tasks.values()) {
@@ -676,6 +736,7 @@ export class SubagentManager {
   }
 
   cancel(ownerId: string, taskId: string, reason: string): CancelResponse {
+    this.pruneTerminalTasks();
     const task = this.requireTaskForOwner(taskId, ownerId);
 
     if (isTerminal(task.state)) {
@@ -706,6 +767,7 @@ export class SubagentManager {
     timeoutMs: number,
     cursor?: string
   ): Promise<RecvResponse> {
+    this.pruneTerminalTasks();
     const effectiveTimeout = Math.min(timeoutMs, this.config.awaitMaxTimeoutMs);
     const task = this.requireTaskForOwner(taskId, ownerId);
     const stream = this.events.get(taskId) ?? [];
@@ -953,6 +1015,7 @@ export class SubagentManager {
     failedTasks: number;
     cancelledTasks: number;
   } {
+    this.pruneTerminalTasks();
     let running = 0;
     let completed = 0;
     let failed = 0;

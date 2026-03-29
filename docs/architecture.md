@@ -41,7 +41,7 @@ Agent Commander is intentionally small:
 ### State
 
 - `src/state/conversations.ts`
-  JSONL persistence + current conversation index + stashed active conversations + conversation-scoped runtime profiles + per-conversation append queues + bounded deterministic session cache eviction.
+  JSONL persistence + current conversation index + stashed active conversations + conversation-scoped runtime profiles + per-conversation append queues + bounded session cache eviction limited to current/stashed conversations.
 - `src/state/events.ts`
   Typed conversation-event codec for JSONL parse/serialize.
 - `src/context.ts`

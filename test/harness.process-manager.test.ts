@@ -215,4 +215,55 @@ describe("process manager", () => {
     const health = manager.getHealth();
     expect(health.truncatedCombinedChars).toBeGreaterThan(0);
   });
+
+  it("prunes completed sessions by age without touching running sessions", async () => {
+    const manager = new ProcessManager({
+      completedSessionRetentionMs: 25,
+      maxCompletedSessions: 50,
+      maxOutputChars: 200_000
+    });
+
+    const completedSessionId = await startQuickCommand(manager, "chat-1", "echo done");
+    await expect(manager.waitForCompletion(completedSessionId, 2_000)).resolves.toBe(true);
+
+    const runningSessionId = await startQuickCommand(manager, "chat-1", "sleep 5");
+    await sleep(50);
+
+    const sessions = manager.listSessionsByOwner("chat-1");
+    expect(sessions.map((session) => session.sessionId)).toContain(runningSessionId);
+    expect(sessions.map((session) => session.sessionId)).not.toContain(completedSessionId);
+
+    const terminated = await manager.terminateSession(
+      runningSessionId,
+      { graceMs: 50, forceSignal: "SIGKILL" },
+      "chat-1"
+    );
+    expect(terminated.ok).toBe(true);
+  });
+
+  it("prunes the oldest completed sessions when exceeding the retention cap", async () => {
+    const manager = new ProcessManager({
+      completedSessionRetentionMs: 3_600_000,
+      maxCompletedSessions: 2,
+      maxOutputChars: 200_000
+    });
+
+    const firstSessionId = await startQuickCommand(manager, "chat-1", "echo first");
+    await expect(manager.waitForCompletion(firstSessionId, 2_000)).resolves.toBe(true);
+    await sleep(20);
+
+    const secondSessionId = await startQuickCommand(manager, "chat-1", "echo second");
+    await expect(manager.waitForCompletion(secondSessionId, 2_000)).resolves.toBe(true);
+    await sleep(20);
+
+    const thirdSessionId = await startQuickCommand(manager, "chat-1", "echo third");
+    await expect(manager.waitForCompletion(thirdSessionId, 2_000)).resolves.toBe(true);
+
+    const sessions = manager.listSessionsByOwner("chat-1");
+    const sessionIds = sessions.map((session) => session.sessionId);
+    expect(sessionIds).not.toContain(firstSessionId);
+    expect(sessionIds).toContain(secondSessionId);
+    expect(sessionIds).toContain(thirdSessionId);
+    expect(sessions).toHaveLength(2);
+  });
 });

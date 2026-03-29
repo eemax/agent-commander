@@ -85,7 +85,7 @@ Manage long-running bash sessions started by `bash` with `background: true` or c
 - `kill(sessionId, signal?)` — terminate (default: SIGTERM)
 - `clear(sessionId)` — clear buffered output for a completed session
 - `remove(sessionId)` — permanently discard a session
-- Sessions are owner-scoped. Completed sessions are retained for 1 hour, up to 500 max
+- Sessions are owner-scoped. Completed sessions are retained for 15 minutes, up to 50 max
 
 **When to use:** Monitoring builds, tailing logs, interacting with REPLs or servers, cleaning up stale sessions.
 

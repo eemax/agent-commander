@@ -740,6 +740,66 @@ describe("SubagentManager", () => {
     });
   });
 
+  describe("terminal task retention", () => {
+    it("prunes old terminal tasks without removing active tasks", () => {
+      manager.shutdown();
+      manager = new SubagentManager(makeConfig({
+        defaultHeartbeatIntervalSec: 600,
+        defaultIdleTimeoutSec: 3_600,
+        defaultStallTimeoutSec: 7_200
+      }));
+
+      const terminal = manager.spawn("owner-1", makeSpawnParams({ title: "old terminal" }));
+      manager.cancel("owner-1", terminal.taskId, "done");
+
+      const running = manager.spawn("owner-1", makeSpawnParams({ title: "still active" }));
+
+      vi.advanceTimersByTime(600_001);
+
+      const health = manager.getHealth();
+      expect(health.totalTasks).toBe(1);
+      expect(health.runningTasks).toBe(1);
+      expect(() => manager.inspect("owner-1", terminal.taskId)).toThrow(/Task not found/);
+      expect(manager.inspect("owner-1", running.taskId).state).toBe("running");
+    });
+
+    it("does not prune non-terminal tasks that are waiting on supervisor input", () => {
+      manager.shutdown();
+      manager = new SubagentManager(makeConfig({
+        defaultHeartbeatIntervalSec: 600,
+        defaultIdleTimeoutSec: 3_600,
+        defaultStallTimeoutSec: 7_200
+      }));
+
+      const response = manager.spawn("owner-1", makeSpawnParams({ title: "needs steer" }));
+      manager.pushWorkerEvent(response.taskId, "question", {
+        message: "Which path should I take?"
+      });
+
+      vi.advanceTimersByTime(600_001);
+
+      const snapshot = manager.inspect("owner-1", response.taskId);
+      expect(snapshot.state).toBe("needs_steer");
+      expect(manager.getHealth().totalTasks).toBe(1);
+    });
+
+    it("caps retained terminal tasks at twenty", () => {
+      const taskIds: string[] = [];
+
+      for (let index = 0; index < 21; index += 1) {
+        const response = manager.spawn("owner-1", makeSpawnParams({ title: `task ${index}` }));
+        taskIds.push(response.taskId);
+        manager.cancel("owner-1", response.taskId, "done");
+        vi.advanceTimersByTime(1);
+      }
+
+      const health = manager.getHealth();
+      expect(health.totalTasks).toBe(20);
+      expect(() => manager.inspect("owner-1", taskIds[0] as string)).toThrow(/Task not found/);
+      expect(manager.inspect("owner-1", taskIds[20] as string).state).toBe("cancelled");
+    });
+  });
+
   // ── Worker integration ────────────────────────────────────────────────────
 
   describe("worker integration", () => {

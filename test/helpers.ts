@@ -94,8 +94,8 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       execYieldMs: 10_000,
       processLogTailLines: 200,
       logPath: path.join(root, ".agent-commander", "tool-calls.jsonl"),
-      completedSessionRetentionMs: 3_600_000,
-      maxCompletedSessions: 500,
+      completedSessionRetentionMs: 900_000,
+      maxCompletedSessions: 50,
       maxOutputChars: 200_000,
       webSearch: {
         apiKey: null,

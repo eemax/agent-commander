@@ -666,4 +666,86 @@ describe("conversation store", () => {
     expect(contents).toContain("second message");
     expect(contents).toContain("third message");
   });
+
+  it("keeps only current and stashed conversations resident in the session cache", async () => {
+    const root = createTempDir("acmd-conv-cache-eligibility-");
+    const store = createConversationStore({
+      conversationsDir: path.join(root, "conversations"),
+      stashedConversationsPath: path.join(root, "active.json"),
+      sessionCacheMaxEntries: 10
+    });
+
+    const chatId = "chat-1";
+    const firstConversationId = await store.ensureActiveConversation(chatId);
+
+    await store.getPromptHistory(chatId, firstConversationId, null);
+    expect(store.getHealth().cachedSessions).toBe(1);
+
+    const stashed = await store.completeStashSelection(chatId, "focus", { type: "new" }, "manual_stash");
+    await store.getPromptHistory(chatId, stashed.stashedConversationId, null);
+    await store.getPromptHistory(chatId, stashed.conversationId, null);
+    expect(store.getHealth().cachedSessions).toBe(2);
+
+    const archivedConversationId = stashed.conversationId;
+    await store.completeNewSelection(chatId, { type: "new" }, "manual_new");
+
+    const afterNew = store.getHealth();
+    expect(afterNew.cachedSessions).toBe(1);
+
+    await store.getPromptHistory(chatId, archivedConversationId, null);
+    const afterArchivedRead = store.getHealth();
+    expect(afterArchivedRead.cachedSessions).toBe(1);
+    expect(afterArchivedRead.evictedSessions).toBe(afterNew.evictedSessions);
+  });
+
+  it("keeps a cached conversation resident when it transitions from current to stashed", async () => {
+    const root = createTempDir("acmd-conv-cache-stash-transition-");
+    const store = createConversationStore({
+      conversationsDir: path.join(root, "conversations"),
+      stashedConversationsPath: path.join(root, "active.json"),
+      sessionCacheMaxEntries: 10
+    });
+
+    const chatId = "chat-1";
+    const firstConversationId = await store.ensureActiveConversation(chatId);
+
+    await store.getPromptHistory(chatId, firstConversationId, null);
+    expect(store.getHealth().cachedSessions).toBe(1);
+
+    const result = await store.completeStashSelection(chatId, "focus", { type: "new" }, "manual_stash");
+    expect(result.stashedConversationId).toBe(firstConversationId);
+    expect(store.getHealth().cachedSessions).toBe(1);
+
+    await store.getPromptHistory(chatId, result.stashedConversationId, null);
+    expect(store.getHealth().cachedSessions).toBe(1);
+
+    await store.getPromptHistory(chatId, result.conversationId, null);
+    expect(store.getHealth().cachedSessions).toBe(2);
+  });
+
+  it("applies session cache eviction only across eligible current and stashed conversations", async () => {
+    const root = createTempDir("acmd-conv-cache-cap-");
+    const store = createConversationStore({
+      conversationsDir: path.join(root, "conversations"),
+      stashedConversationsPath: path.join(root, "active.json"),
+      sessionCacheMaxEntries: 2
+    });
+
+    const firstChat = "chat-1";
+    const firstConversationId = await store.ensureActiveConversation(firstChat);
+    await store.getPromptHistory(firstChat, firstConversationId, null);
+
+    const stashed = await store.completeStashSelection(firstChat, "alpha", { type: "new" }, "manual_stash");
+    await store.getPromptHistory(firstChat, stashed.stashedConversationId, null);
+    await store.getPromptHistory(firstChat, stashed.conversationId, null);
+
+    const secondChat = "chat-2";
+    const secondConversationId = await store.ensureActiveConversation(secondChat);
+    await store.getPromptHistory(secondChat, secondConversationId, null);
+
+    const health = store.getHealth();
+    expect(health.cachedSessions).toBe(2);
+    expect(health.maxCachedSessions).toBe(2);
+    expect(health.evictedSessions).toBeGreaterThanOrEqual(1);
+  });
 });

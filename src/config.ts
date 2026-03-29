@@ -80,8 +80,8 @@ const DEFAULT_CONFIG_TEMPLATE = {
     exec_yield_ms: 10_000,
     process_log_tail_lines: 200,
     log_path: ".agent-commander/tool-calls.jsonl",
-    completed_session_retention_ms: 3_600_000,
-    max_completed_sessions: 500,
+    completed_session_retention_ms: 900_000,
+    max_completed_sessions: 50,
     max_output_chars: 200_000,
     web_search: {
       default_preset: "pro-search",
