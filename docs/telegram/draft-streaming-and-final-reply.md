@@ -641,6 +641,7 @@ Formatting rules today:
 
 - only `resultType === "reply"` is eligible for assistant Markdown formatting
 - the main final reply uses the full Telegram-safe Markdown-to-HTML renderer when `assistant_format = "markdown_to_html"`
+- rendered block-level content preserves visible blank lines between paragraphs, lists, blockquotes, and code blocks
 - extra replies use a simpler HTML renderer
 - `fallback` and `unauthorized` stay plain text
 - formatting failures fall back to plain text rather than breaking reply delivery
@@ -668,6 +669,8 @@ The draft bubble is therefore intentionally much smaller than Telegram's maximum
 
 - `sendTelegramReplyChunks()` uses `splitTelegramMessage(...)`
 - chunking happens after formatting choice is made
+- the active splitter searches backward from `4096` down to `3000` for a natural break
+- break priority is `\n\n`, then `\n`, then space, then a hard split at `4096`
 - in HTML mode, the splitter preserves tag balance across chunk boundaries
 - inline keyboards are attached only to the last chunk
 

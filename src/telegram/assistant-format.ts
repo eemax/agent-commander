@@ -43,6 +43,11 @@ function trimAndCollapseNewlines(value: string): string {
   return value.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function finishBlock(content: string): string {
+  const normalized = trimAndCollapseNewlines(content);
+  return normalized.length > 0 ? `${normalized}\n\n` : "";
+}
+
 function prefixMultiline(content: string, prefix: string, continuationPrefix: string): string {
   const lines = trimAndCollapseNewlines(content).split("\n");
   if (lines.length === 0 || (lines.length === 1 && lines[0].length === 0)) {
@@ -59,12 +64,12 @@ TELEGRAM_RENDERER.heading = function ({ tokens }: Tokens.Heading): string {
   if (content.length === 0) {
     return "";
   }
-  return `<b>${content}</b>\n`;
+  return finishBlock(`<b>${content}</b>`);
 };
 
 TELEGRAM_RENDERER.paragraph = function ({ tokens }: Tokens.Paragraph): string {
   const content = trimAndCollapseNewlines(this.parser.parseInline(tokens));
-  return content.length > 0 ? `${content}\n` : "";
+  return finishBlock(content);
 };
 
 TELEGRAM_RENDERER.list = function (token: Tokens.List): string {
@@ -74,7 +79,7 @@ TELEGRAM_RENDERER.list = function (token: Tokens.List): string {
     const itemText = trimAndCollapseNewlines(this.parser.parse(item.tokens));
     return prefixMultiline(itemText, marker, "   ");
   });
-  return lines.join("\n").concat("\n");
+  return finishBlock(lines.join("\n"));
 };
 
 TELEGRAM_RENDERER.listitem = function (item: Tokens.ListItem): string {
@@ -86,7 +91,7 @@ TELEGRAM_RENDERER.checkbox = function ({ checked }: Tokens.Checkbox): string {
 };
 
 TELEGRAM_RENDERER.table = function (token: Tokens.Table): string {
-  return `<pre><code>${escapeHtml(trimAndCollapseNewlines(token.raw))}</code></pre>\n`;
+  return finishBlock(`<pre><code>${escapeHtml(trimAndCollapseNewlines(token.raw))}</code></pre>`);
 };
 
 TELEGRAM_RENDERER.html = function ({ text }: Tokens.HTML | Tokens.Tag): string {
@@ -95,11 +100,11 @@ TELEGRAM_RENDERER.html = function ({ text }: Tokens.HTML | Tokens.Tag): string {
 
 TELEGRAM_RENDERER.blockquote = function ({ tokens }: Tokens.Blockquote): string {
   const content = trimAndCollapseNewlines(this.parser.parse(tokens));
-  return content.length > 0 ? `<blockquote>${content}</blockquote>\n` : "";
+  return finishBlock(content.length > 0 ? `<blockquote>${content}</blockquote>` : "");
 };
 
 TELEGRAM_RENDERER.code = function ({ text }: Tokens.Code): string {
-  return `<pre><code>${escapeHtml(text)}</code></pre>\n`;
+  return finishBlock(`<pre><code>${escapeHtml(text)}</code></pre>`);
 };
 
 TELEGRAM_RENDERER.br = function (): string {
@@ -107,7 +112,7 @@ TELEGRAM_RENDERER.br = function (): string {
 };
 
 TELEGRAM_RENDERER.hr = function (): string {
-  return "\n";
+  return "\n\n";
 };
 
 TELEGRAM_RENDERER.image = function ({ href, text }: Tokens.Image): string {

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { splitTelegramMessage, splitFinalReply, TELEGRAM_MESSAGE_LIMIT, findDraftSplitPoint } from "../src/telegram/message-split.js";
 
 describe("splitTelegramMessage", () => {
+  const MIN_CHUNK = TELEGRAM_MESSAGE_LIMIT - 1096; // 3000
+
   it("returns a single chunk for short text", () => {
     expect(splitTelegramMessage("hello")).toEqual(["hello"]);
   });
@@ -11,54 +13,42 @@ describe("splitTelegramMessage", () => {
     expect(splitTelegramMessage(text)).toEqual([text]);
   });
 
-  it("prefers paragraph break over line break for plain text split", () => {
-    // Build text with both \n and \n\n — the split should happen at \n\n
-    const paragraph1 = ("a".repeat(80) + "\n").repeat(30).trimEnd(); // ~2430 chars with \n
-    const paragraph2 = ("b".repeat(80) + "\n").repeat(30).trimEnd(); // ~2430 chars with \n
-    const text = paragraph1 + "\n\n" + paragraph2;
-    expect(text.length).toBeGreaterThan(TELEGRAM_MESSAGE_LIMIT);
+  it("prefers paragraph break within the 3000-4096 search window for plain text", () => {
+    const before = "a".repeat(3600);
+    const after = "b".repeat(800);
+    const text = before + "\n\n" + after;
 
     const chunks = splitTelegramMessage(text);
     expect(chunks.length).toBe(2);
-    // Split happens at \n\n: first chunk gets paragraph1 + trailing \n,
-    // second chunk starts clean after the paragraph break
-    expect(chunks[0]).toBe(paragraph1 + "\n");
-    expect(chunks[1]).toBe(paragraph2);
+    expect(chunks[0]).toBe(before + "\n");
+    expect(chunks[1]).toBe(after);
+    expect(chunks[0].length).toBeGreaterThan(3500);
   });
 
-  it("splits plain text at newline boundary", () => {
-    const line = "a".repeat(100);
-    const lines = Array.from({ length: 50 }, () => line);
-    const text = lines.join("\n");
-    expect(text.length).toBeGreaterThan(TELEGRAM_MESSAGE_LIMIT);
+  it("falls back to newline within the 3000-4096 search window for plain text", () => {
+    const before = "a".repeat(3700);
+    const after = "b".repeat(800);
+    const text = before + "\n" + after;
 
     const chunks = splitTelegramMessage(text);
-    expect(chunks.length).toBeGreaterThan(1);
-    for (const chunk of chunks) {
-      expect(chunk.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
-    }
-    // Rejoining should reconstruct (with newlines consumed at boundaries)
-    expect(chunks.join("\n").replace(/\n+/g, "\n")).toContain(line);
+    expect(chunks).toEqual([before, after]);
   });
 
-  it("splits plain text at space boundary when no newlines available", () => {
-    const word = "abcdefgh ";
-    const text = word.repeat(Math.ceil(TELEGRAM_MESSAGE_LIMIT / word.length) + 10);
-    expect(text.length).toBeGreaterThan(TELEGRAM_MESSAGE_LIMIT);
+  it("falls back to space within the 3000-4096 search window for plain text", () => {
+    const before = "a".repeat(3800);
+    const after = "b".repeat(800);
+    const text = before + " " + after;
 
     const chunks = splitTelegramMessage(text);
-    expect(chunks.length).toBeGreaterThan(1);
-    for (const chunk of chunks) {
-      expect(chunk.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
-    }
+    expect(chunks).toEqual([before, " " + after]);
   });
 
-  it("hard-splits when no whitespace available", () => {
-    const text = "x".repeat(TELEGRAM_MESSAGE_LIMIT + 100);
+  it("hard-splits at 4096 when no break exists inside the search window", () => {
+    const text = "a".repeat(MIN_CHUNK - 200) + "\n" + "b".repeat(2000);
     const chunks = splitTelegramMessage(text);
     expect(chunks.length).toBe(2);
     expect(chunks[0].length).toBe(TELEGRAM_MESSAGE_LIMIT);
-    expect(chunks[1].length).toBe(100);
+    expect(chunks[1].length).toBe(text.length - TELEGRAM_MESSAGE_LIMIT);
   });
 
   it("splits HTML with proper tag closing and reopening", () => {
@@ -75,6 +65,45 @@ describe("splitTelegramMessage", () => {
     for (const chunk of chunks) {
       expect(chunk.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
     }
+  });
+
+  it("prefers paragraph breaks within the 3000-4096 search window for HTML", () => {
+    const before = "a".repeat(3600);
+    const after = "b".repeat(800);
+    const html = `<b>${before}\n\n${after}</b>`;
+
+    const chunks = splitTelegramMessage(html, { parseMode: "HTML" });
+
+    expect(chunks).toEqual([
+      `<b>${before}\n</b>`,
+      `<b>${after}</b>`
+    ]);
+  });
+
+  it("falls back to newline within the 3000-4096 search window for HTML", () => {
+    const before = "a".repeat(3700);
+    const after = "b".repeat(800);
+    const html = `<b>${before}\n${after}</b>`;
+
+    const chunks = splitTelegramMessage(html, { parseMode: "HTML" });
+
+    expect(chunks).toEqual([
+      `<b>${before}</b>`,
+      `<b>${after}</b>`
+    ]);
+  });
+
+  it("falls back to space within the 3000-4096 search window for HTML", () => {
+    const before = "a".repeat(3800);
+    const after = "b".repeat(800);
+    const html = `<b>${before} ${after}</b>`;
+
+    const chunks = splitTelegramMessage(html, { parseMode: "HTML" });
+
+    expect(chunks).toEqual([
+      `<b>${before}</b>`,
+      `<b> ${after}</b>`
+    ]);
   });
 
   it("handles nested HTML tags across split boundaries", () => {
@@ -140,33 +169,32 @@ describe("findDraftSplitPoint", () => {
 });
 
 describe("splitFinalReply", () => {
-  const MAX_CHUNK = TELEGRAM_MESSAGE_LIMIT - 596; // 3500
+  const MIN_CHUNK = TELEGRAM_MESSAGE_LIMIT - 1096; // 3000
 
   it("returns a single chunk for short text", () => {
     expect(splitFinalReply("hello")).toEqual(["hello"]);
   });
 
   it("returns a single chunk at exactly the limit", () => {
-    const text = "a".repeat(MAX_CHUNK);
+    const text = "a".repeat(TELEGRAM_MESSAGE_LIMIT);
     expect(splitFinalReply(text)).toEqual([text]);
   });
 
   it("prefers paragraph break within search window", () => {
-    // Place a \n\n at position 3200 (within 3000-3500 window)
-    const before = "a".repeat(3200);
-    const after = "b".repeat(2000);
+    const before = "a".repeat(3600);
+    const after = "b".repeat(800);
     const text = before + "\n\n" + after;
 
     const chunks = splitFinalReply(text);
     expect(chunks.length).toBe(2);
     expect(chunks[0]).toBe(before + "\n");
     expect(chunks[1]).toBe(after);
+    expect(chunks[0].length).toBeGreaterThan(3500);
   });
 
   it("falls back to newline when no paragraph break in window", () => {
-    // No \n\n in the search window, but a \n at position 3300
-    const before = "a".repeat(3300);
-    const after = "b".repeat(1500);
+    const before = "a".repeat(3700);
+    const after = "b".repeat(800);
     const text = before + "\n" + after;
 
     const chunks = splitFinalReply(text);
@@ -176,32 +204,29 @@ describe("splitFinalReply", () => {
   });
 
   it("falls back to space when no newlines in window", () => {
-    // No newlines in the window, but a space at position 3400
-    const before = "a".repeat(3400);
-    const after = "b".repeat(1500);
+    const before = "a".repeat(3800);
+    const after = "b".repeat(800);
     const text = before + " " + after;
 
     const chunks = splitFinalReply(text);
     expect(chunks.length).toBe(2);
     expect(chunks[0]).toBe(before);
-    // Note: remaining starts with " b..." → space is part of next chunk
     expect(chunks[1]).toBe(" " + after);
   });
 
-  it("hard-splits at MAX_CHUNK when no break found", () => {
-    const text = "a".repeat(5000);
+  it("hard-splits at 4096 when no break is found inside the search window", () => {
+    const text = "a".repeat(MIN_CHUNK - 200) + "\n" + "b".repeat(2000);
     const chunks = splitFinalReply(text);
     expect(chunks.length).toBe(2);
-    expect(chunks[0]).toBe("a".repeat(MAX_CHUNK));
-    expect(chunks[1]).toBe("a".repeat(1500));
+    expect(chunks[0]).toBe(text.slice(0, TELEGRAM_MESSAGE_LIMIT));
+    expect(chunks[1]).toBe(text.slice(TELEGRAM_MESSAGE_LIMIT));
   });
 
   it("splits into multiple chunks for very long text", () => {
-    const text = "a".repeat(10000);
+    const text = "a".repeat(5000);
     const chunks = splitFinalReply(text);
-    expect(chunks.length).toBe(3);
-    expect(chunks[0]).toBe("a".repeat(MAX_CHUNK));
-    expect(chunks[1]).toBe("a".repeat(MAX_CHUNK));
-    expect(chunks[2]).toBe("a".repeat(10000 - 2 * MAX_CHUNK));
+    expect(chunks.length).toBe(2);
+    expect(chunks[0]).toBe("a".repeat(TELEGRAM_MESSAGE_LIMIT));
+    expect(chunks[1]).toBe("a".repeat(5000 - TELEGRAM_MESSAGE_LIMIT));
   });
 });

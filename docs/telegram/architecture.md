@@ -418,6 +418,13 @@ On the text-message dispatch path, `reply` and `fallback` share the same final-t
 - `prepareTelegramReply()` optionally converts assistant Markdown to Telegram-safe HTML
 - `sendTelegramReplyChunks()` splits oversized text to stay under Telegram message limits
 
+Important current behavior:
+
+- formatting happens before chunking, so the splitter sees the final rendered text
+- the Markdown renderer preserves visible blank lines between block-level elements
+- permanent reply chunking searches backward from `4096` down to `3000`, preferring `\n\n`, then `\n`, then space, then a hard split
+- in HTML mode, the splitter still closes and reopens supported tags across chunk boundaries
+
 `src/telegram/bot.ts` then calls grammY methods such as:
 
 - `ctx.reply(...)`

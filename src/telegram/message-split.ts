@@ -1,4 +1,6 @@
 export const TELEGRAM_MESSAGE_LIMIT = 4096;
+const FINAL_REPLY_SEARCH_WINDOW = 1096;
+const FINAL_REPLY_SEARCH_START = TELEGRAM_MESSAGE_LIMIT - FINAL_REPLY_SEARCH_WINDOW;
 
 type SplitOptions = {
   parseMode?: "HTML";
@@ -26,16 +28,7 @@ function splitPlainText(text: string): string[] {
 
   while (remaining.length > TELEGRAM_MESSAGE_LIMIT) {
     const slice = remaining.slice(0, TELEGRAM_MESSAGE_LIMIT);
-    let splitAt = slice.lastIndexOf("\n\n");
-    if (splitAt > 0) {
-      splitAt += 1; // split after the first \n, so the second \n is stripped below
-    }
-    if (splitAt <= 0) {
-      splitAt = slice.lastIndexOf("\n");
-    }
-    if (splitAt <= 0) {
-      splitAt = slice.lastIndexOf(" ");
-    }
+    let splitAt = findPreferredFinalSplitPoint(slice, FINAL_REPLY_SEARCH_START);
     if (splitAt <= 0) {
       splitAt = TELEGRAM_MESSAGE_LIMIT;
     }
@@ -126,16 +119,19 @@ function splitHtml(text: string): string[] {
     // Regular character — check if adding it would exceed the limit
     const overhead = tagOverhead(tagStack);
     if (currentChunk.length + 1 + overhead > TELEGRAM_MESSAGE_LIMIT) {
-      // Try to find a better split point (newline or space)
-      const splitAt = findSplitPoint(currentChunk, openingTagsFor(tagStack).length);
+      const reopenPrefix = openingTagsFor(tagStack);
+      const splitAt = findPreferredFinalSplitPoint(
+        currentChunk,
+        Math.max(reopenPrefix.length, currentChunk.length - FINAL_REPLY_SEARCH_WINDOW)
+      );
       if (splitAt > 0 && splitAt < currentChunk.length) {
         const kept = currentChunk.slice(0, splitAt);
         const remainder = currentChunk.slice(splitAt).replace(/^\n/, "");
         chunks.push(kept + closingTagsFor(tagStack));
-        currentChunk = openingTagsFor(tagStack) + remainder;
+        currentChunk = reopenPrefix + remainder;
       } else {
         chunks.push(currentChunk + closingTagsFor(tagStack));
-        currentChunk = openingTagsFor(tagStack);
+        currentChunk = reopenPrefix;
       }
     }
 
@@ -154,8 +150,8 @@ function splitHtml(text: string): string[] {
  * Find a good split point in the chunk text, preferring \n\n > \n > space.
  * Returns an index to split at, or -1 if no good point found.
  */
-function findSplitPoint(text: string, prefixLength: number): number {
-  const searchFrom = Math.max(prefixLength, text.length - 200);
+function findPreferredFinalSplitPoint(text: string, minimumIndex: number): number {
+  const searchFrom = Math.max(0, minimumIndex);
   let bestNewline = -1;
   let bestSpace = -1;
 
@@ -191,52 +187,12 @@ export function findDraftSplitPoint(text: string, window: number = 596): number 
 /**
  * Split a final reply into chunks for sending as permanent Telegram messages.
  *
- * Each chunk targets at most `TELEGRAM_MESSAGE_LIMIT - 596` chars (3500) to
- * leave headroom for HTML formatting expansion.  Break points are chosen
- * within a 500-char search window (positions 3000–3500) with priority:
- * `\n\n` > `\n` > space > hard split at 3500.
+ * Uses the same backward search policy as the active permanent-send path:
+ * search from `4096` down to `3000`, preferring `\n\n`, then `\n`, then
+ * space, then a hard split at `4096`.
  */
 export function splitFinalReply(text: string): string[] {
-  const MAX_CHUNK = TELEGRAM_MESSAGE_LIMIT - 596;          // 3500
-  const MIN_CHUNK = TELEGRAM_MESSAGE_LIMIT - 1096;         // 3000
-
-  if (text.length <= MAX_CHUNK) {
-    return [text];
-  }
-
-  const chunks: string[] = [];
-  let remaining = text;
-
-  while (remaining.length > MAX_CHUNK) {
-    const slice = remaining.slice(0, MAX_CHUNK);
-
-    // Search backward from MAX_CHUNK to MIN_CHUNK for a natural break
-    let splitAt = -1;
-    let bestNewline = -1;
-    let bestSpace = -1;
-
-    for (let j = MAX_CHUNK - 1; j >= MIN_CHUNK; j -= 1) {
-      if (slice[j] === "\n" && j > 0 && slice[j - 1] === "\n") {
-        splitAt = j;  // split before the second \n
-        break;
-      }
-      if (slice[j] === "\n" && bestNewline < 0) bestNewline = j;
-      if (slice[j] === " " && bestSpace < 0) bestSpace = j;
-    }
-
-    if (splitAt < 0) splitAt = bestNewline;
-    if (splitAt < 0) splitAt = bestSpace;
-    if (splitAt < 0) splitAt = MAX_CHUNK;
-
-    chunks.push(remaining.slice(0, splitAt));
-    remaining = remaining.slice(splitAt).replace(/^\n/, "");
-  }
-
-  if (remaining.length > 0) {
-    chunks.push(remaining);
-  }
-
-  return chunks;
+  return splitPlainText(text);
 }
 
 function findLastIndex<T>(arr: T[], predicate: (item: T) => boolean): number {

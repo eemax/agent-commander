@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderBasicTelegramHtml, renderMarkdownToTelegramHtml } from "../src/telegram/assistant-format.js";
 import { prepareTelegramReply } from "../src/telegram/bot.js";
+import { sendTelegramReplyChunks } from "../src/telegram/outbound.js";
 
 describe("renderMarkdownToTelegramHtml", () => {
   it("renders common markdown formatting into Telegram-safe HTML", () => {
@@ -63,6 +64,57 @@ describe("renderMarkdownToTelegramHtml", () => {
     expect(output).not.toContain("javascript:");
     expect(output).toContain("<a>bad</a>");
     expect(output).toContain('<a href="https://example.com/path">good</a>');
+  });
+
+  it("preserves blank lines between paragraphs", () => {
+    const output = renderMarkdownToTelegramHtml("First paragraph\n\nSecond paragraph");
+
+    expect(output).toBe("First paragraph\n\nSecond paragraph");
+  });
+
+  it("preserves paragraph separation around lists", () => {
+    const output = renderMarkdownToTelegramHtml(
+      [
+        "Intro",
+        "",
+        "- first",
+        "- second",
+        "",
+        "Tail"
+      ].join("\n")
+    );
+
+    expect(output).toBe("Intro\n\n- first\n- second\n\nTail");
+  });
+
+  it("preserves paragraph separation around blockquotes", () => {
+    const output = renderMarkdownToTelegramHtml(
+      [
+        "Intro",
+        "",
+        "> quoted text",
+        "",
+        "Tail"
+      ].join("\n")
+    );
+
+    expect(output).toBe("Intro\n\n<blockquote>quoted text</blockquote>\n\nTail");
+  });
+
+  it("preserves paragraph separation around code blocks", () => {
+    const output = renderMarkdownToTelegramHtml(
+      [
+        "Intro",
+        "",
+        "```ts",
+        "const value = 1;",
+        "```",
+        "",
+        "Tail"
+      ].join("\n")
+    );
+
+    expect(output).toBe("Intro\n\n<pre><code>const value = 1;</code></pre>\n\nTail");
   });
 });
 
@@ -217,6 +269,32 @@ describe("prepareTelegramReply", () => {
     expect(result).toEqual({ text: "<strong>status</strong>", parseMode: "HTML" });
   });
 
+  it("chunks formatted final replies using the active 3000-4096 search window", async () => {
+    const before = "a".repeat(3600);
+    const after = "b".repeat(800);
+    const prepared = prepareTelegramReply({
+      text: `${before}\n\n${after}`,
+      meta: { resultType: "reply", isExtra: false, origin: "assistant" },
+      assistantFormat: "markdown_to_html",
+      chatId: "chat-1",
+      messageId: "msg-5b",
+      logger
+    });
+
+    const chunks: string[] = [];
+    await sendTelegramReplyChunks({
+      text: prepared.text,
+      parseMode: prepared.parseMode,
+      sendChunk: async (chunk) => {
+        chunks.push(chunk);
+      }
+    });
+
+    expect(prepared.parseMode).toBe("HTML");
+    expect(chunks).toEqual([before + "\n", after]);
+    expect(chunks[0]?.length).toBeGreaterThan(3500);
+  });
+
   it("falls back to plain text when extra reply formatting fails", () => {
     // renderBasicTelegramHtml is used internally for extras, but we can't inject it.
     // Test with plain_text format instead to verify the early-return path.
@@ -234,6 +312,12 @@ describe("prepareTelegramReply", () => {
 });
 
 describe("renderBasicTelegramHtml", () => {
+  it("preserves blank lines between paragraphs", () => {
+    const output = renderBasicTelegramHtml("First paragraph\n\nSecond paragraph");
+
+    expect(output).toBe("First paragraph\n\nSecond paragraph");
+  });
+
   it("converts markdown to HTML without ZWSP tricks", () => {
     const ZWSP = "\u200B";
     const output = renderBasicTelegramHtml("Use /start and edit `README.md`");
