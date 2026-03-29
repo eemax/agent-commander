@@ -106,6 +106,16 @@ Agent Commander is intentionally small:
   Typed command registry + parsing (`/start`, `/new`, `/new from`, `/stash`, `/status` with optional `full` flag, `/cwd`, `/stop`, `/bash`, `/verbose`, `/thinking`, `/cache`, `/model`, `/models`, `/search`, `/transport`, `/auth`, `/steer`, dynamic skill commands).
 - `src/telegram/bot.ts`
   Telegram wiring, command registration sync (`setMyCommands`), text message + callback query dispatch (including inline keyboards and extra verbose replies), and safe error replies.
+- `src/telegram/text-dispatch.ts`
+  Telegram reply UX coordinator for streaming drafts, reactions, transcript-backed final assembly, outbound ordering, and stale-turn suppression.
+- `src/telegram/stream-transcript.ts`
+  Ordered local transcript used to render resettable draft bubbles and assemble final `reply`/`fallback` text without duplicate trailing answers.
+- `src/telegram/outbound.ts`
+  Outbound reply preparation and chunk dispatch, including assistant-format selection and Telegram-safe splitting.
+- `src/telegram/assistant-format.ts`
+  Markdown/HTML rendering for assistant replies, preserving visible blank lines between block-level elements.
+- `src/telegram/message-split.ts`
+  Final-send chunk splitting with Telegram size limits and HTML tag balancing.
 
 ## End-to-End Message Flow
 
@@ -121,7 +131,8 @@ Agent Commander is intentionally small:
 6. On first model turn of a conversation, router compiles and injects bootstrap hybrid wrapper+Markdown context and writes a single context snapshot artifact (`.md`) with embedded metadata JSON.
 7. Provider may execute local harness tools during tool-loop.
   Tool definitions sent to OpenAI are normalized to function-tool schema requirements (object-root `parameters`, no top-level composite keywords).
-8. Router stores assistant reply or provider failure event in conversation JSONL and returns Telegram response.
+8. Router stores assistant reply or provider failure event in conversation JSONL and returns a `MessageRouteResult` to Telegram dispatch.
+9. Telegram dispatch renders the final draft state, assembles transcript-backed final text for `reply`/`fallback`, then formats, chunks, and sends Telegram replies/files/keyboard.
 
 ## Persistence Model
 

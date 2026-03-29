@@ -166,7 +166,7 @@ Normalization rules:
 - empty/noise fields are omitted (for example empty `stderr`, zero truncation counters).
 These payloads are intended for model context, not user-facing Telegram replies.
 
-When verbose mode is on, model-triggered tool calls send extra Telegram messages before the final assistant reply (for example `📖 Read`, `✍️ Write`, `>_ Bash`). Failed tool calls use `⚠️` and include a short error summary.
+When verbose mode is on, model-triggered tool calls are surfaced in Telegram. With draft streaming enabled, the live draft bubble keeps the tool/status chronology but collapses assistant text into a compact preview instead of streaming the whole answer verbatim. Those tool notices are still preserved in the final transcript-backed `reply`/`fallback` message. When streaming is unavailable, they may still be emitted as extra Telegram replies before the main final reply. Failed tool calls use `⚠️` and include a short error summary.
 Workflow-progress events (`tool.workflow.progress`) are recorded to the observability JSONL log when `observability.enabled` is `true`, but are not surfaced in Telegram (no draft streaming or extra replies). Check `observability.log_path` directly for workflow diagnostics.
 
 ## Message Queueing
@@ -210,7 +210,10 @@ Common optional fields:
 - `runtime.default_verbose` (default `"full"`, applied to new conversations)
 - `telegram.streaming_enabled` (default `true`)
 - `telegram.streaming_min_update_ms` (default `1000`)
-- `telegram.assistant_format` (`plain_text` by default, `markdown_to_html` to enable Markdown->HTML formatting for final assistant replies)
+- `telegram.draft_bubble_max_chars` (default `1500`, reset safety cap for the compact draft bubble)
+- `telegram.draft_preview_max_sentences` (default `3`, maximum number of sentence-like units kept in the assistant-text preview within the draft bubble)
+- `telegram.draft_preview_max_chars` (default `280`, hard character cap for that assistant-text preview)
+- `telegram.assistant_format` (`plain_text` by default, `markdown_to_html` to enable Markdown->HTML formatting for final assistant replies; `fallback`/`unauthorized` stay plain text)
 - `telegram.acknowledged_emoji` (default `"off"`, set to an emoji like `"👍"` to react to messages when OpenAI accepts the request)
 - `observability.enabled` (default `false`)
 - `observability.log_path` (default `.agent-commander/observability.jsonl`)

@@ -24,6 +24,7 @@ Primary code paths:
 - `src/telegram/text-dispatch.ts`
 - `src/telegram/stream-transcript.ts`
 - `src/telegram/outbound.ts`
+- `src/telegram/assistant-format.ts`
 - `src/telegram/bot.ts`
 - `src/telegram/message-split.ts`
 
@@ -50,6 +51,7 @@ optional spinner-only draft
    v
 draft bubble with tool notices and/or streamed text
    |
+   +--> maybe compacts assistant text into a tiny preview
    +--> maybe resets when too large
    +--> maybe fails and gets disabled
    +--> maybe gets suppressed by interruption
@@ -91,7 +93,8 @@ If we strip away implementation details, the intended contract is:
 
 - The draft bubble is optional UX, not the source of truth.
 - It should appear quickly so the user feels the turn is alive.
-- It may contain partial text and tool activity.
+- It should preserve tool and system progress chronologically.
+- It should show assistant text only as a compact preview of the current text phase, not as a verbatim wall of streamed output.
 - It may disappear, reset, or stop updating without breaking the turn.
 - If it fails, the turn should still try to deliver a correct final reply.
 
@@ -110,6 +113,16 @@ If we strip away implementation details, the intended contract is:
 - Permanent output from the stale turn must be suppressed.
 
 That last rule is especially important. It is better to lose a stale draft than to send a wrong permanent answer after a newer turn has taken over.
+
+### 3.4 Current headline rules
+
+- Draft assistant text is compacted to a short preview of the current text phase; the bubble is no longer a verbatim stream of the whole answer.
+- That preview is tuned separately from paging: `telegram.draft_preview_max_sentences` and `telegram.draft_preview_max_chars` bound the assistant snippet, while `telegram.draft_bubble_max_chars` remains the outer reset cap for the whole bubble.
+- Draft overflow is explicit: the visible bubble resets to a spinner-only `◐` frame instead of silently failing.
+- When reset happens, the overflowing content seeds the next draft page instead of being dropped.
+- `reply` and `fallback` share the same transcript-backed final-text assembly through `buildFinalReplyText(cleanText)`.
+- Final assistant formatting preserves visible blank lines between paragraphs and other block-level elements before chunking runs.
+- Permanent reply chunking searches backward from `4096` down to `3000`, preferring `\n\n`, then `\n`, then space, then a hard split.
 
 ## 4. Current architecture for this area
 
@@ -268,16 +281,7 @@ The draft bubble is not rendered directly from raw text deltas. Instead, `Stream
 [text_block]   "More reply text"
 ```
 
-That lets the runtime produce a user-visible timeline that feels coherent:
-
-```text
-📖 Read: `foo.ts`
-
-Reply text
-✍️ Write: `bar.ts`
-
-More reply text
-```
+That transcript is still what powers the final permanent reply, while the draft bubble now renders a compact status surface from the same underlying state.
 
 Without that transcript layer, the system would have to choose between:
 
@@ -331,7 +335,10 @@ That means mode switches like `text -> tool -> text` become explicit transcript 
 
 Its key rule is:
 
-- if the visible draft would exceed the configured draft limit, the bubble resets and older content becomes hidden from draft rendering
+- tool notices and system notes remain chronological
+- assistant text is reduced to a short preview of the current text phase
+- if the compact draft would still exceed the configured draft limit, the bubble resets and older content becomes hidden from draft rendering
+- the overflow is reported explicitly so the dispatch layer can replace the bubble with a spinner-only reset frame
 
 That looks like this:
 
@@ -341,15 +348,23 @@ draft page 1 grows...
    +--> exceeds draftBubbleMaxChars
            |
            v
-       renderDraft() returns ""
+       renderDraft() returns { kind: "reset" }
            |
            v
-       next visible draft starts fresh at page 2
+       dispatch sends "◐"
+           |
+           v
+       next visible draft page starts with the overflowing content
 ```
 
-In other words, the bubble is windowed.
+In other words, the bubble is a compact status surface with paging as a safety valve.
 
-This is not a bug by itself. It is a deliberate UX choice to prevent the draft bubble from becoming an endlessly growing wall of text in Telegram.
+This is deliberate UX policy. The goal is to show progress that feels on track without filling Telegram with a giant wall of partial answer text.
+
+The reset is still best-effort, but it is no longer intentionally lossy:
+
+- the overflow-triggering content seeds the next page instead of disappearing
+- the permanent final reply still uses the full transcript and remains authoritative
 
 ### 6.4 `buildFinalReplyText(cleanText)`
 
@@ -400,19 +415,21 @@ That looks repetitive at first glance, but it is correct under the current polic
 
 ## 7. Draft bubble rendering model
 
-The draft bubble is built from the visible slice of transcript entries plus visible live text.
+The draft bubble is no longer a raw mixed transcript render.
 
 Current shape:
 
 ```text
-if entries and live text:
-  entries.join("\n") + "\n\n" + liveDraftText
+status section:
+  chronological tool_notice/system_note entries
 
-if entries only:
-  entries.join("\n")
+preview section:
+  a short preview of the current assistant text phase
 
-if live text only:
-  liveDraftText
+final draft bubble:
+  status section
+  blank line (if both sections exist)
+  preview section
 ```
 
 This creates recognizable user-facing patterns:
@@ -424,7 +441,7 @@ draft bubble
 -------------------------
 📖 Read: `foo.ts`
 
-Reply text
+Reply text preview
 -------------------------
 ```
 
@@ -660,10 +677,10 @@ There are two relevant limits:
 ### Draft bubble
 
 - hard Telegram limit: `4096`
-- draft rendering target: `draftBubbleMaxChars`, default `750`
+- draft rendering target: `draftBubbleMaxChars`, default `1500`
 - `bot.ts` also truncates draft text to `TELEGRAM_MESSAGE_LIMIT` before sending
 
-The draft bubble is therefore intentionally much smaller than Telegram's maximum.
+The draft bubble is therefore intentionally much smaller than Telegram's maximum, and the renderer usually stays far below the cap because assistant text is compacted before paging is considered.
 
 ### Final reply
 
@@ -710,8 +727,9 @@ These are the rules future changes should preserve unless there is an explicit p
 
 ### Bubble semantics
 
-- The draft bubble is a rolling window, not a permanent log.
-- Bubble resets are acceptable behavior.
+- The draft bubble is a small, compact status surface, not a permanent log.
+- Bubble resets should be explicit: overflow becomes a spinner-only `◐` frame.
+- The next visible page starts with the overflow-triggering content instead of dropping it.
 - Count-mode replacements should remain visible even after resets when they are still relevant to the current page.
 
 ## 16. Known conceptual pain points
@@ -739,7 +757,7 @@ are valid and common. They are also where duplication and ordering bugs tend to 
 
 ### Pain point 3: bubble reset vs final permanence
 
-The draft bubble intentionally forgets older content after reset.
+The draft bubble intentionally forgets older content after reset, but now carries the overflowing content forward into the next page.
 
 The final reply intentionally does not forget the full transcript on success.
 
@@ -871,7 +889,7 @@ If you need the shortest accurate explanation, use this:
 
 ```text
 Draft bubble:
-  ephemeral, throttled, resettable, best-effort, partial
+  ephemeral, throttled, compact, resettable, best-effort, partial
 
 Final reply:
   permanent, authoritative, policy-driven, formatted, chunked

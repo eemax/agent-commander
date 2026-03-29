@@ -47,6 +47,8 @@ export type Config = {
     streamingEnabled: boolean;
     streamingMinUpdateMs: number;
     draftBubbleMaxChars: number;
+    draftPreviewMaxSentences: number;
+    draftPreviewMaxChars: number;
     assistantFormat: TelegramAssistantFormat;
     maxFileSizeBytes: number;
     fileDownloadTimeoutMs: number;

@@ -9,11 +9,22 @@ Scope:
 - authorization and workspace refresh
 - command routing vs assistant turns
 - per-chat turn interruption and queueing
-- streaming drafts, typing indicators, and final replies
+- streaming drafts, typing indicators, and explicit draft resets
+- transcript-backed final reply assembly
+- formatting and chunking of permanent replies
 - callback query handling
 - JSONL persistence touchpoints
 
 The Telegram runtime is intentionally thin: `src/telegram/*` handles Telegram-specific I/O and UX, while `src/routing/*`, `src/provider.ts`, and `src/state/conversations.ts` own the actual conversation logic.
+
+Key source files for the reply pipeline:
+
+- `src/telegram/text-dispatch.ts`
+- `src/telegram/stream-transcript.ts`
+- `src/telegram/outbound.ts`
+- `src/telegram/assistant-format.ts`
+- `src/telegram/message-split.ts`
+- `src/telegram/bot.ts`
 
 ## 1. Startup wiring
 
@@ -369,7 +380,7 @@ The typing action is refreshed on an interval until the provider call settles.
 
 It serves two outputs:
 
-1. a draft bubble that can reset when it gets too large
+1. a compact draft bubble that shows chronological tool/system status plus a short preview of the current text phase, and can reset explicitly when it gets too large
 2. a final reply that can include the already-streamed text without duplication
 
 Conceptually:
@@ -384,7 +395,7 @@ stream events
    v
 StreamTranscript
    |
-   +--> renderDraft(limit)         for temporary draft bubbles
+   +--> renderDraft(limit)         for temporary draft bubbles, including explicit reset events
    +--> buildFinalReplyText(text)  for the final `reply`/`fallback` text
 ```
 
@@ -420,8 +431,13 @@ On the text-message dispatch path, `reply` and `fallback` share the same final-t
 
 Important current behavior:
 
+- the draft bubble is a compact status surface, not a verbatim stream of the full assistant text buffer
+- tool/system notices stay chronological in the draft, while assistant text is reduced to a short preview of the current text phase
+- `telegram.draft_preview_max_sentences` and `telegram.draft_preview_max_chars` tune that assistant preview, while `telegram.draft_bubble_max_chars` remains the outer reset cap for the whole bubble
+- draft resets are now a safety valve for unusually long tool/status runs; when reset happens, the overflowing content seeds the next page instead of being dropped
 - formatting happens before chunking, so the splitter sees the final rendered text
 - the Markdown renderer preserves visible blank lines between block-level elements
+- `fallback` and `unauthorized` stay plain text even when `reply` uses Markdown-to-HTML formatting
 - permanent reply chunking searches backward from `4096` down to `3000`, preferring `\n\n`, then `\n`, then space, then a hard split
 - in HTML mode, the splitter still closes and reopens supported tags across chunk boundaries
 

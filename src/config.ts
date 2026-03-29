@@ -18,7 +18,9 @@ const DEFAULT_CONFIG_TEMPLATE = {
   telegram: {
     streaming_enabled: true,
     streaming_min_update_ms: 1000,
-    draft_bubble_max_chars: 750,
+    draft_bubble_max_chars: 1500,
+    draft_preview_max_sentences: 3,
+    draft_preview_max_chars: 280,
     assistant_format: "plain_text",
     max_file_size_mb: 10,
     file_download_timeout_ms: 30_000,
@@ -172,6 +174,8 @@ export const configSchema = z
         streaming_enabled: z.boolean().default(DEFAULT_CONFIG_TEMPLATE.telegram.streaming_enabled),
         streaming_min_update_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.streaming_min_update_ms),
         draft_bubble_max_chars: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.draft_bubble_max_chars),
+        draft_preview_max_sentences: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.draft_preview_max_sentences),
+        draft_preview_max_chars: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.telegram.draft_preview_max_chars),
         assistant_format: z
           .enum(TELEGRAM_ASSISTANT_FORMAT_VALUES)
           .default(DEFAULT_CONFIG_TEMPLATE.telegram.assistant_format as TelegramAssistantFormat),
@@ -580,6 +584,8 @@ export function buildConfigFromParsed(
       streamingEnabled: config.telegram.streaming_enabled,
       streamingMinUpdateMs: config.telegram.streaming_min_update_ms,
       draftBubbleMaxChars: config.telegram.draft_bubble_max_chars,
+      draftPreviewMaxSentences: config.telegram.draft_preview_max_sentences,
+      draftPreviewMaxChars: config.telegram.draft_preview_max_chars,
       assistantFormat: config.telegram.assistant_format,
       maxFileSizeBytes: Math.round(config.telegram.max_file_size_mb * 1024 * 1024),
       fileDownloadTimeoutMs: config.telegram.file_download_timeout_ms,

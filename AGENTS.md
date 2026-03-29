@@ -35,6 +35,11 @@ src/agent/tool-loop.ts          Provider-agnostic tool execution loop
 src/harness/                    Local trusted tools (bash, files, web)
 src/state/conversations.ts      JSONL persistence + LRU cache
 src/telegram/bot.ts             grammY bot wiring
+src/telegram/text-dispatch.ts   Draft bubble + final reply orchestration
+src/telegram/stream-transcript.ts  Draft/final transcript view model
+src/telegram/outbound.ts        Telegram reply formatting + chunking
+src/telegram/assistant-format.ts  Markdown/HTML rendering for Telegram replies
+src/telegram/message-split.ts   Telegram message splitting + HTML tag balancing
 src/workspace.ts                Workspace bootstrap + skill loading
 ~/.agent-commander/             Runtime workspace (AGENTS.md, SOUL.md, skills/)
 .agent-commander/               Local state (conversations, logs, snapshots)
@@ -75,10 +80,11 @@ Telegram update → normalize → gatekeep (sender allowlist) → route (command
 - `docs/README.md` — index of all documentation
 - `docs/architecture.md` — system design and component layout
 - `docs/config-reference.md` — canonical config/config.json schema
+- `docs/telegram/architecture.md` — Telegram transport, streaming UX, and outbound send path
+- `docs/telegram/draft-streaming-and-final-reply.md` — draft reset, transcript assembly, formatting, and chunking rules
 - `docs/tools.md` — tool harness reference (all tool schemas and behaviors)
 - `docs/user-guide.md` — setup, commands, and operational guide
-- `docs/contributing.md` — coding standards and scope guardrails
-- `docs/status.md` — non-obvious gotchas, external constraints, operational notes
+- `docs/subagents.md` — subagent system architecture and lifecycle
 
 ## Key patterns
 

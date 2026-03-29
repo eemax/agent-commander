@@ -38,6 +38,8 @@ export async function dispatchTelegramTextMessage(params: {
   logger?: RuntimeLogger;
   draftMinUpdateMs?: number;
   draftBubbleMaxChars?: number;
+  draftPreviewMaxSentences?: number;
+  draftPreviewMaxChars?: number;
   onDraftFailure?: (error: unknown) => void | Promise<void>;
   nowMs?: () => number;
   trace?: TraceContext;
@@ -53,10 +55,16 @@ export async function dispatchTelegramTextMessage(params: {
   const messageTrace = params.trace ?? createTraceRootContext("telegram");
   const nowMs = params.nowMs ?? Date.now;
   const draftMinUpdateMs = Math.max(1, params.draftMinUpdateMs ?? 1000);
-  const draftBubbleMaxChars = params.draftBubbleMaxChars ?? 750;
+  const draftBubbleMaxChars = params.draftBubbleMaxChars ?? 1500;
+  const draftPreviewMaxSentences = Math.max(1, params.draftPreviewMaxSentences ?? 3);
+  const draftPreviewMaxChars = Math.max(1, params.draftPreviewMaxChars ?? 280);
   const shouldSuppressOutput = (): boolean => params.shouldSuppressOutput?.() === true;
-  const transcript = new StreamTranscript();
+  const transcript = new StreamTranscript({
+    draftPreviewMaxSentences,
+    draftPreviewMaxChars
+  });
   let lastRenderedDraft = "";
+  let lastDraftMode: "content" | "typing" | "reset" | null = null;
   let lastDraftAtMs: number | null = null;
   let draftDisabled = !params.sendDraft;
   let draftInflight = false;
@@ -66,6 +74,7 @@ export async function dispatchTelegramTextMessage(params: {
   const processingActionRefreshMs = params.processingActionRefreshMs ?? 4000;
 
   const TYPING_FRAMES = ["◐", "◓", "◑", "◒"];
+  const RESET_DRAFT_FRAME = TYPING_FRAMES[0]!;
   let typingFrameIndex = 0;
   let draftWorkerActive = false;
   let draftWorkerPromise: Promise<void> | null = null;
@@ -156,12 +165,18 @@ export async function dispatchTelegramTextMessage(params: {
       }
 
       const rendered = transcript.renderDraft(draftBubbleMaxChars);
-      if (rendered.trim().length === 0 || rendered === lastRenderedDraft) {
+      if (rendered.kind === "empty") {
+        return;
+      }
+
+      const isReset = rendered.kind === "reset";
+      const draft = isReset ? RESET_DRAFT_FRAME : rendered.text;
+      if (draft.trim().length === 0 || draft === lastRenderedDraft) {
         return;
       }
 
       const now = nowMs();
-      if (!force && lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs) {
+      if (!isReset && !force && lastDraftAtMs !== null && now - lastDraftAtMs < draftMinUpdateMs) {
         return;
       }
 
@@ -178,11 +193,12 @@ export async function dispatchTelegramTextMessage(params: {
           chatId: params.message.chatId,
           messageId: params.message.messageId,
           senderId: params.message.senderId,
-          text: rendered,
+          text: draft,
           forced: force
         });
-        await params.sendDraft(rendered);
-        lastRenderedDraft = rendered;
+        await params.sendDraft(draft);
+        lastRenderedDraft = draft;
+        lastDraftMode = isReset ? "reset" : "content";
         lastDraftAtMs = nowMs();
       } catch (error) {
         await disableDraft(error);
@@ -234,14 +250,29 @@ export async function dispatchTelegramTextMessage(params: {
             const frame = TYPING_FRAMES[typingFrameIndex % TYPING_FRAMES.length]!;
             typingFrameIndex += 1;
             const rendered = transcript.renderDraft(draftBubbleMaxChars - frame.length - 1);
-            const prefix = rendered.length > 0 ? rendered + "\n" : "";
-            const candidate = prefix + frame;
-            const draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? rendered : candidate;
+
+            let draft: string | null = null;
+            let draftMode: "typing" | "reset" = "typing";
+            if (rendered.kind === "reset") {
+              draft = RESET_DRAFT_FRAME;
+              draftMode = "reset";
+            } else if (rendered.kind === "content") {
+              const prefix = rendered.text.length > 0 ? rendered.text + "\n" : "";
+              const candidate = prefix + frame;
+              draft = candidate.length > TELEGRAM_MESSAGE_LIMIT ? rendered.text : candidate;
+            } else if (lastDraftMode !== "reset") {
+              draft = frame;
+            }
+
+            if (!draft || draft === lastRenderedDraft) {
+              continue;
+            }
 
             draftInflight = true;
             try {
               await params.sendDraft(draft);
               lastRenderedDraft = draft;
+              lastDraftMode = draftMode;
               lastDraftAtMs = nowMs();
               consecutiveErrors = 0;
             } catch {
@@ -274,9 +305,10 @@ export async function dispatchTelegramTextMessage(params: {
       }
       initialTypingStarted = true;
       try {
-        await params.sendDraft(TYPING_FRAMES[0]!);
+        await params.sendDraft(RESET_DRAFT_FRAME);
         lastDraftAtMs = nowMs();
-        lastRenderedDraft = TYPING_FRAMES[0]!;
+        lastRenderedDraft = RESET_DRAFT_FRAME;
+        lastDraftMode = "typing";
         typingFrameIndex = 1;
         startTypingIndicator();
       } catch (error) {

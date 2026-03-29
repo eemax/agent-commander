@@ -100,6 +100,9 @@ describe("loadConfig", () => {
     const config = loadConfigWithRequiredDefaults(root);
     expect(config.telegram.streamingEnabled).toBe(true);
     expect(config.telegram.streamingMinUpdateMs).toBe(1000);
+    expect(config.telegram.draftBubbleMaxChars).toBe(1500);
+    expect(config.telegram.draftPreviewMaxSentences).toBe(3);
+    expect(config.telegram.draftPreviewMaxChars).toBe(280);
     expect(config.telegram.assistantFormat).toBe("plain_text");
     expect(config.openai.model).toBe("gpt-5.4-mini");
     expect(config.openai.models.map((item) => item.id)).toContain("gpt-5.4-mini");
@@ -135,6 +138,21 @@ describe("loadConfig", () => {
     expect(config.paths.stashedConversationsPath).toBe(path.join(root, ".agent-commander", "stashed-conversations.json"));
     expect(config.paths.activeConversationsPath).toBe(path.join(root, ".agent-commander", "active-conversations.json"));
     expect(config.paths.appLogPath).toBe(path.join(root, ".agent-commander", "app.log"));
+  });
+
+  it("loads Telegram draft preview overrides", () => {
+    const root = createTempDir("acmd-config-draft-preview-");
+    writeConfig(root, {
+      ...minimalPayload(),
+      telegram: {
+        draft_preview_max_sentences: 2,
+        draft_preview_max_chars: 180
+      }
+    });
+
+    const config = loadConfigWithRequiredDefaults(root);
+    expect(config.telegram.draftPreviewMaxSentences).toBe(2);
+    expect(config.telegram.draftPreviewMaxChars).toBe(180);
   });
 
   it("loads tools.web_search preset overrides", () => {

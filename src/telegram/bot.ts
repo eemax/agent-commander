@@ -85,6 +85,8 @@ export function createTelegramBot(params: {
   streamingEnabled: boolean;
   streamingMinUpdateMs: number;
   draftBubbleMaxChars: number;
+  draftPreviewMaxSentences: number;
+  draftPreviewMaxChars: number;
   assistantFormat: TelegramAssistantFormat;
   maxFileSizeBytes: number;
   fileDownloadTimeoutMs: number;
@@ -255,6 +257,8 @@ export function createTelegramBot(params: {
             logger: params.logger,
             draftMinUpdateMs: params.streamingMinUpdateMs,
             draftBubbleMaxChars: params.draftBubbleMaxChars,
+            draftPreviewMaxSentences: params.draftPreviewMaxSentences,
+            draftPreviewMaxChars: params.draftPreviewMaxChars,
             onDraftFailure: (error) => {
               const message = error instanceof Error ? error.message : String(error);
               params.logger.warn(

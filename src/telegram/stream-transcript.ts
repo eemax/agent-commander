@@ -15,6 +15,86 @@ export type TranscriptSnapshot = {
   toolExecutionActive: boolean;
 };
 
+export type DraftRenderResult =
+  | { kind: "empty" }
+  | { kind: "content"; text: string }
+  | { kind: "reset" };
+
+type DraftRenderSource =
+  | { kind: "entry"; entryIndex: number }
+  | { kind: "live" };
+
+type DraftRenderBlock = {
+  kind: "status" | "preview";
+  text: string;
+  source: DraftRenderSource;
+  separatorBefore: "\n" | "\n\n" | "";
+};
+
+const DEFAULT_DRAFT_PREVIEW_MAX_SENTENCES = 3;
+const DEFAULT_DRAFT_PREVIEW_MAX_CHARS = 280;
+
+type StreamTranscriptOptions = {
+  draftPreviewMaxSentences?: number;
+  draftPreviewMaxChars?: number;
+};
+
+function normalizeDraftPreviewText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function collectSentenceLikeUnits(text: string): string[] {
+  const units: string[] = [];
+  for (const paragraph of text.split(/\n\s*\n+/)) {
+    const compact = normalizeDraftPreviewText(paragraph);
+    if (compact.length === 0) {
+      continue;
+    }
+    const matches = compact.match(/[^.!?]+(?:[.!?]+["')\]]*|$)/g) ?? [];
+    for (const match of matches) {
+      const unit = match.trim();
+      if (unit.length > 0) {
+        units.push(unit);
+      }
+    }
+  }
+  return units;
+}
+
+function trimDraftPreviewTail(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+
+  const bodyChars = Math.max(1, maxChars - 3);
+  const rawTail = text.slice(text.length - bodyChars);
+  const trimmed = rawTail.replace(/^[^\s]*\s+/, "");
+  const visibleTail = trimmed.length > 0 ? trimmed.slice(-bodyChars) : rawTail;
+  return `...${visibleTail}`;
+}
+
+function buildDraftTextPreview(
+  text: string,
+  maxSentences: number,
+  maxChars: number
+): string {
+  const normalized = text.trim();
+  if (normalized.length === 0) {
+    return "";
+  }
+
+  const units = collectSentenceLikeUnits(normalized);
+  const completeUnits = units.filter((unit) => /[.!?]["')\]]*$/.test(unit));
+  if (completeUnits.length > 0) {
+    return trimDraftPreviewTail(
+      completeUnits.slice(-maxSentences).join(" "),
+      maxChars
+    );
+  }
+
+  return trimDraftPreviewTail(normalizeDraftPreviewText(normalized), maxChars);
+}
+
 // ---------------------------------------------------------------------------
 // StreamTranscript
 // ---------------------------------------------------------------------------
@@ -33,6 +113,13 @@ export class StreamTranscript {
   private draftPageStart = 0;   // entries before this index are hidden
   private draftLiveStart = 0;   // liveDraftText chars before this are hidden
   private draftPinnedEntryIndex: number | null = null; // hidden replaced tool_notice shown on current page
+  private draftPreviewMaxSentences: number;
+  private draftPreviewMaxChars: number;
+
+  constructor(options: StreamTranscriptOptions = {}) {
+    this.draftPreviewMaxSentences = Math.max(1, options.draftPreviewMaxSentences ?? DEFAULT_DRAFT_PREVIEW_MAX_SENTENCES);
+    this.draftPreviewMaxChars = Math.max(1, options.draftPreviewMaxChars ?? DEFAULT_DRAFT_PREVIEW_MAX_CHARS);
+  }
 
   // ---- Mutation ----------------------------------------------------------
 
@@ -162,39 +249,131 @@ export class StreamTranscript {
 
   // ---- Rendering ---------------------------------------------------------
 
+  private buildDraftBlocks(): DraftRenderBlock[] {
+    const blocks: DraftRenderBlock[] = [];
+    const pinnedEntry = this.draftPinnedEntryIndex !== null && this.draftPinnedEntryIndex < this.draftPageStart
+      ? {
+          index: this.draftPinnedEntryIndex,
+          text: this.entries[this.draftPinnedEntryIndex]?.text ?? null
+        }
+      : null;
+
+    if (pinnedEntry?.text) {
+      blocks.push({
+        kind: "status",
+        text: pinnedEntry.text,
+        source: { kind: "entry", entryIndex: pinnedEntry.index },
+        separatorBefore: ""
+      });
+    }
+
+    let lastTextSource: DraftRenderSource | null = null;
+    let lastTextValue = "";
+    let hasStatusBlocks = blocks.length > 0;
+    for (let i = this.draftPageStart; i < this.entries.length; i += 1) {
+      const entry = this.entries[i]!;
+      if (entry.kind === "text_block") {
+        lastTextSource = { kind: "entry", entryIndex: i };
+        lastTextValue = entry.text;
+        continue;
+      }
+
+      blocks.push({
+        kind: "status",
+        text: entry.text,
+        source: { kind: "entry", entryIndex: i },
+        separatorBefore: hasStatusBlocks ? "\n" : ""
+      });
+      hasStatusBlocks = true;
+    }
+
+    const visibleLive = this.liveDraftText.slice(this.draftLiveStart);
+    if (visibleLive.trim().length > 0) {
+      lastTextSource = { kind: "live" };
+      lastTextValue = visibleLive;
+    }
+
+    const preview = buildDraftTextPreview(
+      lastTextValue,
+      this.draftPreviewMaxSentences,
+      this.draftPreviewMaxChars
+    );
+    if (preview.length > 0 && lastTextSource) {
+      blocks.push({
+        kind: "preview",
+        text: preview,
+        source: lastTextSource,
+        separatorBefore: hasStatusBlocks ? "\n\n" : ""
+      });
+    }
+
+    return blocks;
+  }
+
+  private renderDraftFromBlocks(blocks: DraftRenderBlock[], limit: number): {
+    text: string;
+    overflowBlock: DraftRenderBlock | null;
+  } {
+    let rendered = "";
+    let overflowBlock: DraftRenderBlock | null = null;
+
+    for (const block of blocks) {
+      const candidate = rendered + block.separatorBefore + block.text;
+      if (candidate.length > limit && rendered.length === 0) {
+        return {
+          text: block.kind === "preview" ? trimDraftPreviewTail(block.text, limit) : block.text.slice(0, limit),
+          overflowBlock: null
+        };
+      }
+      if (candidate.length > limit) {
+        overflowBlock = block;
+        break;
+      }
+      rendered = candidate;
+    }
+
+    return { text: rendered, overflowBlock };
+  }
+
+  private applyDraftResetFor(block: DraftRenderBlock | null): void {
+    this.draftPinnedEntryIndex = null;
+
+    if (!block) {
+      this.draftPageStart = this.entries.length;
+      this.draftLiveStart = this.liveDraftText.length;
+      return;
+    }
+
+    if (block.source.kind === "entry") {
+      this.draftPageStart = block.source.entryIndex;
+      return;
+    }
+
+    this.draftPageStart = this.entries.length;
+  }
+
   /**
    * Render the draft bubble content.
    *
    * The bubble grows until it exceeds `limit` chars, then resets
    * completely — all current content is hidden and the next render
-   * starts from 0.  This prevents the Telegram UI from scrolling;
-   * instead the bubble fills the screen and clears.
+   * starts from 0. The reset is reported explicitly so the dispatch
+   * layer can show a spinner-only frame instead of silently dropping
+   * the overflow event.
    */
-  renderDraft(limit: number = TELEGRAM_MESSAGE_LIMIT): string {
-    const pinnedEntry = this.draftPinnedEntryIndex !== null && this.draftPinnedEntryIndex < this.draftPageStart
-      ? this.entries[this.draftPinnedEntryIndex]?.text ?? null
-      : null;
-    const visEntries = this.entries.slice(this.draftPageStart).map((e) => e.text);
-    const visLive = this.liveDraftText.slice(this.draftLiveStart);
-    const draftEntries = pinnedEntry ? [pinnedEntry, ...visEntries] : visEntries;
-
-    const hasEntries = draftEntries.length > 0;
-    const hasLive = visLive.length > 0;
-
-    let visible: string;
-    if (!hasEntries && !hasLive) return "";
-    else if (hasEntries && hasLive) visible = draftEntries.join("\n") + "\n\n" + visLive;
-    else if (hasEntries) visible = draftEntries.join("\n");
-    else visible = visLive;
-
-    if (visible.length > limit) {
-      this.draftPageStart = this.entries.length;
-      this.draftLiveStart = this.liveDraftText.length;
-      this.draftPinnedEntryIndex = null;
-      return "";
+  renderDraft(limit: number = TELEGRAM_MESSAGE_LIMIT): DraftRenderResult {
+    const blocks = this.buildDraftBlocks();
+    if (blocks.length === 0) {
+      return { kind: "empty" };
     }
 
-    return visible;
+    const { text, overflowBlock } = this.renderDraftFromBlocks(blocks, limit);
+    if (overflowBlock || text.length > limit) {
+      this.applyDraftResetFor(overflowBlock ?? blocks[blocks.length - 1] ?? null);
+      return { kind: "reset" };
+    }
+
+    return { kind: "content", text };
   }
 
   /**

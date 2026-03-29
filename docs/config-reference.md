@@ -23,9 +23,12 @@ This is the canonical `config/config.json` shape.
 
 ### `telegram`
 
-- `streaming_enabled`: boolean, default `true`
-- `streaming_min_update_ms`: positive integer, default `1000`
-- `assistant_format`: `"plain_text" | "markdown_to_html"`, default `"plain_text"`
+- `streaming_enabled`: boolean, default `true` — enables the Telegram draft bubble and streaming callbacks used to build transcript-backed final replies
+- `streaming_min_update_ms`: positive integer, default `1000` — minimum interval between non-forced draft-bubble updates
+- `draft_bubble_max_chars`: positive integer, default `1500` — reset safety cap for the compact draft bubble; long tool/status runs page when the rendered draft exceeds this size
+- `draft_preview_max_sentences`: positive integer, default `3` — maximum number of complete sentence-like units kept in the assistant-text preview inside the draft bubble
+- `draft_preview_max_chars`: positive integer, default `280` — hard character cap for the assistant-text preview inside the draft bubble after sentence selection
+- `assistant_format`: `"plain_text" | "markdown_to_html"`, default `"plain_text"` — formatting mode for final `reply` messages; `fallback` and `unauthorized` remain plain text
 - `max_file_size_mb`: positive float, default `10` — attachment size limit
 - `file_download_timeout_ms`: positive integer, default `30000` — timeout for Telegram file downloads
 - `max_concurrent_downloads`: positive integer, default `4` — concurrent attachment download limit

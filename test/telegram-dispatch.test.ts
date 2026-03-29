@@ -398,7 +398,7 @@ describe("dispatchTelegramTextMessage", () => {
     // Draft: typing indicator, then tool+text rendered together
     expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
       "◐",
-      "📖 Read: `foo.ts`\n\nReply ",
+      "📖 Read: `foo.ts`\n\nReply",
       "📖 Read: `foo.ts`\n\nReply text"
     ]);
     // Transcript ends with "Reply text" which matches cleanText — no duplication
@@ -606,7 +606,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply).toHaveBeenCalledTimes(0);
   });
 
-  it("draft uses rolling window for huge tool call notice", async () => {
+  it("clips an oversized tool notice into the compact draft bubble", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
 
@@ -624,8 +624,9 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => 0
     });
 
-    // Typing indicator is the first draft
     expect(sendDraft.mock.calls[0]?.[0]).toBe("◐");
+    expect(sendDraft.mock.calls[1]?.[0]).toHaveLength(1500);
+    expect(sendDraft.mock.calls[1]?.[0]).toBe("x".repeat(1500));
     // Single sendOutbound with full text — sendReply handles splitting internally
     expect(sendReply).toHaveBeenCalledTimes(1);
     expect(sendReply.mock.calls[0]?.[0]).toBe(hugeNotice + "\n\ndone");
@@ -1074,7 +1075,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendProcessingAction).toHaveBeenCalled();
   });
 
-  it("uses page-break for draft when text exceeds 4096 limit", async () => {
+  it("keeps draft sends within Telegram limits when text exceeds 4096 chars", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -1098,7 +1099,7 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // All drafts stay within 4096 chars (page-break applied when needed)
+    // All drafts stay within 4096 chars even while draft pages reset.
     const draftTexts = sendDraft.mock.calls.map((c: [string]) => c[0]);
     for (const dt of draftTexts) {
       expect(dt.length).toBeLessThanOrEqual(4096);
@@ -1137,7 +1138,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply).not.toHaveBeenCalled();
   });
 
-  it("draft uses page-break for long text, final reply delegates to sendReply", async () => {
+  it("keeps long draft text within Telegram limits while final reply delegates to sendReply", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -1157,7 +1158,7 @@ describe("dispatchTelegramTextMessage", () => {
       nowMs: () => clock
     });
 
-    // Draft should be capped at 4096 via page-break
+    // Draft sends stay within Telegram's hard cap.
     const draftTexts = sendDraft.mock.calls.map((c: [string]) => c[0]);
     for (const dt of draftTexts) {
       expect(dt.length).toBeLessThanOrEqual(4096);
@@ -1168,32 +1169,88 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply.mock.calls[0]?.[0]).toBe(longText);
   });
 
-  it("draft continues accumulating after exceeding limit via rolling window", async () => {
+  it("shows an explicit reset frame and carries the overflowing tool notice into the next page", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
 
-    const bigChunk = "a".repeat(3500);
-    const smallChunk = "bbb";
+    const firstNotice = "A".repeat(20);
+    const secondNotice = "B".repeat(20);
+    const overflowNotice = "C".repeat(20);
+    const afterResetNotice = "D".repeat(10);
 
     await dispatchTelegramTextMessage({
       message: baseMessage,
       handleMessage: async (_message, stream) => {
-        await stream?.onTextDelta?.(bigChunk + "\n\n");
+        await stream?.onToolCallNotice?.(firstNotice);
         clock = 200;
-        await stream?.onTextDelta?.(smallChunk);
+        await stream?.onToolCallNotice?.(secondNotice);
         clock = 400;
-        return { type: "reply", text: bigChunk + "\n\n" + smallChunk, origin: "assistant" };
+        await stream?.onToolCallNotice?.(overflowNotice);
+        clock = 600;
+        await stream?.onToolCallNotice?.(afterResetNotice);
+        clock = 800;
+        return {
+          type: "reply",
+          text: "done",
+          origin: "assistant"
+        };
       },
       sendReply,
       sendDraft,
+      draftBubbleMaxChars: 60,
       draftMinUpdateMs: 100,
       nowMs: () => clock
     });
 
-    // Draft should include the small chunk (via rolling window showing latest content)
-    const draftTexts = sendDraft.mock.calls.map((c: [string]) => c[0]);
-    const draftsWithSmallChunk = draftTexts.filter((t: string) => t.includes(smallChunk));
-    expect(draftsWithSmallChunk.length).toBeGreaterThan(0);
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
+      "◐",
+      `${firstNotice}\n${secondNotice}`,
+      "◐",
+      `${overflowNotice}\n${afterResetNotice}`
+    ]);
+    expect(sendReply).toHaveBeenCalledWith(
+      `${firstNotice}\n${secondNotice}\n${overflowNotice}\n${afterResetNotice}\n\ndone`,
+      {
+        resultType: "reply",
+        isExtra: false,
+        origin: "assistant"
+      }
+    );
+  });
+
+  it("does not emit duplicate reset frames while waiting for post-reset content", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+      const sendDraft = vi.fn(async (_text: string) => {});
+      let clock = 0;
+
+      await dispatchTelegramTextMessage({
+        message: baseMessage,
+        handleMessage: async (_message, stream) => {
+          await stream?.onToolCallNotice?.("A".repeat(20));
+          clock = 120;
+          await stream?.onToolCallNotice?.("B".repeat(20));
+          clock = 240;
+          await stream?.onToolCallNotice?.("C".repeat(20));
+          clock = 360;
+          await vi.advanceTimersByTimeAsync(200);
+          return { type: "reply", text: "done" };
+        },
+        sendReply,
+        sendDraft,
+        draftBubbleMaxChars: 60,
+        draftMinUpdateMs: 100,
+        nowMs: () => clock
+      });
+
+      const drafts = sendDraft.mock.calls.map((call) => call[0]);
+      expect(drafts.filter((text) => text === "◐")).toHaveLength(2);
+      expect(drafts).toContain(`${"A".repeat(20)}\n${"B".repeat(20)}`);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
