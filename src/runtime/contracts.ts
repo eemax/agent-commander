@@ -90,6 +90,7 @@ export type Config = {
     execYieldMs: number;
     processLogTailLines: number;
     logPath: string;
+    logMaxLines?: number | null;
     completedSessionRetentionMs: number;
     maxCompletedSessions: number;
     maxOutputChars: number;
@@ -102,14 +103,25 @@ export type Config = {
   paths: {
     workspaceRoot: string;
     conversationsDir: string;
-    stashedConversationsPath: string;
-    activeConversationsPath: string;
-    contextSnapshotsDir: string;
+    // Legacy fields are no longer populated by config loading.
+    stashedConversationsPath?: string;
+    activeConversationsPath?: string;
+    contextSnapshotsDir?: string;
     appLogPath: string;
+  };
+  retention: {
+    archivedConversationsMaxCount: number | null;
+    logs: {
+      toolCallsMaxLines: number | null;
+      subagentsMaxLines: number | null;
+      observabilityMaxLines: number | null;
+      appMaxLines: number | null;
+    };
   };
   observability: {
     enabled: boolean;
     logPath: string;
+    logMaxLines?: number | null;
     redaction: {
       enabled: boolean;
       maxStringChars: number;
@@ -119,6 +131,7 @@ export type Config = {
   subagents: {
     enabled: boolean;
     logPath: string;
+    logMaxLines?: number | null;
     defaultModel: string;
     maxConcurrentTasks: number;
     defaultTimeBudgetSec: number;

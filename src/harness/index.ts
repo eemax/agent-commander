@@ -42,7 +42,7 @@ export function createToolHarness(
     defaultPreset: "pro-search",
     presets: []
   };
-  const logger = new ToolCallLogger(config.logPath, defaultCwd);
+  const logger = new ToolCallLogger(config.logPath, defaultCwd, config.logMaxLines);
   const processManager = new ProcessManager({
     completedSessionRetentionMs: config.completedSessionRetentionMs,
     maxCompletedSessions: config.maxCompletedSessions,
@@ -66,6 +66,7 @@ export function createToolHarness(
     ? (deps.subagentLog ?? createSubagentLogSink({
         enabled: true,
         logPath: subagentConfig.logPath,
+        maxLines: subagentConfig.logMaxLines,
         redaction: deps.subagentLogRedaction
       }))
     : undefined;

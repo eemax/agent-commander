@@ -94,6 +94,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       execYieldMs: 10_000,
       processLogTailLines: 200,
       logPath: path.join(root, ".agent-commander", "tool-calls.jsonl"),
+      logMaxLines: null,
       completedSessionRetentionMs: 900_000,
       maxCompletedSessions: 50,
       maxOutputChars: 200_000,
@@ -111,14 +112,21 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
     paths: {
       workspaceRoot: path.join(root, "workspace"),
       conversationsDir: path.join(root, ".agent-commander", "conversations"),
-      stashedConversationsPath: path.join(root, ".agent-commander", "stashed-conversations.json"),
-      activeConversationsPath: path.join(root, ".agent-commander", "active-conversations.json"),
-      contextSnapshotsDir: path.join(root, ".agent-commander", "context-snapshots"),
       appLogPath: path.join(root, ".agent-commander", "app.log")
+    },
+    retention: {
+      archivedConversationsMaxCount: null,
+      logs: {
+        toolCallsMaxLines: null,
+        subagentsMaxLines: null,
+        observabilityMaxLines: null,
+        appMaxLines: null
+      }
     },
     observability: {
       enabled: false,
       logPath: path.join(root, ".agent-commander", "observability.jsonl"),
+      logMaxLines: null,
       redaction: {
         enabled: true,
         maxStringChars: 4_000,
@@ -128,6 +136,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
     subagents: {
       enabled: true,
       logPath: path.join(root, ".agent-commander", "subagents.jsonl"),
+      logMaxLines: null,
       defaultModel: "gpt-5.4-mini",
       maxConcurrentTasks: 10,
       defaultTimeBudgetSec: 900,
@@ -175,6 +184,14 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
     paths: {
       ...base.paths,
       ...overrides.paths
+    },
+    retention: {
+      ...base.retention,
+      ...overrides.retention,
+      logs: {
+        ...base.retention.logs,
+        ...overrides.retention?.logs
+      }
     },
     observability: {
       ...base.observability,

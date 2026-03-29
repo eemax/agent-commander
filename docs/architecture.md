@@ -141,15 +141,22 @@ Agent Commander is intentionally small:
 - JSON object mapping `chatId -> stashed conversation list`.
 - Each stash entry contains `conversationId`, `alias`, `stashedAt`, and a conversation runtime profile.
 
-### Active conversation index (`active_conversations_path`)
+### Current conversation tree (`conversations_dir/current`)
 
-- JSON object mapping `chatId -> current conversation record`.
+- `active-conversations.json` maps `chatId -> current conversation record`.
 - Each record contains `conversationId`, optional `alias`, and a conversation runtime profile.
 - Runtime profile fields: `workingDirectory`, `thinkingEffort`, `cacheRetention`, `transportMode`, `authMode`, `activeModelOverride`, `activeWebSearchModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, `lastProviderFailure`.
-- Default filenames are `.agent-commander/stashed-conversations.json` and `.agent-commander/active-conversations.json`.
+- `stashed-conversations.json` maps `chatId -> stashed conversation list`.
+- Active conversation JSONL files live under `current/active/<chatId>/<conversationId>.jsonl`.
+- Stashed conversation JSONL files live under `current/stashed/<chatId>/<conversationId>.jsonl`.
 - No automatic migration is performed from the previous filename layout.
 
-### Conversation events (`conversations_dir/<chatId>/<conversationId>.jsonl`)
+### Archived conversation tree (`conversations_dir/archive`)
+
+- Archived conversation JSONL files live under `archive/<chatId>/<conversationId>.jsonl`.
+- Optional retention can prune the oldest archived conversations globally after each archive move.
+
+### Conversation events
 
 - `conversation_created`
 - `message` (`role=user|assistant`)
@@ -158,10 +165,11 @@ Agent Commander is intentionally small:
 
 Conversation events are decoded/encoded through the typed event codec in `src/state/events.ts`. Malformed JSONL lines (e.g. from a crash mid-write) are skipped with a warning rather than failing the entire load.
 
-### Context snapshots (`context_snapshots_dir/<chatId>/<conversationId>.md`)
+### Context snapshots
 
 - Markdown file stores the compiled first-turn context (`<system>`, `<operating_contracts>` with SOUL and AGENTS contracts, `<available_skills>`) as raw markdown inside XML wrapper tags.
 - Metadata JSON is embedded at EOF in a marker-delimited fenced block (`<!-- acmd:snapshot-metadata:start -->` ... `<!-- acmd:snapshot-metadata:end -->`) and includes SYSTEM/AGENTS/SOUL hashes, tool/skill metadata, compiled snapshot path, and instruction hash.
+- Snapshots are stored beside current conversation JSONL files and are moved between `current/active` and `current/stashed` with the conversation. Archived conversations do not keep snapshots.
 
 ## Auth Modes
 

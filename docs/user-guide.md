@@ -76,9 +76,12 @@ Startup fails if frontmatter is missing/invalid, slug generation is invalid, or 
 
 ## Conversation Persistence
 
-- Current conversation per chat is tracked in `paths.active_conversations_path` (default `.agent-commander/active-conversations.json`).
-- Stashed conversations per chat are tracked in `paths.stashed_conversations_path` (default `.agent-commander/stashed-conversations.json`).
-- Conversation events are JSONL files in `paths.conversations_dir/<chatId>/<conversationId>.jsonl`.
+- Current conversation per chat is tracked in `paths.conversations_dir/current/active-conversations.json`.
+- Stashed conversations per chat are tracked in `paths.conversations_dir/current/stashed-conversations.json`.
+- Conversation events live under:
+  - `paths.conversations_dir/current/active/<chatId>/<conversationId>.jsonl`
+  - `paths.conversations_dir/current/stashed/<chatId>/<conversationId>.jsonl`
+  - `paths.conversations_dir/archive/<chatId>/<conversationId>.jsonl`
 - Conversation runtime profiles persist `thinkingEffort`, `cacheRetention`, `transportMode`, `authMode`, `activeModelOverride`, `latestUsage`, `toolResults`, `compactionCount`, and `lastProviderFailure`.
 - `/new` immediately creates a fresh conversation (archiving the current one) and displays conversation defaults.
 - `/new from` opens an inline menu to restore a stashed conversation or start fresh.
@@ -88,6 +91,8 @@ Startup fails if frontmatter is missing/invalid, slug generation is invalid, or 
 - No automatic migration is performed from the previous filename layout; move/rename old files manually if you want to keep prior state.
 - New conversation and process session IDs are ULID-based (`conv_<ulid>`, `proc_<ulid>`), so they are lexically time-ordered.
 - Runtime app logs are written as human-readable single-line text to `paths.app_log_path`.
+- `retention.archived_conversations_max_count` can prune old archived conversations globally.
+- `retention.logs.*_max_lines` can cap `tool-calls.jsonl`, `subagents.jsonl`, `observability.jsonl`, and `app.log`.
 
 ## Context Injection
 
@@ -99,7 +104,7 @@ At the first model turn of each conversation, runtime injects:
   - `<contract name="AGENTS.md" kind="agent_spec">` — raw `AGENTS.md` content
 - `<available_skills>` — each skill wrapped in `<skill name="..." path="...">`
 
-Compiled snapshots are written to `paths.context_snapshots_dir` per conversation as a single `<conversationId>.md` file containing the compiled hybrid context with embedded JSON metadata (delimited by `<!-- acmd:snapshot-metadata:start -->` / `<!-- acmd:snapshot-metadata:end -->` markers).
+Compiled snapshots are written beside current conversation JSONL files as a single `<conversationId>.md` file containing the compiled hybrid context with embedded JSON metadata (delimited by `<!-- acmd:snapshot-metadata:start -->` / `<!-- acmd:snapshot-metadata:end -->` markers). When a conversation is archived, its snapshot is deleted.
 
 ## Telegram Commands
 
@@ -222,10 +227,12 @@ Common optional fields:
 - `tools.default_cwd` (default: `paths.workspace_root`, usually `~/.agent-commander/`; used as the initial cwd for new conversations)
 - `tools.default_shell` (default: `/bin/bash`)
 - `paths.conversations_dir`
-- `paths.stashed_conversations_path`
-- `paths.active_conversations_path`
-- `paths.context_snapshots_dir`
 - `paths.app_log_path`
+- `retention.archived_conversations_max_count`
+- `retention.logs.tool_calls_max_lines`
+- `retention.logs.subagents_max_lines`
+- `retention.logs.observability_max_lines`
+- `retention.logs.app_max_lines`
 - Runtime/tool knobs (`runtime.*`, `tools.*`, and `openai.*` retry/timeout settings)
   - recommended guardrails are enabled by default:
     - `runtime.tool_workflow_timeout_ms` (default `120000`)

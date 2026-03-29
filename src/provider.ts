@@ -44,6 +44,7 @@ export function createOpenAIProvider(
       execYieldMs: config.tools.execYieldMs,
       processLogTailLines: config.tools.processLogTailLines,
       logPath: config.tools.logPath,
+      logMaxLines: config.tools.logMaxLines,
       completedSessionRetentionMs: config.tools.completedSessionRetentionMs,
       maxCompletedSessions: config.tools.maxCompletedSessions,
       maxOutputChars: config.tools.maxOutputChars,

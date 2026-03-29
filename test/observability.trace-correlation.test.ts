@@ -42,6 +42,7 @@ describe("observability trace correlation", () => {
         execYieldMs: config.tools.execYieldMs,
         processLogTailLines: config.tools.processLogTailLines,
         logPath: config.tools.logPath,
+        logMaxLines: config.tools.logMaxLines,
         completedSessionRetentionMs: config.tools.completedSessionRetentionMs,
         maxCompletedSessions: config.tools.maxCompletedSessions,
         maxOutputChars: config.tools.maxOutputChars
@@ -91,7 +92,6 @@ describe("observability trace correlation", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath,
         observability
       }),
       workspace,

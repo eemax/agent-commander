@@ -498,4 +498,37 @@ describe("subagents.jsonl audit log", () => {
       })
     );
   });
+
+  it("keeps only the newest subagent log lines when maxLines is configured", async () => {
+    const root = createTempDir("acmd-subagent-log-cap-");
+    const logPath = path.join(root, "subagents.jsonl");
+    const sink = createSubagentLogSink({
+      enabled: true,
+      logPath,
+      maxLines: 2
+    });
+
+    for (const action of ["spawn", "inspect", "cancel"]) {
+      await sink.record({
+        entry_type: "supervisor_tool_call",
+        timestamp: new Date().toISOString(),
+        owner_id: "owner-1",
+        task_id: null,
+        tool: "subagents",
+        action,
+        normalized_request: { action },
+        success: true,
+        response: { ok: true },
+        error: null,
+        error_code: null,
+        started_at: new Date().toISOString(),
+        finished_at: new Date().toISOString(),
+        trace: createTraceRootContext("tool")
+      });
+    }
+
+    const entries = readJsonl(logPath);
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.action)).toEqual(["inspect", "cancel"]);
+  });
 });

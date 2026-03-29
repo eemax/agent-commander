@@ -129,13 +129,17 @@ describe("loadConfig", () => {
     expect(config.tools.defaultCwd).toBe(config.paths.workspaceRoot);
     expect(config.tools.defaultShell).toBe("/bin/bash");
     expect(config.tools.logPath).toBe(path.join(root, ".agent-commander", "tool-calls.jsonl"));
+    expect(config.tools.logMaxLines).toBeNull();
     expect(config.tools.webSearch.apiKey).toBeNull();
     expect(config.tools.webSearch.defaultPreset).toBe("pro-search");
     expect(config.tools.webSearch.presets.map((m) => m.id)).toContain("pro-search");
     expect(config.paths.conversationsDir).toBe(path.join(root, ".agent-commander", "conversations"));
-    expect(config.paths.stashedConversationsPath).toBe(path.join(root, ".agent-commander", "stashed-conversations.json"));
-    expect(config.paths.activeConversationsPath).toBe(path.join(root, ".agent-commander", "active-conversations.json"));
     expect(config.paths.appLogPath).toBe(path.join(root, ".agent-commander", "app.log"));
+    expect(config.retention.archivedConversationsMaxCount).toBeNull();
+    expect(config.retention.logs.toolCallsMaxLines).toBeNull();
+    expect(config.retention.logs.subagentsMaxLines).toBeNull();
+    expect(config.retention.logs.observabilityMaxLines).toBeNull();
+    expect(config.retention.logs.appMaxLines).toBeNull();
   });
 
   it("rejects removed verbose and draft-preview config keys", () => {

@@ -104,10 +104,16 @@ function makeConfig(): Config {
     paths: {
       workspaceRoot: "/tmp",
       conversationsDir: "/tmp/conversations",
-      stashedConversationsPath: "/tmp/stashed.json",
-      activeConversationsPath: "/tmp/active.json",
-      contextSnapshotsDir: "/tmp/snapshots",
       appLogPath: "/tmp/app.log"
+    },
+    retention: {
+      archivedConversationsMaxCount: null,
+      logs: {
+        toolCallsMaxLines: null,
+        subagentsMaxLines: null,
+        observabilityMaxLines: null,
+        appMaxLines: null
+      }
     },
     observability: {
       enabled: false,

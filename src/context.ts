@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { ProviderFunctionTool } from "./harness/types.js";
+import { conversationSnapshotPath } from "./state/conversation-paths.js";
 import type { SkillDefinition, WorkspaceSnapshot } from "./types.js";
 
 function toSha256(content: string): string {
@@ -52,15 +53,14 @@ export function buildConversationBootstrapInstructions(params: {
 }
 
 export async function writeConversationContextSnapshot(params: {
-  contextSnapshotsDir: string;
+  conversationsDir: string;
   chatId: string;
   conversationId: string;
   workspace: WorkspaceSnapshot;
   harnessTools: ProviderFunctionTool[];
   compiledInstructions: string;
 }): Promise<string> {
-  const chatFolder = encodeURIComponent(params.chatId);
-  const outMarkdownPath = path.join(params.contextSnapshotsDir, chatFolder, `${params.conversationId}.md`);
+  const outMarkdownPath = conversationSnapshotPath(params.conversationsDir, "active", params.chatId, params.conversationId);
 
   const payload = {
     generatedAt: new Date().toISOString(),

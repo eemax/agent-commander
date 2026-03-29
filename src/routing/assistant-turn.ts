@@ -148,7 +148,7 @@ export function createAssistantTurnHandler(params: {
 
     if (promptContext.promptCountBeforeAppend === 0) {
       await writeConversationContextSnapshot({
-        contextSnapshotsDir: config.paths.contextSnapshotsDir,
+        conversationsDir: config.paths.conversationsDir,
         chatId: input.message.chatId,
         conversationId,
         workspace: workspaceSnapshot,

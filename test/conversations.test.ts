@@ -2,6 +2,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createObservabilitySink } from "../src/observability.js";
+import {
+  activeConversationsIndexPath,
+  conversationJsonlPath,
+  conversationSnapshotPath
+} from "../src/state/conversation-paths.js";
 import { createConversationStore } from "../src/state/conversations.js";
 import { createTempDir } from "./helpers.js";
 
@@ -122,9 +127,61 @@ describe("conversation store", () => {
     expect(second.archivedConversationId).toBe(first);
     expect(second.conversationId).not.toBe(first);
 
-    const firstPath = path.join(root, "conversations", encodeURIComponent("chat-1"), `${first}.jsonl`);
+    const firstPath = conversationJsonlPath(path.join(root, "conversations"), "archive", "chat-1", first);
     const raw = fs.readFileSync(firstPath, "utf8");
     expect(raw).toContain("conversation_archived");
+  });
+
+  it("moves snapshots with stash/restore and deletes them on archive", async () => {
+    const root = createTempDir("acmd-conv-snapshot-lifecycle-");
+    const conversationsDir = path.join(root, "conversations");
+    const store = createConversationStore({
+      conversationsDir
+    });
+
+    const chatId = "chat-1";
+    const conversationId = await store.ensureActiveConversation(chatId);
+    const activeSnapshotPath = conversationSnapshotPath(conversationsDir, "active", chatId, conversationId);
+    await fs.promises.mkdir(path.dirname(activeSnapshotPath), { recursive: true });
+    fs.writeFileSync(activeSnapshotPath, "snapshot-a", "utf8");
+
+    await store.completeStashSelection(chatId, "focus", { type: "new" }, "manual_stash");
+    const stashedSnapshotPath = conversationSnapshotPath(conversationsDir, "stashed", chatId, conversationId);
+    expect(fs.existsSync(activeSnapshotPath)).toBe(false);
+    expect(fs.readFileSync(stashedSnapshotPath, "utf8")).toBe("snapshot-a");
+
+    await store.completeNewSelection(chatId, { type: "stash", conversationId }, "manual_new");
+    expect(fs.existsSync(stashedSnapshotPath)).toBe(false);
+    expect(fs.readFileSync(activeSnapshotPath, "utf8")).toBe("snapshot-a");
+
+    await store.completeNewSelection(chatId, { type: "new" }, "manual_new");
+    expect(fs.existsSync(activeSnapshotPath)).toBe(false);
+  });
+
+  it("prunes oldest archived conversations when the archived cap is exceeded", async () => {
+    const root = createTempDir("acmd-conv-archive-cap-");
+    const conversationsDir = path.join(root, "conversations");
+    const store = createConversationStore({
+      conversationsDir,
+      archivedConversationsMaxCount: 2
+    });
+
+    const chatId = "chat-1";
+    await store.ensureActiveConversation(chatId);
+
+    const archivedConversationIds: string[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      const result = await store.completeNewSelection(chatId, { type: "new" }, `manual_new_${index}`);
+      if (result.archivedConversationId) {
+        archivedConversationIds.push(result.archivedConversationId);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(archivedConversationIds).toHaveLength(3);
+    expect(fs.existsSync(conversationJsonlPath(conversationsDir, "archive", chatId, archivedConversationIds[0]!))).toBe(false);
+    expect(fs.existsSync(conversationJsonlPath(conversationsDir, "archive", chatId, archivedConversationIds[1]!))).toBe(true);
+    expect(fs.existsSync(conversationJsonlPath(conversationsDir, "archive", chatId, archivedConversationIds[2]!))).toBe(true);
   });
 
   it("stashes current conversation then switches and resets runtime defaults", async () => {
@@ -512,14 +569,14 @@ describe("conversation store", () => {
     expect(await store.getThinkingEffort("chat-1")).toBe("medium");
   });
 
-  it("uses active-conversations.json as fallback current index path", async () => {
+  it("loads current conversations from current/active-conversations.json", async () => {
     const root = createTempDir("acmd-conv-current-fallback-");
-    const stashedConversationsPath = path.join(root, ".agent-commander", "stashed-conversations.json");
-    const fallbackCurrentPath = path.join(root, ".agent-commander", "active-conversations.json");
-    await fs.promises.mkdir(path.dirname(fallbackCurrentPath), { recursive: true });
+    const conversationsDir = path.join(root, ".agent-commander", "conversations");
+    const currentIndexPath = activeConversationsIndexPath(conversationsDir);
+    await fs.promises.mkdir(path.dirname(currentIndexPath), { recursive: true });
 
     fs.writeFileSync(
-      fallbackCurrentPath,
+      currentIndexPath,
       JSON.stringify(
         {
           "chat-1": {
@@ -545,8 +602,7 @@ describe("conversation store", () => {
     );
 
     const store = createConversationStore({
-      conversationsDir: path.join(root, ".agent-commander", "conversations"),
-      stashedConversationsPath
+      conversationsDir
     });
 
     expect(await store.ensureActiveConversation("chat-1")).toBe("conv_existing");
@@ -632,8 +688,7 @@ describe("conversation store", () => {
     });
 
     // Inject a malformed line directly into the JSONL file
-    const chatFolder = encodeURIComponent("chat-1");
-    const jsonlPath = path.join(root, "conversations", chatFolder, `${conversationId}.jsonl`);
+    const jsonlPath = conversationJsonlPath(path.join(root, "conversations"), "active", "chat-1", conversationId);
     fs.appendFileSync(jsonlPath, "{corrupted json line\n");
 
     await store.appendAssistantMessage({

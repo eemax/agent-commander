@@ -1,5 +1,5 @@
-import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { appendTextWithTailRetention } from "../file-retention.js";
 import type { ToolLogEntry } from "./types.js";
 
 function serializeValue(value: unknown): unknown {
@@ -33,9 +33,12 @@ function serializeValue(value: unknown): unknown {
 
 export class ToolCallLogger {
   private readonly logPath: string;
+  private readonly maxLines: number | null;
+  private queue: Promise<void> = Promise.resolve();
 
-  public constructor(logPath: string, defaultCwd: string) {
+  public constructor(logPath: string, defaultCwd: string, maxLines: number | null = null) {
     this.logPath = path.isAbsolute(logPath) ? logPath : path.resolve(defaultCwd, logPath);
+    this.maxLines = maxLines;
   }
 
   public get path(): string {
@@ -43,13 +46,26 @@ export class ToolCallLogger {
   }
 
   public async write(entry: ToolLogEntry): Promise<void> {
-    const directory = path.dirname(this.logPath);
-    await fs.mkdir(directory, { recursive: true });
-
     const safeEntry = {
       ...entry,
       args: serializeValue(entry.args)
     };
-    await fs.appendFile(this.logPath, `${JSON.stringify(safeEntry)}\n`, "utf8");
+
+    this.queue = this.queue.then(
+      () =>
+        appendTextWithTailRetention({
+          filePath: this.logPath,
+          text: `${JSON.stringify(safeEntry)}\n`,
+          maxLines: this.maxLines
+        }),
+      () =>
+        appendTextWithTailRetention({
+          filePath: this.logPath,
+          text: `${JSON.stringify(safeEntry)}\n`,
+          maxLines: this.maxLines
+        })
+    );
+
+    await this.queue;
   }
 }

@@ -120,4 +120,34 @@ describe("createObservabilitySink", () => {
       warnSpy.mockRestore();
     }
   });
+
+  it("keeps only the newest observability lines when maxLines is configured", async () => {
+    const root = createTempDir("acmd-observability-cap-");
+    const logPath = path.join(root, "observability.jsonl");
+    const sink = createObservabilitySink({
+      enabled: true,
+      logPath,
+      maxLines: 2
+    });
+
+    await sink.record({
+      event: "test.one",
+      trace: createTraceRootContext("system")
+    });
+    await sink.record({
+      event: "test.two",
+      trace: createTraceRootContext("system")
+    });
+    await sink.record({
+      event: "test.three",
+      trace: createTraceRootContext("system")
+    });
+
+    const entries = fs
+      .readFileSync(logPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(entries.map((entry) => entry.event)).toEqual(["test.two", "test.three"]);
+  });
 });

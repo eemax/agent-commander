@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import * as path from "node:path";
 import { createConversationId } from "../id.js";
 import type { ProviderFailureSummary, StashedConversationSummary, StateStore, ToolResultStats } from "../runtime/contracts.js";
@@ -27,6 +28,13 @@ import {
   parseConversationEvent,
   serializeConversationEvent
 } from "./events.js";
+import {
+  type ConversationStorageBucket,
+  activeConversationsIndexPath,
+  conversationJsonlPath,
+  conversationSnapshotPath,
+  stashedConversationsIndexPath
+} from "./conversation-paths.js";
 
 type ConversationRuntimeProfile = {
   workingDirectory: string;
@@ -66,7 +74,8 @@ type ConversationSessionCache = {
 
 type ConversationStoreParams = {
   conversationsDir: string;
-  stashedConversationsPath: string;
+  // Legacy constructor fields are accepted but ignored; layout is derived from conversationsDir.
+  stashedConversationsPath?: string;
   activeConversationsPath?: string;
   defaultWorkingDirectory?: string;
   defaultThinkingEffort?: ThinkingEffort;
@@ -74,12 +83,9 @@ type ConversationStoreParams = {
   defaultAuthMode?: AuthMode;
   defaultTransportMode?: TransportMode;
   sessionCacheMaxEntries?: number;
+  archivedConversationsMaxCount?: number | null;
   observability?: ObservabilitySink;
 };
-
-function toChatFolder(chatId: string): string {
-  return encodeURIComponent(chatId);
-}
 
 function toCacheKey(chatId: string, conversationId: string): string {
   return `${chatId}\u0000${conversationId}`;
@@ -448,9 +454,9 @@ export type ConversationStore = StateStore;
 
 export function createConversationStore(params: ConversationStoreParams): ConversationStore {
   const sessionCacheMaxEntries = params.sessionCacheMaxEntries ?? 200;
-  const activeConversationsPath =
-    params.activeConversationsPath ??
-    path.join(path.dirname(params.stashedConversationsPath), "active-conversations.json");
+  const archivedConversationsMaxCount = params.archivedConversationsMaxCount ?? null;
+  const currentConversationsPath = activeConversationsIndexPath(params.conversationsDir);
+  const stashedConversationsPath = stashedConversationsIndexPath(params.conversationsDir);
   const defaults = {
     defaultWorkingDirectory: params.defaultWorkingDirectory ?? process.cwd(),
     defaultThinkingEffort: params.defaultThinkingEffort ?? "medium",
@@ -468,8 +474,20 @@ export function createConversationStore(params: ConversationStoreParams): Conver
   const appendQueues = new Map<string, Promise<unknown>>();
   const ensuredConversationDirs = new Map<string, Promise<void>>();
 
-  const conversationPath = (chatId: string, conversationId: string): string => {
-    return path.join(params.conversationsDir, toChatFolder(chatId), `${conversationId}.jsonl`);
+  const conversationPath = (
+    bucket: ConversationStorageBucket,
+    chatId: string,
+    conversationId: string
+  ): string => {
+    return conversationJsonlPath(params.conversationsDir, bucket, chatId, conversationId);
+  };
+
+  const snapshotPath = (
+    bucket: Exclude<ConversationStorageBucket, "archive">,
+    chatId: string,
+    conversationId: string
+  ): string => {
+    return conversationSnapshotPath(params.conversationsDir, bucket, chatId, conversationId);
   };
 
   const ensureConversationDir = async (dirPath: string): Promise<void> => {
@@ -485,6 +503,10 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       ensuredConversationDirs.set(dirPath, pending);
     }
     await pending;
+  };
+
+  const ensureParentDir = async (targetPath: string): Promise<void> => {
+    await ensureConversationDir(path.dirname(targetPath));
   };
 
   const touchSession = (cacheKey: string): ConversationSessionCache => {
@@ -582,13 +604,116 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     session.lastAccessMs = Date.now();
   };
 
+  const resolveConversationLocation = (
+    chatId: string,
+    conversationId: string,
+    currentIndex: CurrentConversationsIndex,
+    activeIndex: ActiveConversationsIndex
+  ): ConversationStorageBucket => {
+    if (currentIndex[chatId]?.conversationId === conversationId) {
+      return "active";
+    }
+
+    if ((activeIndex[chatId] ?? []).some((item) => item.conversationId === conversationId)) {
+      return "stashed";
+    }
+
+    return "archive";
+  };
+
+  const deleteIfExists = async (targetPath: string): Promise<void> => {
+    try {
+      await fs.unlink(targetPath);
+    } catch (error) {
+      const nodeError = error as NodeJS.ErrnoException;
+      if (nodeError.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  };
+
+  const renameIfExists = async (fromPath: string, toPath: string): Promise<void> => {
+    try {
+      await ensureParentDir(toPath);
+      await fs.rename(fromPath, toPath);
+    } catch (error) {
+      const nodeError = error as NodeJS.ErrnoException;
+      if (nodeError.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  };
+
+  const listArchivedConversationFiles = async (): Promise<Array<{ filePath: string; mtimeMs: number }>> => {
+    const archiveRoot = path.join(params.conversationsDir, "archive");
+    let chatEntries: Dirent[];
+
+    try {
+      chatEntries = await fs.readdir(archiveRoot, { withFileTypes: true });
+    } catch (error) {
+      const nodeError = error as NodeJS.ErrnoException;
+      if (nodeError.code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+
+    const files: Array<{ filePath: string; mtimeMs: number }> = [];
+    for (const chatEntry of chatEntries) {
+      if (!chatEntry.isDirectory()) {
+        continue;
+      }
+
+      const chatDir = path.join(archiveRoot, chatEntry.name);
+      const archivedEntries = await fs.readdir(chatDir, { withFileTypes: true });
+      for (const archivedEntry of archivedEntries) {
+        if (!archivedEntry.isFile() || !archivedEntry.name.endsWith(".jsonl")) {
+          continue;
+        }
+
+        const filePath = path.join(chatDir, archivedEntry.name);
+        const stats = await fs.stat(filePath);
+        files.push({ filePath, mtimeMs: stats.mtimeMs });
+      }
+    }
+
+    return files;
+  };
+
+  const pruneArchivedConversations = async (): Promise<void> => {
+    if (archivedConversationsMaxCount === null) {
+      return;
+    }
+
+    const archivedFiles = await listArchivedConversationFiles();
+    if (archivedFiles.length <= archivedConversationsMaxCount) {
+      return;
+    }
+
+    archivedFiles.sort((left, right) => {
+      if (left.mtimeMs !== right.mtimeMs) {
+        return left.mtimeMs - right.mtimeMs;
+      }
+      return left.filePath.localeCompare(right.filePath);
+    });
+
+    const overflow = archivedFiles.length - archivedConversationsMaxCount;
+    for (let index = 0; index < overflow; index += 1) {
+      const target = archivedFiles[index];
+      if (!target) {
+        continue;
+      }
+      await deleteIfExists(target.filePath);
+    }
+  };
+
   const loadActiveConversations = async (): Promise<ActiveConversationsIndex> => {
     if (activeConversationsCache) {
       return activeConversationsCache;
     }
 
     try {
-      const raw = await fs.readFile(params.stashedConversationsPath, "utf8");
+      const raw = await fs.readFile(stashedConversationsPath, "utf8");
       activeConversationsCache = parseActiveConversationsIndex(raw, defaults);
       return activeConversationsCache;
     } catch (error) {
@@ -604,7 +729,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
 
   const saveActiveConversations = async (next: ActiveConversationsIndex): Promise<void> => {
     activeConversationsCache = next;
-    await atomicWriteJson(params.stashedConversationsPath, cloneActiveConversationsIndex(next));
+    await atomicWriteJson(stashedConversationsPath, cloneActiveConversationsIndex(next));
   };
 
   const loadCurrentConversations = async (): Promise<CurrentConversationsIndex> => {
@@ -613,7 +738,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     }
 
     try {
-      const raw = await fs.readFile(activeConversationsPath, "utf8");
+      const raw = await fs.readFile(currentConversationsPath, "utf8");
       currentConversationsCache = parseCurrentConversationsIndex(raw, defaults);
       return currentConversationsCache;
     } catch (error) {
@@ -629,7 +754,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
 
   const saveCurrentConversations = async (next: CurrentConversationsIndex): Promise<void> => {
     currentConversationsCache = next;
-    await atomicWriteJson(activeConversationsPath, next);
+    await atomicWriteJson(currentConversationsPath, next);
   };
 
   const loadConversationSession = async (chatId: string, conversationId: string): Promise<ConversationSessionCache> => {
@@ -640,7 +765,13 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     }
 
     const cacheable = await isSessionCacheEligible(chatId, conversationId);
-    const target = conversationPath(chatId, conversationId);
+    const currentIndex = await loadCurrentConversations();
+    const activeIndex = await loadActiveConversations();
+    const target = conversationPath(
+      resolveConversationLocation(chatId, conversationId, currentIndex, activeIndex),
+      chatId,
+      conversationId
+    );
     let raw: string;
 
     try {
@@ -729,14 +860,54 @@ export function createConversationStore(params: ConversationStoreParams): Conver
     }
   };
 
+  const moveConversationArtifacts = async (paramsInput: {
+    chatId: string;
+    conversationId: string;
+    from: Exclude<ConversationStorageBucket, "archive">;
+    to: ConversationStorageBucket;
+    archivedAt?: Date;
+  }): Promise<void> => {
+    await awaitPendingAppend(paramsInput.chatId, paramsInput.conversationId);
+
+    const sourceJsonlPath = conversationPath(paramsInput.from, paramsInput.chatId, paramsInput.conversationId);
+    if (paramsInput.to === "archive") {
+      const targetJsonlPath = conversationPath("archive", paramsInput.chatId, paramsInput.conversationId);
+      await ensureParentDir(targetJsonlPath);
+      await fs.rename(sourceJsonlPath, targetJsonlPath);
+      if (paramsInput.archivedAt) {
+        await fs.utimes(targetJsonlPath, paramsInput.archivedAt, paramsInput.archivedAt);
+      }
+      await deleteIfExists(snapshotPath(paramsInput.from, paramsInput.chatId, paramsInput.conversationId));
+      await pruneArchivedConversations();
+      return;
+    }
+
+    const targetJsonlPath = conversationPath(paramsInput.to, paramsInput.chatId, paramsInput.conversationId);
+    await ensureParentDir(targetJsonlPath);
+    await fs.rename(sourceJsonlPath, targetJsonlPath);
+    await renameIfExists(
+      snapshotPath(paramsInput.from, paramsInput.chatId, paramsInput.conversationId),
+      snapshotPath(paramsInput.to, paramsInput.chatId, paramsInput.conversationId)
+    );
+  };
+
   const appendEventInternal = async (
     chatId: string,
     conversationId: string,
     event: ConversationEvent,
-    trace?: TraceContext
+    trace?: TraceContext,
+    location?: ConversationStorageBucket
   ): Promise<void> => {
-    const target = conversationPath(chatId, conversationId);
-    await ensureConversationDir(path.dirname(target));
+    const resolvedLocation =
+      location ??
+      resolveConversationLocation(
+        chatId,
+        conversationId,
+        await loadCurrentConversations(),
+        await loadActiveConversations()
+      );
+    const target = conversationPath(resolvedLocation, chatId, conversationId);
+    await ensureParentDir(target);
     await fs.appendFile(target, `${serializeConversationEvent(event)}\n`, "utf8");
 
     const cacheKey = toCacheKey(chatId, conversationId);
@@ -766,7 +937,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       reason
     };
 
-    await appendEventInternal(chatId, conversationId, event, trace);
+    await appendEventInternal(chatId, conversationId, event, trace, "active");
     return conversationId;
   };
 
@@ -1319,19 +1490,28 @@ export function createConversationStore(params: ConversationStoreParams): Conver
 
         const existingCurrent = currentIndex[chatId] ?? null;
         let archivedConversationId: string | null = null;
+        let archivedAt: Date | null = null;
 
         if (existingCurrent) {
           archivedConversationId = existingCurrent.conversationId;
+          archivedAt = new Date();
           const archiveEvent: ConversationArchiveEvent = {
             type: "conversation_archived",
-            timestamp: new Date().toISOString(),
+            timestamp: archivedAt.toISOString(),
             chatId,
             conversationId: existingCurrent.conversationId,
             reason
           };
 
           await enqueueConversationAppend(chatId, existingCurrent.conversationId, async () => {
-            await appendEventInternal(chatId, existingCurrent.conversationId, archiveEvent, options?.trace);
+            await appendEventInternal(chatId, existingCurrent.conversationId, archiveEvent, options?.trace, "active");
+          });
+          await moveConversationArtifacts({
+            chatId,
+            conversationId: existingCurrent.conversationId,
+            from: "active",
+            to: "archive",
+            archivedAt
           });
         }
 
@@ -1351,6 +1531,13 @@ export function createConversationStore(params: ConversationStoreParams): Conver
           if (!selected) {
             throw new Error("stashed conversation not found");
           }
+
+          await moveConversationArtifacts({
+            chatId,
+            conversationId: selected.conversationId,
+            from: "stashed",
+            to: "active"
+          });
 
           nextCurrent = {
             conversationId: selected.conversationId,
@@ -1423,6 +1610,13 @@ export function createConversationStore(params: ConversationStoreParams): Conver
           runtime: cloneRuntimeProfile(current.runtime)
         };
 
+        await moveConversationArtifacts({
+          chatId,
+          conversationId: current.conversationId,
+          from: "active",
+          to: "stashed"
+        });
+
         let nextStashes = sortStashes([...withoutCurrent, stashedRecord]);
         let nextCurrent: CurrentConversationRecord;
 
@@ -1438,6 +1632,13 @@ export function createConversationStore(params: ConversationStoreParams): Conver
           if (!selected) {
             throw new Error("stashed conversation not found");
           }
+
+          await moveConversationArtifacts({
+            chatId,
+            conversationId: selected.conversationId,
+            from: "stashed",
+            to: "active"
+          });
 
           nextCurrent = {
             conversationId: selected.conversationId,

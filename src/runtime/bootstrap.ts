@@ -72,12 +72,14 @@ async function bootstrapAgentRuntime(
   const logger = createLogger(config.runtime.logLevel, {
     appLogPath: config.paths.appLogPath,
     flushIntervalMs: config.runtime.appLogFlushIntervalMs,
-    tag: agent.id
+    tag: agent.id,
+    maxLines: config.retention.logs.appMaxLines
   });
 
   const observability = createObservabilitySink({
     enabled: config.observability.enabled,
     logPath: config.observability.logPath,
+    maxLines: config.observability.logMaxLines,
     redaction: config.observability.redaction
   });
 
@@ -112,14 +114,13 @@ async function bootstrapAgentRuntime(
 
   const conversations = createConversationStore({
     conversationsDir: config.paths.conversationsDir,
-    stashedConversationsPath: config.paths.stashedConversationsPath,
-    activeConversationsPath: config.paths.activeConversationsPath,
     defaultWorkingDirectory: config.tools.defaultCwd,
     defaultThinkingEffort: defaultModel.defaultThinking,
     defaultCacheRetention: defaultModel.cacheRetention,
     defaultAuthMode: config.openai.authMode,
     defaultTransportMode: config.openai.defaultTransport,
     sessionCacheMaxEntries: config.runtime.sessionCacheMaxEntries,
+    archivedConversationsMaxCount: config.retention.archivedConversationsMaxCount,
     observability
   });
 
@@ -131,6 +132,7 @@ async function bootstrapAgentRuntime(
       execYieldMs: config.tools.execYieldMs,
       processLogTailLines: config.tools.processLogTailLines,
       logPath: config.tools.logPath,
+      logMaxLines: config.tools.logMaxLines,
       completedSessionRetentionMs: config.tools.completedSessionRetentionMs,
       maxCompletedSessions: config.tools.maxCompletedSessions,
       maxOutputChars: config.tools.maxOutputChars,

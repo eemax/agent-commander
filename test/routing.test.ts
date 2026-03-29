@@ -7,6 +7,7 @@ import { createObservabilitySink } from "../src/observability.js";
 import { ProviderError } from "../src/provider-error.js";
 import { createMessageRouter } from "../src/routing.js";
 import { createConversationStore } from "../src/state/conversations.js";
+import { conversationSnapshotPath } from "../src/state/conversation-paths.js";
 import type {
   NormalizedTelegramCallbackQuery,
   NormalizedTelegramMessage,
@@ -175,10 +176,9 @@ describe("createMessageRouter", () => {
     expect(call?.instructions).not.toContain("<available_tools>");
     expect(call?.instructions).not.toContain("<base_instructions>");
 
-    const snapshotChatDir = path.join(config.paths.contextSnapshotsDir, encodeURIComponent("chat-1"));
-    const snapshots = fs.readdirSync(snapshotChatDir);
-    expect(snapshots.filter((name) => name.endsWith(".json")).length).toBe(0);
-    expect(snapshots.filter((name) => name.endsWith(".md")).length).toBe(1);
+    const snapshotPath = conversationSnapshotPath(config.paths.conversationsDir, "active", "chat-1", call!.conversationId);
+    expect(fs.existsSync(snapshotPath)).toBe(true);
+    expect(snapshotPath.endsWith(".md")).toBe(true);
   });
 
   it("passes streaming sink callbacks through to provider", async () => {

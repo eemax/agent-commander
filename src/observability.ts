@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { appendTextWithTailRetention } from "./file-retention.js";
 import { createSpanId, createTraceId } from "./id.js";
 
 export type TraceOrigin = "telegram" | "routing" | "provider" | "state" | "tool" | "runtime" | "system" | string;
@@ -175,6 +176,7 @@ export function createNoopObservabilitySink(): ObservabilitySink {
 export function createObservabilitySink(params: {
   enabled: boolean;
   logPath: string;
+  maxLines?: number | null;
   redaction?: Partial<ObservabilityRedactionConfig>;
 }): ObservabilitySink {
   if (!params.enabled) {
@@ -184,8 +186,10 @@ export function createObservabilitySink(params: {
   const resolvedPath = path.resolve(params.logPath);
   const redactionConfig = normalizeRedactionConfig(params.redaction);
   const redactKeySet = new Set(redactionConfig.redactKeys.map((key) => normalizeRedactionKey(key)));
+  const maxLines = params.maxLines ?? null;
   let hasReportedWriteFailure = false;
   let ensureDirectoryPromise: Promise<void> | null = null;
+  let queue: Promise<void> = Promise.resolve();
 
   const ensureLogDirectory = async (): Promise<void> => {
     if (!ensureDirectoryPromise) {
@@ -210,20 +214,50 @@ export function createObservabilitySink(params: {
       });
       const payload = applyRedactionAndTruncation(serialized, redactionConfig, redactKeySet);
 
-      try {
-        await ensureLogDirectory();
-        await fs.appendFile(resolvedPath, `${JSON.stringify(payload)}\n`, "utf8");
-      } catch (error) {
-        if (hasReportedWriteFailure) {
-          return;
-        }
+      queue = queue.then(
+        async () => {
+          try {
+            await ensureLogDirectory();
+            await appendTextWithTailRetention({
+              filePath: resolvedPath,
+              text: `${JSON.stringify(payload)}\n`,
+              maxLines
+            });
+          } catch (error) {
+            if (hasReportedWriteFailure) {
+              return;
+            }
 
-        hasReportedWriteFailure = true;
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn(
-          `${new Date().toISOString()} [WARN] observability: failed to append event to ${resolvedPath}: ${message}`
-        );
-      }
+            hasReportedWriteFailure = true;
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn(
+              `${new Date().toISOString()} [WARN] observability: failed to append event to ${resolvedPath}: ${message}`
+            );
+          }
+        },
+        async () => {
+          try {
+            await ensureLogDirectory();
+            await appendTextWithTailRetention({
+              filePath: resolvedPath,
+              text: `${JSON.stringify(payload)}\n`,
+              maxLines
+            });
+          } catch (error) {
+            if (hasReportedWriteFailure) {
+              return;
+            }
+
+            hasReportedWriteFailure = true;
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn(
+              `${new Date().toISOString()} [WARN] observability: failed to append event to ${resolvedPath}: ${message}`
+            );
+          }
+        }
+      );
+
+      await queue;
     }
   };
 }

@@ -67,4 +67,19 @@ describe("createLogger", () => {
     const raw = fs.readFileSync(appLogPath, "utf8");
     expect(raw).toContain("[INFO] buffered");
   });
+
+  it("keeps only the newest app log lines when maxLines is configured", () => {
+    const root = createTempDir("acmd-logger-cap-");
+    const appLogPath = path.join(root, "app.log");
+    const logger = createLogger("debug", { appLogPath, maxLines: 2 });
+
+    logger.info("first");
+    logger.info("second");
+    logger.info("third");
+
+    const lines = fs.readFileSync(appLogPath, "utf8").trim().split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("[INFO] second");
+    expect(lines[1]).toContain("[INFO] third");
+  });
 });

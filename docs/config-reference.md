@@ -124,12 +124,31 @@ This is the canonical `config/config.json` shape.
 
 - `workspace_root`: path string, default `"~/.agent-commander"`
 - `conversations_dir`: path string, default `".agent-commander/conversations"`
-- `stashed_conversations_path`: path string, default `".agent-commander/stashed-conversations.json"` (stash pool)
-- `active_conversations_path`: path string, default `".agent-commander/active-conversations.json"` (current active selection)
-- `context_snapshots_dir`: path string, default `".agent-commander/context-snapshots"`
 - `app_log_path`: path string, default `".agent-commander/app.log"`
 
-No automatic migration is performed from the previous filename layout. If you need to preserve existing data, move/rename files manually.
+`conversations_dir` is the storage root for the conversation tree:
+
+- `current/active-conversations.json`
+- `current/stashed-conversations.json`
+- `current/active/<chatId>/<conversationId>.jsonl`
+- `current/stashed/<chatId>/<conversationId>.jsonl`
+- `archive/<chatId>/<conversationId>.jsonl`
+
+Context snapshots are stored beside current conversation JSONL files as `<conversationId>.md`; archived conversations do not retain snapshots.
+
+No automatic migration is performed from older layouts. If you need to preserve existing data, move/rename files manually.
+
+### `retention`
+
+- `archived_conversations_max_count`: positive integer or `null`, default `null`
+  - when set, keeps only the newest archived conversation JSONL files across the whole agent store
+  - current and stashed conversations are never counted toward this cap
+- `logs.tool_calls_max_lines`: positive integer or `null`, default `null`
+- `logs.subagents_max_lines`: positive integer or `null`, default `null`
+- `logs.observability_max_lines`: positive integer or `null`, default `null`
+- `logs.app_max_lines`: positive integer or `null`, default `null`
+
+For each log cap, `null` disables trimming. When enabled, the file keeps only the newest `N` lines after each append/flush.
 
 ### `subagents`
 

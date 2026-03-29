@@ -7,6 +7,7 @@ import {
   writeConversationContextSnapshot
 } from "../src/context.js";
 import type { ProviderFunctionTool } from "../src/harness/types.js";
+import { conversationSnapshotPath } from "../src/state/conversation-paths.js";
 import type { WorkspaceSnapshot } from "../src/types.js";
 
 function mkdtemp(prefix: string): string {
@@ -161,7 +162,7 @@ describe("context compilation", () => {
     });
 
     const markdownPath = await writeConversationContextSnapshot({
-      contextSnapshotsDir: root,
+      conversationsDir: root,
       chatId: "chat/1",
       conversationId: "conv_01TEST",
       workspace,
@@ -169,8 +170,10 @@ describe("context compilation", () => {
       compiledInstructions
     });
 
+    const expectedMarkdownPath = conversationSnapshotPath(root, "active", "chat/1", "conv_01TEST");
     const folder = path.dirname(markdownPath);
     const jsonPath = path.join(folder, "conv_01TEST.json");
+    expect(markdownPath).toBe(expectedMarkdownPath);
     expect(fs.existsSync(markdownPath)).toBe(true);
     expect(fs.existsSync(jsonPath)).toBe(false);
 

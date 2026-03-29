@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { appendTextWithTailRetention, appendTextWithTailRetentionSync } from "./file-retention.js";
 import type { LogLevel, RuntimeLogger } from "./runtime/contracts.js";
 
 const LEVEL_RANK: Record<LogLevel, number> = {
@@ -20,10 +21,11 @@ function formatLine(level: LogLevel, message: string, tag?: string): string {
 
 export function createLogger(
   level: LogLevel,
-  options: { appLogPath?: string; flushIntervalMs?: number; tag?: string } = {}
+  options: { appLogPath?: string; flushIntervalMs?: number; tag?: string; maxLines?: number | null } = {}
 ): RuntimeLogger {
   const tag = options.tag;
   const appLogPath = options.appLogPath;
+  const maxLines = options.maxLines ?? null;
   if (appLogPath) {
     fs.mkdirSync(path.dirname(appLogPath), { recursive: true });
   }
@@ -50,7 +52,11 @@ export function createLogger(
       .catch(() => undefined)
       .then(async () => {
         try {
-          await fs.promises.appendFile(appLogPath, payload, "utf8");
+          await appendTextWithTailRetention({
+            filePath: appLogPath,
+            text: payload,
+            maxLines
+          });
         } catch {
           // Do not block runtime behavior on log file errors.
         }
@@ -70,7 +76,11 @@ export function createLogger(
     const payload = bufferedLines;
     bufferedLines = "";
     try {
-      fs.appendFileSync(appLogPath, payload, "utf8");
+      appendTextWithTailRetentionSync({
+        filePath: appLogPath,
+        text: payload,
+        maxLines
+      });
     } catch {
       // Do not block runtime behavior on log file errors.
     }
@@ -129,7 +139,11 @@ export function createLogger(
     }
 
     try {
-      fs.appendFileSync(appLogPath, `${line}\n`, "utf8");
+      appendTextWithTailRetentionSync({
+        filePath: appLogPath,
+        text: `${line}\n`,
+        maxLines
+      });
     } catch {
       // Do not block runtime behavior on log file errors.
     }

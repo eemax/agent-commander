@@ -96,10 +96,16 @@ const DEFAULT_CONFIG_TEMPLATE = {
   paths: {
     workspace_root: "~/.agent-commander",
     conversations_dir: ".agent-commander/conversations",
-    stashed_conversations_path: ".agent-commander/stashed-conversations.json",
-    active_conversations_path: ".agent-commander/active-conversations.json",
-    context_snapshots_dir: ".agent-commander/context-snapshots",
     app_log_path: ".agent-commander/app.log"
+  },
+  retention: {
+    archived_conversations_max_count: null as number | null,
+    logs: {
+      tool_calls_max_lines: null as number | null,
+      subagents_max_lines: null as number | null,
+      observability_max_lines: null as number | null,
+      app_max_lines: null as number | null
+    }
   },
   observability: {
     enabled: false,
@@ -236,12 +242,24 @@ export const configSchema = z
       .object({
         workspace_root: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.paths.workspace_root),
         conversations_dir: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.paths.conversations_dir),
-        stashed_conversations_path: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.paths.stashed_conversations_path),
-        active_conversations_path: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.paths.active_conversations_path),
-        context_snapshots_dir: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.paths.context_snapshots_dir),
         app_log_path: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.paths.app_log_path)
       })
       .strict(),
+    retention: z
+      .object({
+        archived_conversations_max_count: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.retention.archived_conversations_max_count),
+        logs: z
+          .object({
+            tool_calls_max_lines: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.retention.logs.tool_calls_max_lines),
+            subagents_max_lines: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.retention.logs.subagents_max_lines),
+            observability_max_lines: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.retention.logs.observability_max_lines),
+            app_max_lines: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.retention.logs.app_max_lines)
+          })
+          .strict()
+          .default({})
+      })
+      .strict()
+      .default({}),
     observability: z
       .object({
         enabled: z.boolean().default(DEFAULT_CONFIG_TEMPLATE.observability.enabled),
@@ -621,6 +639,7 @@ export function buildConfigFromParsed(
       execYieldMs: config.tools.exec_yield_ms,
       processLogTailLines: config.tools.process_log_tail_lines,
       logPath: resolveConfigPath(repoRoot, config.tools.log_path),
+      logMaxLines: config.retention.logs.tool_calls_max_lines,
       completedSessionRetentionMs: config.tools.completed_session_retention_ms,
       maxCompletedSessions: config.tools.max_completed_sessions,
       maxOutputChars: config.tools.max_output_chars,
@@ -633,14 +652,21 @@ export function buildConfigFromParsed(
     paths: {
       workspaceRoot,
       conversationsDir: resolveConfigPath(repoRoot, config.paths.conversations_dir),
-      stashedConversationsPath: resolveConfigPath(repoRoot, config.paths.stashed_conversations_path),
-      activeConversationsPath: resolveConfigPath(repoRoot, config.paths.active_conversations_path),
-      contextSnapshotsDir: resolveConfigPath(repoRoot, config.paths.context_snapshots_dir),
       appLogPath: resolveConfigPath(repoRoot, config.paths.app_log_path)
+    },
+    retention: {
+      archivedConversationsMaxCount: config.retention.archived_conversations_max_count,
+      logs: {
+        toolCallsMaxLines: config.retention.logs.tool_calls_max_lines,
+        subagentsMaxLines: config.retention.logs.subagents_max_lines,
+        observabilityMaxLines: config.retention.logs.observability_max_lines,
+        appMaxLines: config.retention.logs.app_max_lines
+      }
     },
     observability: {
       enabled: config.observability.enabled,
       logPath: resolveConfigPath(repoRoot, config.observability.log_path),
+      logMaxLines: config.retention.logs.observability_max_lines,
       redaction: {
         enabled: config.observability.redaction.enabled,
         maxStringChars: config.observability.redaction.max_string_chars,
@@ -650,6 +676,7 @@ export function buildConfigFromParsed(
     subagents: {
       enabled: config.subagents.enabled,
       logPath: resolveConfigPath(repoRoot, config.subagents.log_path),
+      logMaxLines: config.retention.logs.subagents_max_lines,
       defaultModel: subagentDefaultModel,
       maxConcurrentTasks: config.subagents.max_concurrent_tasks,
       defaultTimeBudgetSec: config.subagents.default_time_budget_sec,

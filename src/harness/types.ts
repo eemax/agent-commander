@@ -19,6 +19,7 @@ export type HarnessConfig = {
   execYieldMs: number;
   processLogTailLines: number;
   logPath: string;
+  logMaxLines?: number | null;
   completedSessionRetentionMs: number;
   maxCompletedSessions: number;
   maxOutputChars: number;
@@ -30,6 +31,7 @@ export type HarnessConfig = {
   subagents?: {
     enabled: boolean;
     logPath: string;
+    logMaxLines?: number | null;
     defaultModel: string;
     maxConcurrentTasks: number;
     defaultTimeBudgetSec: number;

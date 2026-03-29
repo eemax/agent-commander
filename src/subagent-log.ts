@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { appendTextWithTailRetention } from "./file-retention.js";
 import type { TraceContext, ObservabilityRedactionConfig } from "./observability.js";
 import { DEFAULT_OBSERVABILITY_REDACTION } from "./observability.js";
 import type {
@@ -378,6 +379,7 @@ export function createNoopSubagentLogSink(): SubagentLogSink {
 export function createSubagentLogSink(params: {
   enabled: boolean;
   logPath: string;
+  maxLines?: number | null;
   redaction?: Partial<ObservabilityRedactionConfig>;
 }): SubagentLogSink {
   if (!params.enabled) {
@@ -385,6 +387,7 @@ export function createSubagentLogSink(params: {
   }
 
   const resolvedPath = path.resolve(params.logPath);
+  const maxLines = params.maxLines ?? null;
   const redactionConfig = normalizeRedactionConfig(params.redaction);
   const redactKeySet = new Set(redactionConfig.redactKeys.map((key) => normalizeRedactionKey(key)));
   let ensureDirectoryPromise: Promise<void> | null = null;
@@ -411,7 +414,11 @@ export function createSubagentLogSink(params: {
 
     try {
       await ensureLogDirectory();
-      await fs.appendFile(resolvedPath, `${JSON.stringify(payload)}\n`, "utf8");
+      await appendTextWithTailRetention({
+        filePath: resolvedPath,
+        text: `${JSON.stringify(payload)}\n`,
+        maxLines
+      });
     } catch (error) {
       if (hasReportedWriteFailure) {
         return;

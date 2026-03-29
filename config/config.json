@@ -86,10 +86,16 @@
   "paths": {
     "workspace_root": "~/.agent-commander",
     "conversations_dir": ".agent-commander/main/conversations",
-    "stashed_conversations_path": ".agent-commander/main/stashed-conversations.json",
-    "active_conversations_path": ".agent-commander/main/active-conversations.json",
-    "context_snapshots_dir": ".agent-commander/main/context-snapshots",
     "app_log_path": ".agent-commander/app.log"
+  },
+  "retention": {
+    "archived_conversations_max_count": null,
+    "logs": {
+      "tool_calls_max_lines": null,
+      "subagents_max_lines": null,
+      "observability_max_lines": null,
+      "app_max_lines": null
+    }
   },
   "observability": {
     "enabled": true,
