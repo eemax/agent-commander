@@ -144,6 +144,7 @@ const DEFAULT_PATH_SEGMENTS = {
 
 const DEFAULT_TOOL_LOG_SEGMENT = ".agent-commander/tool-calls.jsonl";
 const DEFAULT_OBS_LOG_SEGMENT = ".agent-commander/observability.jsonl";
+const DEFAULT_SUBAGENT_LOG_SEGMENT = ".agent-commander/subagents.jsonl";
 
 function namespaceDefaultPaths(merged: Record<string, unknown>, agentId: string, agentRaw: Record<string, unknown>): void {
   if (agentId === "default") return;
@@ -176,6 +177,25 @@ function namespaceDefaultPaths(merged: Record<string, unknown>, agentId: string,
     if (agentRawObs?.log_path === undefined) {
       if (obs.log_path === undefined || obs.log_path === DEFAULT_OBS_LOG_SEGMENT) {
         obs.log_path = DEFAULT_OBS_LOG_SEGMENT.replace(".agent-commander", `.agent-commander/agents/${agentId}`);
+      }
+    }
+  }
+
+  const agentRawSubagents = agentRaw.subagents as Record<string, unknown> | undefined;
+  const subagents =
+    (merged.subagents as Record<string, unknown> | undefined) ??
+    (() => {
+      const created: Record<string, unknown> = {};
+      merged.subagents = created;
+      return created;
+    })();
+  if (subagents) {
+    if (agentRawSubagents?.log_path === undefined) {
+      if (subagents.log_path === undefined || subagents.log_path === DEFAULT_SUBAGENT_LOG_SEGMENT) {
+        subagents.log_path = DEFAULT_SUBAGENT_LOG_SEGMENT.replace(
+          ".agent-commander",
+          `.agent-commander/agents/${agentId}`
+        );
       }
     }
   }

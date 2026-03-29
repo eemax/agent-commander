@@ -21,6 +21,68 @@ function ensureJsonObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function readSubagentAction(value: unknown): string | null {
+  const record = ensureJsonObject(value);
+  return typeof record.action === "string" && record.action.trim().length > 0
+    ? record.action.trim()
+    : null;
+}
+
+async function recordSubagentToolCall(params: {
+  ctx: ToolContext;
+  name: string;
+  normalizedArgs: unknown;
+  startedAt: Date;
+  finishedAt: Date;
+  success: boolean;
+  result?: unknown;
+  error?: unknown;
+  errorCode?: string | null;
+}): Promise<void> {
+  const { ctx, name, normalizedArgs, startedAt, finishedAt, success, result, error, errorCode } = params;
+  if (!ctx.subagentLog?.enabled || !ctx.trace) {
+    return;
+  }
+
+  if (name === "subagents" && !ctx.subagentSession) {
+    await ctx.subagentLog.record({
+      entry_type: "supervisor_tool_call",
+      timestamp: finishedAt.toISOString(),
+      owner_id: ctx.ownerId,
+      task_id: null,
+      tool: "subagents",
+      action: readSubagentAction(normalizedArgs),
+      normalized_request: normalizedArgs,
+      success,
+      response: success ? (result ?? null) : null,
+      error: success ? null : (error ?? null),
+      error_code: errorCode ?? null,
+      started_at: startedAt.toISOString(),
+      finished_at: finishedAt.toISOString(),
+      trace: ctx.trace
+    });
+    return;
+  }
+
+  if (name !== "subagents" && ctx.subagentSession) {
+    await ctx.subagentLog.record({
+      entry_type: "worker_tool_call",
+      timestamp: finishedAt.toISOString(),
+      owner_id: ctx.subagentSession.ownerId,
+      task_id: ctx.subagentSession.taskId,
+      tool: name,
+      args: normalizedArgs,
+      result: success ? (result ?? null) : null,
+      error: success ? null : (error ?? null),
+      success,
+      error_code: errorCode ?? null,
+      started_at: startedAt.toISOString(),
+      finished_at: finishedAt.toISOString(),
+      trace: ctx.trace
+    });
+  }
+}
+
 function dedupe(values: string[]): string[] {
   return Array.from(new Set(values));
 }
@@ -341,6 +403,16 @@ export class ToolRegistry {
         error: payload.error,
         errorCode: payload.errorCode
       });
+      await recordSubagentToolCall({
+        ctx: { ...ctx, trace: toolTrace },
+        name,
+        normalizedArgs: args,
+        startedAt,
+        finishedAt,
+        success: false,
+        error: payload,
+        errorCode: payload.errorCode
+      });
       await ctx.observability?.record({
         event: "tool.execution.completed",
         trace: toolTrace,
@@ -379,6 +451,15 @@ export class ToolRegistry {
         success: true,
         error: null,
         errorCode: null
+      });
+      await recordSubagentToolCall({
+        ctx: { ...ctx, trace: toolTrace },
+        name,
+        normalizedArgs,
+        startedAt,
+        finishedAt,
+        success: true,
+        result
       });
       await ctx.observability?.record({
         event: "tool.execution.completed",
@@ -420,6 +501,16 @@ export class ToolRegistry {
         args: normalizedArgs,
         success: false,
         error: payload.error,
+        errorCode: payload.errorCode
+      });
+      await recordSubagentToolCall({
+        ctx: { ...ctx, trace: toolTrace },
+        name,
+        normalizedArgs,
+        startedAt,
+        finishedAt,
+        success: false,
+        error: payload,
         errorCode: payload.errorCode
       });
       await ctx.observability?.record({

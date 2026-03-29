@@ -13,6 +13,7 @@ import type { AuthMode, TransportMode } from "../types.js";
 import { createSteerChannel, type SteerChannel } from "../steer-channel.js";
 import { resolveModelReference } from "../model-catalog.js";
 import { createTraceRootContext, type ObservabilitySink, type TraceContext } from "../observability.js";
+import type { SubagentLogSink } from "../subagent-log.js";
 import { ProviderError } from "../provider-error.js";
 import type { Config, RuntimeLogger, OpenAIModelCatalogEntry } from "../runtime/contracts.js";
 import type { ToolHarness } from "./index.js";
@@ -40,6 +41,7 @@ export type SubagentWorkerDeps = {
   manager: SubagentManager;
   logger: RuntimeLogger;
   observability?: ObservabilitySink;
+  subagentLog?: SubagentLogSink;
   transportDeps?: ProviderTransportDeps;
   authModeRegistry: AuthModeRegistry;
   resolveOwnerProviderSettings: (ownerId: string) => Promise<OwnerProviderSettings>;
@@ -82,6 +84,11 @@ function stripMarker(reply: string): string {
     return trimmed.slice(0, -TASK_COMPLETE_MARKER.length).trimEnd();
   }
   return reply;
+}
+
+function hasProtocolMarker(reply: string): boolean {
+  const trimmed = reply.trimEnd();
+  return trimmed.endsWith(NEEDS_INPUT_MARKER) || trimmed.endsWith(TASK_COMPLETE_MARKER);
 }
 
 type StructuredTaskResultPayload = {
@@ -520,6 +527,7 @@ const EXCLUDED_TOOLS = new Set(["subagents"]);
 function createScopedHarness(
   parent: ToolHarness,
   taskId: string,
+  ownerId: string,
   cwdOverride?: string
 ): ToolHarness {
   const filteredTools: ProviderFunctionTool[] = parent
@@ -549,7 +557,11 @@ function createScopedHarness(
       },
       ownerId: taskId,
       trace,
-      abortSignal: signal
+      abortSignal: signal,
+      subagentSession: {
+        taskId,
+        ownerId
+      }
     };
     return parent.registry.execute(name, args, scopedCtx);
   };
@@ -561,7 +573,11 @@ function createScopedHarness(
     context: {
       ...parent.context,
       subagentManager: undefined,
-      ownerId: taskId
+      ownerId: taskId,
+      subagentSession: {
+        taskId,
+        ownerId
+      }
     },
     registry: parent.registry,
     metrics: parent.metrics,
@@ -674,7 +690,17 @@ function buildSystemInstructions(task: SubagentTask): string {
 // ── Factory ──────────────────────────────────────────────────────────────────
 
 export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
-  const { config, harness, manager, logger, observability, transportDeps, authModeRegistry, resolveOwnerProviderSettings } = deps;
+  const {
+    config,
+    harness,
+    manager,
+    logger,
+    observability,
+    subagentLog,
+    transportDeps,
+    authModeRegistry,
+    resolveOwnerProviderSettings
+  } = deps;
   const activeTasks = new Map<string, TaskRuntime>();
 
   const httpTransport = createResponsesRequestWithRetry(config, logger, {
@@ -778,6 +804,30 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
     };
   }
 
+  function recordExchange(entry: {
+    ownerId: string;
+    taskId: string;
+    content: string;
+    replyClassification: ReplyClassification;
+    trace: TraceContext;
+  }): void {
+    if (!subagentLog?.enabled) {
+      return;
+    }
+
+    void subagentLog.record({
+      entry_type: "exchange",
+      timestamp: new Date().toISOString(),
+      owner_id: entry.ownerId,
+      task_id: entry.taskId,
+      direction: "subagent_to_supervisor",
+      role: "subagent",
+      content: entry.content,
+      reply_classification: entry.replyClassification,
+      trace: entry.trace
+    }).catch(() => {});
+  }
+
   /** Handle a tool loop result — classify and push appropriate event. Returns true if paused. */
   function handleReply(
     taskId: string,
@@ -788,6 +838,15 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
   ): boolean {
     const classification = classifyReply(reply);
     const cleanReply = stripMarker(reply);
+    if (hasProtocolMarker(reply)) {
+      recordExchange({
+        ownerId: runtime.task.ownerId,
+        taskId,
+        content: cleanReply,
+        replyClassification: classification,
+        trace: runtime.trace
+      });
+    }
 
     if (classification === "needs_input") {
       // Push question event → manager transitions to needs_steer
@@ -921,7 +980,7 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
     const supervisorCwd = harness.resolveDefaultCwd
       ? await harness.resolveDefaultCwd(task.ownerId)
       : undefined;
-    const scopedHarness = createScopedHarness(harness, taskId, supervisorCwd);
+    const scopedHarness = createScopedHarness(harness, taskId, task.ownerId, supervisorCwd);
     const trace = createTraceRootContext("subagent");
 
     // Snapshot supervisor's auth/transport settings so they're stable for this task

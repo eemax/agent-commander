@@ -113,6 +113,19 @@ When `observability.enabled` is `true`, the following events are emitted to `obs
 
 All events include trace context (`traceId`, `spanId`) for correlation. Content fields are subject to the observability sink's truncation (`max_string_chars`) and redaction rules.
 
+## Audit Log
+
+When `subagents.enabled` is `true`, runtime also appends a dedicated audit stream to `subagents.log_path` (default: `.agent-commander/subagents.jsonl`).
+
+This log is additive and distinct from `tool-calls.jsonl` and `observability.jsonl`. It captures:
+
+- `supervisor_tool_call` — top-level `subagents` tool actions (`spawn`, `send`, `inspect`, etc.)
+- `task_event` — every durable subagent event written by the manager
+- `exchange` — full supervisor-to-subagent and subagent-to-supervisor messages
+- `worker_tool_call` — subagent-internal tool executions with `owner_id` and `task_id` correlation
+
+Entries are append-only JSONL, keyed around `task_id`, and use the same redaction/truncation behavior as observability.
+
 ## Terminal Retention
 
 - Terminal tasks (`completed`, `failed`, `cancelled`, `timed_out`) are retained in memory for up to 10 minutes.

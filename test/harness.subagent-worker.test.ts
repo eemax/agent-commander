@@ -120,6 +120,7 @@ function makeConfig(): Config {
     },
     subagents: {
       enabled: true,
+      logPath: "/tmp/subagents.jsonl",
       defaultModel: "test-model",
       maxConcurrentTasks: 10,
       defaultTimeBudgetSec: 900,

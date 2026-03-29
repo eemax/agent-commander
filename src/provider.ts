@@ -50,7 +50,8 @@ export function createOpenAIProvider(
       webSearch: config.tools.webSearch,
       subagents: config.subagents
     }, {
-      observability: deps.observability
+      observability: deps.observability,
+      subagentLogRedaction: config.observability.redaction
     });
 
   // Wire real subagent worker if the manager is available
@@ -65,6 +66,7 @@ export function createOpenAIProvider(
       manager: harness.context.subagentManager,
       logger,
       observability: deps.observability,
+      subagentLog: harness.context.subagentLog,
       transportDeps: deps,
       authModeRegistry: deps.authModeRegistry,
       resolveOwnerProviderSettings: deps.resolveOwnerProviderSettings

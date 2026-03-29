@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { ObservabilitySink, TraceContext } from "../observability.js";
+import type { ObservabilityRedactionConfig, ObservabilitySink, TraceContext } from "../observability.js";
 import { ToolCallLogger } from "./logger.js";
 import { applyPatchTool } from "./patch-tools.js";
 import { ProcessManager } from "./process-manager.js";
@@ -9,6 +9,7 @@ import { readFileTool, replaceInFileTool, writeFileTool } from "./file-tools.js"
 import { createWebSearchTool, type WebSearchClientFactory } from "./web-search-tool.js";
 import { createWebFetchTool, type DefuddleRunner } from "./web-fetch-tool.js";
 import { SubagentManager } from "./subagent-manager.js";
+import { createSubagentLogSink, type SubagentLogSink } from "../subagent-log.js";
 import { subagentsTool } from "./subagent-tool.js";
 import type { HarnessConfig, JsonValue, ProviderFunctionTool, ToolContext, ToolRuntimeMetrics } from "./types.js";
 
@@ -27,6 +28,8 @@ export function createToolHarness(
   config: HarnessConfig,
   deps: {
     observability?: ObservabilitySink;
+    subagentLog?: SubagentLogSink;
+    subagentLogRedaction?: Partial<ObservabilityRedactionConfig>;
     createWebSearchClient?: WebSearchClientFactory;
     resolveDefaultCwd?: (ownerId: string | null) => Promise<string>;
     resolveWebSearchModel?: (ownerId: string | null) => Promise<string>;
@@ -59,6 +62,13 @@ export function createToolHarness(
   };
 
   const subagentConfig = config.subagents;
+  const subagentLog = subagentConfig?.enabled === true
+    ? (deps.subagentLog ?? createSubagentLogSink({
+        enabled: true,
+        logPath: subagentConfig.logPath,
+        redaction: deps.subagentLogRedaction
+      }))
+    : undefined;
   const subagentManager = subagentConfig?.enabled === true
     ? new SubagentManager(
         {
@@ -76,7 +86,8 @@ export function createToolHarness(
           awaitMaxTimeoutMs: subagentConfig?.awaitMaxTimeoutMs ?? 30_000
         },
         undefined,
-        deps.observability
+        deps.observability,
+        subagentLog
       )
     : undefined;
 
@@ -92,6 +103,7 @@ export function createToolHarness(
     ownerId: null,
     trace: undefined,
     observability: deps.observability,
+    subagentLog,
     subagentManager
   };
 

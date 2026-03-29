@@ -134,6 +134,7 @@ No automatic migration is performed from the previous filename layout. If you ne
 ### `subagents`
 
 - `enabled`: boolean, default `true` — register the subagents tool
+- `log_path`: path string, default `".agent-commander/subagents.jsonl"` — append-only audit log for supervisor subagent calls, task events, exchanges, and subagent-internal tool activity
 - `default_model`: non-empty string, default `"gpt-5.4-mini"` — model used for subagent inference when not overridden per-task
 - `max_concurrent_tasks`: positive integer, default `10` — cap on simultaneous non-terminal tasks
 - `default_time_budget_sec`: positive integer, default `900` — per-task time limit

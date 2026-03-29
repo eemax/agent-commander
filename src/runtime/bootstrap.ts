@@ -139,6 +139,7 @@ async function bootstrapAgentRuntime(
     },
     {
       observability,
+      subagentLogRedaction: config.observability.redaction,
       resolveDefaultCwd: async (ownerId) => {
         if (!ownerId) return config.tools.defaultCwd;
         return conversations.getWorkingDirectory(ownerId);

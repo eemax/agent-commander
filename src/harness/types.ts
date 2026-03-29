@@ -1,5 +1,6 @@
 import type { ZodTypeAny, z } from "zod";
 import type { ObservabilitySink, TraceContext } from "../observability.js";
+import type { SubagentLogSink, SubagentSessionContext } from "../subagent-log.js";
 import type { ToolErrorCode } from "../types.js";
 import type { ToolCallLogger } from "./logger.js";
 import type { ProcessManager } from "./process-manager.js";
@@ -28,6 +29,7 @@ export type HarnessConfig = {
   };
   subagents?: {
     enabled: boolean;
+    logPath: string;
     defaultModel: string;
     maxConcurrentTasks: number;
     defaultTimeBudgetSec: number;
@@ -51,8 +53,10 @@ export type ToolContext = {
   ownerId: string | null;
   trace?: TraceContext;
   observability?: ObservabilitySink;
+  subagentLog?: SubagentLogSink;
   abortSignal?: AbortSignal;
   subagentManager?: SubagentManager;
+  subagentSession?: SubagentSessionContext;
 };
 
 export type ToolDef<TSchema extends ZodTypeAny = ZodTypeAny> = {

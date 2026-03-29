@@ -127,6 +127,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
     },
     subagents: {
       enabled: true,
+      logPath: path.join(root, ".agent-commander", "subagents.jsonl"),
       defaultModel: "gpt-5.4-mini",
       maxConcurrentTasks: 10,
       defaultTimeBudgetSec: 900,

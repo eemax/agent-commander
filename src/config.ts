@@ -112,6 +112,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
   },
   subagents: {
     enabled: true,
+    log_path: ".agent-commander/subagents.jsonl",
     default_model: "gpt-5.4-mini",
     max_concurrent_tasks: 10,
     default_time_budget_sec: 900,
@@ -260,6 +261,7 @@ export const configSchema = z
     subagents: z
       .object({
         enabled: z.boolean().default(DEFAULT_CONFIG_TEMPLATE.subagents.enabled),
+        log_path: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.subagents.log_path),
         default_model: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.subagents.default_model),
         max_concurrent_tasks: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.max_concurrent_tasks),
         default_time_budget_sec: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.subagents.default_time_budget_sec),
@@ -647,6 +649,7 @@ export function buildConfigFromParsed(
     },
     subagents: {
       enabled: config.subagents.enabled,
+      logPath: resolveConfigPath(repoRoot, config.subagents.log_path),
       defaultModel: subagentDefaultModel,
       maxConcurrentTasks: config.subagents.max_concurrent_tasks,
       defaultTimeBudgetSec: config.subagents.default_time_budget_sec,

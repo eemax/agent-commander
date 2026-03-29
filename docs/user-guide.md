@@ -217,6 +217,7 @@ Common optional fields:
 - `observability.redaction.enabled` (default `true`)
 - `observability.redaction.max_string_chars` (default `4000`)
 - `observability.redaction.redact_keys` (default `authorization, api_key, token, secret, password, cookie, set-cookie`)
+- `subagents.log_path` (default `.agent-commander/subagents.jsonl`)
 - `paths.workspace_root`
 - `tools.default_cwd` (default: `paths.workspace_root`, usually `~/.agent-commander/`; used as the initial cwd for new conversations)
 - `tools.default_shell` (default: `/bin/bash`)

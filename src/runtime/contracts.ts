@@ -118,6 +118,7 @@ export type Config = {
   };
   subagents: {
     enabled: boolean;
+    logPath: string;
     defaultModel: string;
     maxConcurrentTasks: number;
     defaultTimeBudgetSec: number;

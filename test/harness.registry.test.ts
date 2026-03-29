@@ -25,6 +25,7 @@ describe("tool registry", () => {
       maxOutputChars: 200_000,
       subagents: {
         enabled: true,
+        logPath: ".agent-commander/subagents.jsonl",
         defaultModel: "gpt-5.4-mini",
         maxConcurrentTasks: 10,
         defaultTimeBudgetSec: 900,

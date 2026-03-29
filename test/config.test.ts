@@ -123,6 +123,7 @@ describe("loadConfig", () => {
     expect(config.observability.redaction.enabled).toBe(true);
     expect(config.observability.redaction.maxStringChars).toBe(4000);
     expect(config.observability.redaction.redactKeys).toContain("authorization");
+    expect(config.subagents.logPath).toBe(path.join(root, ".agent-commander", "subagents.jsonl"));
     expect(config.runtime.promptHistoryLimit).toBe(20);
     expect(config.paths.workspaceRoot).toContain(path.join(".agent-commander"));
     expect(config.tools.defaultCwd).toBe(config.paths.workspaceRoot);

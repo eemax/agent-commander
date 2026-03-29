@@ -1,5 +1,6 @@
 import { createSubagentTaskId, createSubagentEventId } from "../id.js";
 import { createTraceRootContext, type ObservabilitySink, type TraceContext } from "../observability.js";
+import { createTaskEventLogEntry, type SubagentLogSink } from "../subagent-log.js";
 import {
   type TaskState,
   type TurnOwnership,
@@ -45,6 +46,7 @@ export class SubagentManager {
   private readonly config: SubagentManagerConfig;
   private worker: SubagentWorker;
   private readonly observability: ObservabilitySink | undefined;
+  private readonly subagentLog: SubagentLogSink | undefined;
 
   // Per-task trace contexts for observability correlation
   private readonly taskTraces = new Map<string, TraceContext>();
@@ -52,10 +54,16 @@ export class SubagentManager {
   // Track latest progress per task for snapshot purposes
   private readonly latestProgress = new Map<string, ProgressInfo>();
 
-  constructor(config: SubagentManagerConfig, worker?: SubagentWorker, observability?: ObservabilitySink) {
+  constructor(
+    config: SubagentManagerConfig,
+    worker?: SubagentWorker,
+    observability?: ObservabilitySink,
+    subagentLog?: SubagentLogSink
+  ) {
     this.config = config;
     this.worker = worker ?? NO_OP_WORKER;
     this.observability = observability;
+    this.subagentLog = subagentLog;
   }
 
   setWorker(worker: SubagentWorker): void {
@@ -71,18 +79,63 @@ export class SubagentManager {
 
   // ── Observability ──────────────────────────────────────────────────────────
 
+  private getTaskTrace(taskId: string): TraceContext {
+    return this.taskTraces.get(taskId) ?? createTraceRootContext("subagent");
+  }
+
   private emitObs(
     eventName: string,
     taskId: string,
     fields: Record<string, unknown> = {}
   ): void {
     if (!this.observability?.enabled) return;
-    const trace = this.taskTraces.get(taskId) ?? createTraceRootContext("subagent");
+    const trace = this.getTaskTrace(taskId);
     void this.observability.record({
       event: eventName,
       trace,
       taskId,
       ...fields
+    }).catch(() => {});
+  }
+
+  private emitTaskEventLog(ownerId: string, event: SubagentEvent): void {
+    if (!this.subagentLog?.enabled) {
+      return;
+    }
+
+    void this.subagentLog.record(
+      createTaskEventLogEntry({
+        ownerId,
+        event,
+        trace: this.getTaskTrace(event.taskId)
+      })
+    ).catch(() => {});
+  }
+
+  private emitExchangeLog(entry: {
+    ownerId: string;
+    taskId: string;
+    direction: "supervisor_to_subagent" | "subagent_to_supervisor";
+    role: "supervisor" | "subagent";
+    content: string;
+    directiveType?: string | null;
+    replyClassification?: "complete" | "needs_input" | null;
+  }): void {
+    if (!this.subagentLog?.enabled) {
+      return;
+    }
+
+    void this.subagentLog.record({
+      entry_type: "exchange",
+      timestamp: nowIso(),
+      owner_id: entry.ownerId,
+      task_id: entry.taskId,
+      direction: entry.direction,
+      role: entry.role,
+      content: entry.content,
+      trace: this.getTaskTrace(entry.taskId),
+      ...(entry.directiveType ? { directive_type: entry.directiveType } : {}),
+      ...(entry.replyClassification ? { reply_classification: entry.replyClassification } : {})
     }).catch(() => {});
   }
 
@@ -184,6 +237,7 @@ export class SubagentManager {
 
     const stream = this.events.get(taskId)!;
     stream.push(event);
+    this.emitTaskEventLog(task.ownerId, event);
 
     task.state = state;
     task.turnOwnership = turnOwnership;
@@ -683,6 +737,14 @@ export class SubagentManager {
       content: message.content,
       contentLength: message.content.length
     });
+    this.emitExchangeLog({
+      ownerId,
+      taskId,
+      direction: "supervisor_to_subagent",
+      role: "supervisor",
+      content: message.content,
+      directiveType
+    });
 
     // Notify worker (errors are logged but non-fatal — task continues)
     void this.worker.send(taskId, message).catch((err) => {
@@ -990,7 +1052,7 @@ export class SubagentManager {
         // re-entrance issues during shutdown.
         const stream = this.events.get(task.taskId);
         if (stream) {
-          stream.push({
+          const event: SubagentEvent = {
             eventId: createSubagentEventId(),
             taskId: task.taskId,
             seq: task.nextSeq++,
@@ -1001,7 +1063,9 @@ export class SubagentManager {
             requiresResponse: false,
             message: "Shutdown: all tasks cancelled.",
             final: true
-          });
+          };
+          stream.push(event);
+          this.emitTaskEventLog(task.ownerId, event);
         }
         void this.worker.stop(task.taskId, "shutdown").catch(() => {});
       }
