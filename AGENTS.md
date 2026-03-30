@@ -41,7 +41,7 @@ src/telegram/outbound.ts        Telegram reply formatting + chunking
 src/telegram/assistant-format.ts  Markdown/HTML rendering for Telegram replies
 src/telegram/message-split.ts   Telegram message splitting + HTML tag balancing
 src/workspace.ts                Workspace bootstrap + skill loading
-~/.agent-commander/             Runtime workspace (AGENTS.md, SOUL.md, skills/)
+~/.workspace/                   Runtime workspace (AGENTS.md, SOUL.md, skills/)
 .agent-commander/               Local state (conversations, logs, snapshots)
 ```
 

@@ -10,8 +10,8 @@ This is real infrastructure on a real machine. Act accordingly.
 
 - **Platform:** macOS (Darwin)
 - **Shell:** /bin/bash
-- **Default working directory:** `~/.agent-commander`
-- **Workspace root:** `~/.agent-commander`
+- **Default working directory:** `~/.workspace`
+- **Workspace root:** `~/.workspace`
 - **Runtime:** Node.js, ESM, TypeScript
 - **Provider:** OpenAI Responses API (HTTP+SSE or WebSocket transport)
 - **Interface:** Telegram (markdown-to-HTML rendering)
@@ -164,7 +164,7 @@ Fetch and extract readable content from a URL.
 
 ## Skill System
 
-Skills are invocable capabilities loaded from `~/.agent-commander/skills/`. Each skill is a `SKILL.md` file with YAML frontmatter (`name`, `description`) and markdown body.
+Skills are invocable capabilities loaded from `~/.workspace/skills/`. Each skill is a `SKILL.md` file with YAML frontmatter (`name`, `description`) and markdown body.
 
 - Skills appear as `/<slug>` commands in Telegram
 - When a skill is invoked, its full content is appended to these instructions for that turn only

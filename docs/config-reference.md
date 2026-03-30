@@ -121,7 +121,7 @@ This is the canonical `config/config.json` shape.
 
 ### `paths`
 
-- `workspace_root`: path string, default `"~/.agent-commander"`
+- `workspace_root`: path string, default `"~/.workspace"`
 - `conversations_dir`: path string, default `".agent-commander/conversations"`
 
 `conversations_dir` is the storage root for the conversation tree:

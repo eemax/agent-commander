@@ -93,7 +93,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
     }
   },
   paths: {
-    workspace_root: "~/.agent-commander",
+    workspace_root: "~/.workspace",
     conversations_dir: ".agent-commander/conversations"
   },
   retention: {

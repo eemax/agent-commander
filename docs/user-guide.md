@@ -70,7 +70,7 @@ npm run link:global
 
 ## Workspace Bootstrap
 
-On startup, runtime ensures workspace at `paths.workspace_root` (default `~/.agent-commander/`) contains:
+On startup, runtime ensures workspace at `paths.workspace_root` (default `~/.workspace/`) contains:
 
 - `AGENTS.md`
 - `SOUL.md`
@@ -237,7 +237,7 @@ Common optional fields:
 - `observability.redaction.redact_keys` (default `authorization, api_key, token, secret, password, cookie, set-cookie`)
 - `subagents.log_path` (default `.agent-commander/subagents.jsonl`)
 - `paths.workspace_root`
-- `tools.default_cwd` (default: `paths.workspace_root`, usually `~/.agent-commander/`; used as the initial cwd for new conversations)
+- `tools.default_cwd` (default: `paths.workspace_root`, usually `~/.workspace/`; used as the initial cwd for new conversations)
 - `tools.default_shell` (default: `/bin/bash`)
 - `paths.conversations_dir`
 - `retention.archived_conversations_max_count`

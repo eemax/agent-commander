@@ -63,12 +63,11 @@
     "message_queue_mode": "batch"
   },
   "tools": {
-    "default_cwd": "~/.agent-commander",
+    "default_cwd": "~/.workspace",
     "default_shell": "/bin/bash",
     "exec_timeout_ms": 1800000,
     "exec_yield_ms": 10000,
     "process_log_tail_lines": 200,
-    "log_path": ".agent-commander/main/tool-calls.jsonl",
     "completed_session_retention_ms": 900000,
     "max_completed_sessions": 50,
     "max_output_chars": 200000,
@@ -83,8 +82,7 @@
     }
   },
   "paths": {
-    "workspace_root": "~/.agent-commander",
-    "conversations_dir": ".agent-commander/main/conversations"
+    "workspace_root": "~/.workspace"
   },
   "retention": {
     "archived_conversations_max_count": 10,
@@ -97,7 +95,6 @@
   },
   "observability": {
     "enabled": true,
-    "log_path": ".agent-commander/observability.jsonl",
     "redaction": {
       "enabled": true,
       "max_string_chars": 2500,

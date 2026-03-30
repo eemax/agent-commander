@@ -7,7 +7,7 @@ A minimal, single-process Telegram bot runtime backed by OpenAI with local tool 
 - Routes Telegram messages to OpenAI (Responses API with streaming and reasoning)
 - Executes local tools: `bash`, `process`, file operations, `web_search`, `web_fetch`
 - Persists conversations as append-only JSONL files
-- Bootstraps a workspace at `~/.agent-commander/` for system prompts (`AGENTS.md`, `SOUL.md`) and skills
+- Bootstraps a workspace at `~/.workspace/` for system prompts (`AGENTS.md`, `SOUL.md`) and skills
 
 ## Quickstart
 
