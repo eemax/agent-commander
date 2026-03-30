@@ -1487,6 +1487,16 @@ export function createConversationStore(params: ConversationStoreParams): Conver
       return enqueueMutation(async () => {
         const currentIndex = await loadCurrentConversations();
         const activeIndex = await loadActiveConversations();
+        const stashes = sortStashes(activeIndex[chatId] ?? []);
+        const selectedStash =
+          target.type === "stash"
+            ? stashes.find((item) => item.conversationId === target.conversationId) ?? null
+            : null;
+
+        // Validate stale menu selections before moving the current conversation.
+        if (target.type === "stash" && !selectedStash) {
+          throw new Error("stashed conversation not found");
+        }
 
         const existingCurrent = currentIndex[chatId] ?? null;
         let archivedConversationId: string | null = null;
@@ -1515,7 +1525,6 @@ export function createConversationStore(params: ConversationStoreParams): Conver
           });
         }
 
-        const stashes = sortStashes(activeIndex[chatId] ?? []);
         let nextCurrent: CurrentConversationRecord;
         let nextStashes = [...stashes];
 
@@ -1527,7 +1536,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
             runtime: createDefaultRuntimeProfile(defaults)
           };
         } else {
-          const selected = stashes.find((item) => item.conversationId === target.conversationId);
+          const selected = selectedStash;
           if (!selected) {
             throw new Error("stashed conversation not found");
           }
@@ -1599,6 +1608,16 @@ export function createConversationStore(params: ConversationStoreParams): Conver
         const current = ensured.record;
 
         const stashes = sortStashes(activeIndex[chatId] ?? []);
+        const selectedStash =
+          target.type === "stash"
+            ? stashes.find((item) => item.conversationId === target.conversationId) ?? null
+            : null;
+
+        // Validate stale menu selections before moving the current conversation.
+        if (target.type === "stash" && !selectedStash) {
+          throw new Error("stashed conversation not found");
+        }
+
         const withoutCurrent = stashes.filter((item) => item.conversationId !== current.conversationId);
         const existingAliases = new Set(withoutCurrent.map((item) => item.alias));
         const resolvedAlias = resolveStashAlias(normalizedAlias, existingAliases);
@@ -1628,7 +1647,7 @@ export function createConversationStore(params: ConversationStoreParams): Conver
             runtime: createDefaultRuntimeProfile(defaults)
           };
         } else {
-          const selected = nextStashes.find((item) => item.conversationId === target.conversationId);
+          const selected = selectedStash;
           if (!selected) {
             throw new Error("stashed conversation not found");
           }

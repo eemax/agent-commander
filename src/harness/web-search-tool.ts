@@ -116,7 +116,8 @@ export function createWebSearchTool(
       "Search the web via Perplexity.",
     schema: webSearchInputSchema,
     async run(ctx, input: WebSearchInput) {
-      const preset = await config.resolveModel(ctx.ownerId);
+      const settingsOwnerId = ctx.subagentSession?.ownerId ?? ctx.ownerId;
+      const preset = await config.resolveModel(settingsOwnerId);
 
       try {
         const response = await client.responses.create({

@@ -173,6 +173,58 @@ describe("web_search tool", () => {
     expect(output.model).toBe("sonar-pro");
   });
 
+  it("resolves the preset from the supervisor owner during subagent runs", async () => {
+    const root = createHarnessRoot("acmd-web-search-subagent-owner-");
+    const responsesCreate = vi.fn(async () => makeResponseCreateResponse());
+    const resolveWebSearchModel = vi.fn(async () => "sonar");
+
+    const harness = createToolHarness(
+      {
+        defaultCwd: root,
+        defaultShell: "/bin/bash",
+        execTimeoutMs: 1_800_000,
+        execYieldMs: 10_000,
+        processLogTailLines: 200,
+        logPath: ".agent-commander/tool-calls.jsonl",
+        completedSessionRetentionMs: 3_600_000,
+        maxCompletedSessions: 500,
+        maxOutputChars: 200_000,
+        webSearch: {
+          apiKey: "pplx-key",
+          defaultPreset: "sonar",
+          presets: [{ id: "sonar", aliases: [] }]
+        }
+      },
+      {
+        createWebSearchClient: () => ({
+          responses: {
+            create: responsesCreate
+          }
+        }),
+        resolveWebSearchModel
+      }
+    );
+
+    await harness.registry.execute(
+      "web_search",
+      { query: "task scoped search" },
+      {
+        ...harness.context,
+        ownerId: "satask_123",
+        subagentSession: {
+          taskId: "satask_123",
+          ownerId: "owner-1"
+        }
+      }
+    );
+
+    expect(resolveWebSearchModel).toHaveBeenCalledWith("owner-1");
+    expect(responsesCreate).toHaveBeenCalledWith({
+      preset: "sonar",
+      input: "task scoped search"
+    });
+  });
+
   it("surfaces client failures as tool execution errors", async () => {
     const root = createHarnessRoot("acmd-web-search-error-");
     const harness = createToolHarness(

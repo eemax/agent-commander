@@ -89,12 +89,12 @@
     "app_log_path": ".agent-commander/app.log"
   },
   "retention": {
-    "archived_conversations_max_count": null,
+    "archived_conversations_max_count": 10,
     "logs": {
-      "tool_calls_max_lines": null,
-      "subagents_max_lines": null,
-      "observability_max_lines": null,
-      "app_max_lines": null
+      "tool_calls_max_lines": 1000,
+      "subagents_max_lines": 1000,
+      "observability_max_lines": 10000,
+      "app_max_lines": 1000
     }
   },
   "observability": {

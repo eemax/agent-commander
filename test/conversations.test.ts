@@ -184,6 +184,61 @@ describe("conversation store", () => {
     expect(fs.existsSync(conversationJsonlPath(conversationsDir, "archive", chatId, archivedConversationIds[2]!))).toBe(true);
   });
 
+  it("preserves the active conversation when restoring a stale stash selection fails", async () => {
+    const root = createTempDir("acmd-conv-stale-new-selection-");
+    const store = createConversationStore({
+      conversationsDir: path.join(root, "conversations")
+    });
+
+    const chatId = "chat-1";
+    const conversationId = await store.ensureActiveConversation(chatId);
+    await store.appendUserMessage({
+      chatId,
+      conversationId,
+      telegramMessageId: "m1",
+      senderId: "u1",
+      senderName: "Ada",
+      content: "keep this history"
+    });
+
+    await expect(
+      store.completeNewSelection(chatId, { type: "stash", conversationId: "missing" }, "manual_new")
+    ).rejects.toThrow("stashed conversation not found");
+
+    expect(await store.getActiveConversation(chatId)).toBe(conversationId);
+    expect((await store.getPromptHistory(chatId, conversationId, null)).map((item) => item.content)).toEqual([
+      "keep this history"
+    ]);
+  });
+
+  it("preserves the active conversation when stash switching targets a stale stash", async () => {
+    const root = createTempDir("acmd-conv-stale-stash-selection-");
+    const store = createConversationStore({
+      conversationsDir: path.join(root, "conversations")
+    });
+
+    const chatId = "chat-1";
+    const conversationId = await store.ensureActiveConversation(chatId);
+    await store.appendUserMessage({
+      chatId,
+      conversationId,
+      telegramMessageId: "m1",
+      senderId: "u1",
+      senderName: "Ada",
+      content: "still active"
+    });
+
+    await expect(
+      store.completeStashSelection(chatId, "focus", { type: "stash", conversationId: "missing" }, "manual_stash")
+    ).rejects.toThrow("stashed conversation not found");
+
+    expect(await store.getActiveConversation(chatId)).toBe(conversationId);
+    expect(await store.listStashedConversations(chatId)).toEqual([]);
+    expect((await store.getPromptHistory(chatId, conversationId, null)).map((item) => item.content)).toEqual([
+      "still active"
+    ]);
+  });
+
   it("stashes current conversation then switches and resets runtime defaults", async () => {
     const root = createTempDir("acmd-conv-stash-switch-");
     const store = createConversationStore({
