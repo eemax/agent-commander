@@ -49,6 +49,13 @@ npm run build
 npm start
 ```
 
+Install the global CLI (required once before using `acmd`):
+
+```bash
+npm run build
+npm run link:global
+```
+
 Detached lifecycle CLI:
 
 ```bash
@@ -61,12 +68,6 @@ acmd doctor
 ```
 
 `acmd start` and `acmd restart` launch the compiled runtime from `dist/` in one detached child process and free the terminal. Detached CLI state lives under `.agent-commander/` as `cli.json` plus `runtime.log`.
-
-Global CLI link (makes `acmd` available from anywhere):
-
-```bash
-npm run link:global
-```
 
 ## Workspace Bootstrap
 

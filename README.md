@@ -28,8 +28,9 @@ cp .env.example .env
 # 4. Start in the foreground
 npm run dev
 
-# Or build once, then run the detached lifecycle CLI
+# Or build + install the CLI, then run detached
 npm run build
+npm run link:global   # makes `acmd` available system-wide (once)
 acmd start
 ```
 
