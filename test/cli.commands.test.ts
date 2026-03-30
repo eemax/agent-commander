@@ -218,6 +218,51 @@ describe("cli commands", () => {
     }
   });
 
+  it("kills a timed-out startup before marking it failed", async () => {
+    vi.useFakeTimers();
+    let alive = true;
+    const signals: NodeJS.Signals[] = [];
+
+    try {
+      const root = setupRepo();
+      const io = captureIo();
+
+      const exitCode = await runCli({
+        repoRoot: root,
+        argv: ["start"],
+        io: {
+          stdout: (line) => {
+            io.stdout.push(line);
+          },
+          stderr: (line) => {
+            io.stderr.push(line);
+          }
+        },
+        spawnDetachedRuntime: async () => ({ pid: process.pid }),
+        sleep: async (ms) => {
+          await vi.advanceTimersByTimeAsync(ms);
+        },
+        isRuntimeProcessAlive: () => alive,
+        signalRuntimeProcess: (_pid, signal) => {
+          signals.push(signal);
+          if (signal === "SIGKILL") {
+            alive = false;
+          }
+        }
+      });
+
+      const state = await readRuntimeControlState(root);
+      expect(exitCode).toBe(1);
+      expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+      expect(state.status).toBe("failed");
+      expect(state.pid).toBeNull();
+      expect(state.lastError).toContain("Timed out waiting for runtime readiness after 15s");
+      expect(io.stderr.some((line) => line.includes("Timed out waiting for runtime readiness after 15s"))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the current runtime running when restart --rebuild fails to build", async () => {
     const root = setupRepo();
     const io = captureIo();
@@ -303,7 +348,7 @@ describe("cli commands", () => {
     }
   });
 
-  it("doctor fails on missing env, missing build artifacts, and unwritable runtime state dir", async () => {
+  it("doctor treats missing .env as informational while still failing other checks", async () => {
     const root = setupRepo({ withEnv: false, withBuild: false, withSecondAgent: false });
     fs.writeFileSync(path.join(root, ".agent-commander"), "not-a-directory\n", "utf8");
     const io = captureIo();
@@ -322,10 +367,40 @@ describe("cli commands", () => {
     });
 
     expect(exitCode).toBe(1);
-    expect(io.stdout.some((line) => line.includes("fail .env file missing"))).toBe(true);
+    expect(io.stdout.some((line) => line.includes("ok   .env file missing"))).toBe(true);
     expect(io.stdout.some((line) => line.includes("fail config invalid: default"))).toBe(true);
     expect(io.stdout.some((line) => line.includes("fail runtime state directory unavailable"))).toBe(true);
     expect(io.stdout.some((line) => line.includes("fail Build artifact missing"))).toBe(true);
+  });
+
+  it("doctor succeeds without .env when credentials come from environment variables", async () => {
+    vi.stubEnv("DEFAULT_TELEGRAM_BOT_TOKEN", "tg-env-default");
+    vi.stubEnv("DEFAULT_OPENAI_API_KEY", "oa-env-default");
+
+    try {
+      const root = setupRepo({ withEnv: false, withSecondAgent: false });
+      const io = captureIo();
+
+      const exitCode = await runCli({
+        repoRoot: root,
+        argv: ["doctor"],
+        io: {
+          stdout: (line) => {
+            io.stdout.push(line);
+          },
+          stderr: (line) => {
+            io.stderr.push(line);
+          }
+        }
+      });
+
+      expect(exitCode).toBe(0);
+      expect(io.stdout.some((line) => line.includes("ok   .env file missing"))).toBe(true);
+      expect(io.stdout.some((line) => line.includes("ok   config parsed: default"))).toBe(true);
+      expect(io.stdout.some((line) => line.includes("ok   auth available: default (api)"))).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("doctor does not create the runtime state directory when it only checks availability", async () => {

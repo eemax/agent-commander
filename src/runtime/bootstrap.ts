@@ -26,15 +26,7 @@ export type RuntimeLifecycleHooks = {
   onStartupError?: (error: unknown) => Promise<void> | void;
 };
 
-export type RuntimeStartOptions = {
-  logFilePath?: string | null;
-};
-
-export async function startRuntime(
-  repoRoot: string,
-  hooks: RuntimeLifecycleHooks = {},
-  options: RuntimeStartOptions = {}
-): Promise<void> {
+export async function startRuntime(repoRoot: string, hooks: RuntimeLifecycleHooks = {}): Promise<void> {
   let readySignaled = false;
   let shutdownStarted = false;
   let shutdownPromise: Promise<void> | null = null;
@@ -97,7 +89,7 @@ export async function startRuntime(
 
     const runtimes: AgentRuntime[] = [];
     for (const { agent, config } of agentConfigs) {
-      const runtime = await bootstrapAgentRuntime(agent, config, options);
+      const runtime = await bootstrapAgentRuntime(agent, config);
       runtimes.push(runtime);
     }
 
@@ -174,14 +166,10 @@ export async function startRuntime(
 
 async function bootstrapAgentRuntime(
   agent: AgentDefinition,
-  config: Config,
-  options: RuntimeStartOptions
+  config: Config
 ): Promise<AgentRuntime> {
   const logger = createLogger(config.runtime.logLevel, {
-    filePath: options.logFilePath ?? undefined,
-    tag: agent.id,
-    maxLines: config.retention.logs.runtimeMaxLines,
-    writeToConsole: !options.logFilePath
+    tag: agent.id
   });
 
   const observability = createObservabilitySink({

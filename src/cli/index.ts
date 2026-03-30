@@ -7,7 +7,7 @@ import type { Logger } from "../logger.js";
 import { createRuntimeInstanceId } from "../id.js";
 import { loadAgentsManifest, loadAgentConfig, validateUniqueBotTokens } from "../agents.js";
 import { loadEnvFile, extractAgentSecrets } from "../env.js";
-import { startRuntime, type RuntimeLifecycleHooks, type RuntimeStartOptions } from "../runtime/bootstrap.js";
+import { startRuntime, type RuntimeLifecycleHooks } from "../runtime/bootstrap.js";
 import { createAuthModeRegistry } from "../provider/auth-mode-registry.js";
 import { createCodexAuthManager } from "../auth/codex-auth.js";
 import {
@@ -40,7 +40,7 @@ export type RunCliDeps = {
   io?: Partial<CliIo>;
   runBuild?: (repoRoot: string, io: CliIo) => Promise<number>;
   spawnDetachedRuntime?: (params: { repoRoot: string; logPath: string; instanceId: string }) => Promise<{ pid: number }>;
-  startRuntime?: (repoRoot: string, hooks?: RuntimeLifecycleHooks, options?: RuntimeStartOptions) => Promise<void>;
+  startRuntime?: (repoRoot: string, hooks?: RuntimeLifecycleHooks) => Promise<void>;
   sleep?: (ms: number) => Promise<void>;
   isRuntimeProcessAlive?: (pid: number | null) => boolean;
   signalRuntimeProcess?: (pid: number, signal: NodeJS.Signals) => void;
@@ -166,6 +166,25 @@ function signalRuntimeProcess(pid: number, signal: NodeJS.Signals): void {
   process.kill(pid, signal);
 }
 
+async function stopRuntimeProcess(
+  pid: number,
+  sleeper: (ms: number) => Promise<void>,
+  isAlive: (pid: number | null) => boolean,
+  sendSignal: (pid: number, signal: NodeJS.Signals) => void
+): Promise<{ exited: boolean; forced: boolean }> {
+  sendSignal(pid, "SIGTERM");
+  let exited = await waitForProcessExit(pid, STOP_GRACE_TIMEOUT_MS, sleeper, isAlive);
+  let forced = false;
+
+  if (!exited) {
+    forced = true;
+    sendSignal(pid, "SIGKILL");
+    exited = await waitForProcessExit(pid, STOP_FORCE_TIMEOUT_MS, sleeper, isAlive);
+  }
+
+  return { exited, forced };
+}
+
 function formatStatusLines(state: RuntimeControlState, configuredAgentIds: string[]): string[] {
   return [
     `Status: ${state.status}`,
@@ -251,15 +270,7 @@ async function runStop(
     status: "stopping"
   });
 
-  sendSignal(state.pid, "SIGTERM");
-  let exited = await waitForProcessExit(state.pid, STOP_GRACE_TIMEOUT_MS, sleeper, isAlive);
-  let forced = false;
-
-  if (!exited) {
-    forced = true;
-    sendSignal(state.pid, "SIGKILL");
-    exited = await waitForProcessExit(state.pid, STOP_FORCE_TIMEOUT_MS, sleeper, isAlive);
-  }
+  const { exited, forced } = await stopRuntimeProcess(state.pid, sleeper, isAlive, sendSignal);
 
   if (!exited) {
     stoppingState = await writeRuntimeControlState(repoRoot, {
@@ -350,6 +361,7 @@ async function runStart(
     spawnDetachedRuntime: (params: { repoRoot: string; logPath: string; instanceId: string }) => Promise<{ pid: number }>;
     sleep: (ms: number) => Promise<void>;
     isProcessAlive: (pid: number | null) => boolean;
+    signalRuntimeProcess: (pid: number, signal: NodeJS.Signals) => void;
   }
 ): Promise<number> {
   const manifest = loadAgentsManifest(repoRoot);
@@ -383,9 +395,11 @@ async function runStart(
     logPath,
     lastError: null
   });
+  let spawnedPid: number | null = null;
 
   try {
     const spawned = await deps.spawnDetachedRuntime({ repoRoot, logPath, instanceId });
+    spawnedPid = spawned.pid;
     nextState = await writeRuntimeControlState(repoRoot, {
       ...nextState,
       pid: spawned.pid
@@ -404,12 +418,28 @@ async function runStart(
     }
     return 0;
   } catch (error) {
+    const errorMessage = sanitizeError(error);
+
+    if (spawnedPid !== null && deps.isProcessAlive(spawnedPid)) {
+      const cleanup = await stopRuntimeProcess(spawnedPid, deps.sleep, deps.isProcessAlive, deps.signalRuntimeProcess);
+      if (!cleanup.exited) {
+        await writeRuntimeControlState(repoRoot, {
+          ...nextState,
+          status: "stopping",
+          pid: spawnedPid,
+          stoppedAt: null,
+          lastError: `${errorMessage} Cleanup failed: detached runtime did not exit after SIGKILL. pid=${spawnedPid}`
+        });
+        throw new Error(`${errorMessage} Detached runtime did not exit after cleanup signals. pid=${spawnedPid}.`);
+      }
+    }
+
     await writeRuntimeControlState(repoRoot, {
       ...nextState,
       status: "failed",
       pid: null,
       stoppedAt: new Date().toISOString(),
-      lastError: sanitizeError(error)
+      lastError: errorMessage
     });
     throw error;
   }
@@ -458,7 +488,7 @@ async function runDoctor(repoRoot: string, io: CliIo): Promise<number> {
   checks.push(
     hasEnvFile
       ? { ok: true, label: ".env file present" }
-      : { ok: false, label: ".env file missing — agent secrets will rely on environment variables only" }
+      : { ok: true, label: ".env file missing — using environment variables if provided" }
   );
 
   const envMap = loadEnvFile(repoRoot);
@@ -562,7 +592,7 @@ async function runDoctor(repoRoot: string, io: CliIo): Promise<number> {
 async function runInternalRuntime(
   repoRoot: string,
   instanceId: string | null,
-  runtimeStarter: (repoRoot: string, hooks?: RuntimeLifecycleHooks, options?: RuntimeStartOptions) => Promise<void>
+  runtimeStarter: (repoRoot: string, hooks?: RuntimeLifecycleHooks) => Promise<void>
 ): Promise<number> {
   const hooks: RuntimeLifecycleHooks | undefined = instanceId
     ? {
@@ -611,9 +641,7 @@ async function runInternalRuntime(
     : undefined;
 
   try {
-    await runtimeStarter(repoRoot, hooks, {
-      logFilePath: instanceId === null ? null : runtimeLogPath(repoRoot)
-    });
+    await runtimeStarter(repoRoot, hooks);
     return 0;
   } catch {
     return 1;
@@ -659,7 +687,8 @@ export async function runCli(deps: RunCliDeps): Promise<number> {
           runBuild,
           spawnDetachedRuntime,
           sleep: sleeper,
-          isProcessAlive: runtimeIsAlive
+          isProcessAlive: runtimeIsAlive,
+          signalRuntimeProcess: sendRuntimeSignal
         });
       case "stop":
         return await runStop(deps.repoRoot, io, sleeper, runtimeIsAlive, sendRuntimeSignal);
