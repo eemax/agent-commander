@@ -20,7 +20,7 @@ describe("splitTelegramMessage", () => {
 
     const chunks = splitTelegramMessage(text);
     expect(chunks.length).toBe(2);
-    expect(chunks[0]).toBe(before + "\n");
+    expect(chunks[0]).toBe(before + "\n\n");
     expect(chunks[1]).toBe(after);
     expect(chunks[0].length).toBeGreaterThan(3500);
   });
@@ -31,7 +31,7 @@ describe("splitTelegramMessage", () => {
     const text = before + "\n" + after;
 
     const chunks = splitTelegramMessage(text);
-    expect(chunks).toEqual([before, after]);
+    expect(chunks).toEqual([before + "\n", after]);
   });
 
   it("falls back to space within the 3000-4096 search window for plain text", () => {
@@ -40,7 +40,29 @@ describe("splitTelegramMessage", () => {
     const text = before + " " + after;
 
     const chunks = splitTelegramMessage(text);
-    expect(chunks).toEqual([before, " " + after]);
+    expect(chunks).toEqual([before + " ", after]);
+  });
+
+  it("uses the last matching paragraph break inside the search window", () => {
+    const first = "a".repeat(3200);
+    const middle = "b".repeat(200);
+    const tail = "c".repeat(900);
+    const text = first + "\n\n" + middle + "\n\n" + tail;
+
+    const chunks = splitTelegramMessage(text);
+
+    expect(chunks).toEqual([first + "\n\n" + middle + "\n\n", tail]);
+  });
+
+  it("ignores earlier break candidates outside the last 1096 chars", () => {
+    const text = "a".repeat(2500) + "\n\n" + "b".repeat(1500) + " " + "c".repeat(200);
+
+    const chunks = splitTelegramMessage(text);
+
+    expect(chunks).toEqual([
+      "a".repeat(2500) + "\n\n" + "b".repeat(1500) + " ",
+      "c".repeat(200)
+    ]);
   });
 
   it("hard-splits at 4096 when no break exists inside the search window", () => {
@@ -75,7 +97,7 @@ describe("splitTelegramMessage", () => {
     const chunks = splitTelegramMessage(html, { parseMode: "HTML" });
 
     expect(chunks).toEqual([
-      `<b>${before}\n</b>`,
+      `<b>${before}\n\n</b>`,
       `<b>${after}</b>`
     ]);
   });
@@ -88,7 +110,7 @@ describe("splitTelegramMessage", () => {
     const chunks = splitTelegramMessage(html, { parseMode: "HTML" });
 
     expect(chunks).toEqual([
-      `<b>${before}</b>`,
+      `<b>${before}\n</b>`,
       `<b>${after}</b>`
     ]);
   });
@@ -101,8 +123,8 @@ describe("splitTelegramMessage", () => {
     const chunks = splitTelegramMessage(html, { parseMode: "HTML" });
 
     expect(chunks).toEqual([
-      `<b>${before}</b>`,
-      `<b> ${after}</b>`
+      `<b>${before} </b>`,
+      `<b>${after}</b>`
     ]);
   });
 
@@ -118,6 +140,9 @@ describe("splitTelegramMessage", () => {
     expect(chunks[0]).toMatch(/<\/i><\/b>$/);
     // Second chunk should reopen tags in original order
     expect(chunks[1]).toMatch(/^<b><i>/);
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    }
   });
 
   it("preserves a href attributes when reopening tags", () => {
@@ -128,6 +153,55 @@ describe("splitTelegramMessage", () => {
     const chunks = splitTelegramMessage(html, { parseMode: "HTML" });
     expect(chunks.length).toBeGreaterThan(1);
     expect(chunks[1]).toContain('href="https://example.com"');
+  });
+
+  it("does not strand a closing tag at the start of the next chunk", () => {
+    const html = "<b>" + "a ".repeat(1900) + "</b>" + "x".repeat(600);
+
+    const chunks = splitTelegramMessage(html, { parseMode: "HTML" });
+
+    expect(chunks.length).toBe(2);
+    expect(chunks[0]).toMatch(/<\/b>$/);
+    expect(chunks[1]).toMatch(/^<b>/);
+    expect(chunks[1]).not.toMatch(/^<\/b>/);
+  });
+
+  it("hard-breaks HTML at a safe boundary instead of splitting inside entities", () => {
+    const html = "<b>" + "a".repeat(4088) + "&lt;</b>";
+
+    const chunks = splitTelegramMessage(html, { parseMode: "HTML" });
+
+    expect(chunks).toEqual([
+      "<b>" + "a".repeat(4088) + "</b>",
+      "<b>&lt;</b>"
+    ]);
+    expect(chunks[0]).not.toContain("&l</b>");
+    expect(chunks[0]).not.toMatch(/&$/);
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    }
+  });
+
+  it("recomputes later HTML splits from the carried remainder after earlier splits", () => {
+    const html = [
+      "<b>" + "A".repeat(3300) + "</b>",
+      "<i>" + "B".repeat(3300) + "</i>",
+      '<a href="https://example.com">' + "C".repeat(3300) + "</a>",
+      "<code>" + "D".repeat(1800) + "</code>"
+    ].join("\n\n");
+
+    const chunks = splitTelegramMessage(html, { parseMode: "HTML" });
+
+    expect(chunks).toEqual([
+      "<b>" + "A".repeat(3300) + "</b>\n\n",
+      "<i>" + "B".repeat(3300) + "</i>\n\n",
+      '<a href="https://example.com">' + "C".repeat(3300) + "</a>\n\n",
+      "<code>" + "D".repeat(1800) + "</code>"
+    ]);
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+      expect(chunk).not.toMatch(/^<\//);
+    }
   });
 });
 
@@ -187,7 +261,7 @@ describe("splitFinalReply", () => {
 
     const chunks = splitFinalReply(text);
     expect(chunks.length).toBe(2);
-    expect(chunks[0]).toBe(before + "\n");
+    expect(chunks[0]).toBe(before + "\n\n");
     expect(chunks[1]).toBe(after);
     expect(chunks[0].length).toBeGreaterThan(3500);
   });
@@ -199,7 +273,7 @@ describe("splitFinalReply", () => {
 
     const chunks = splitFinalReply(text);
     expect(chunks.length).toBe(2);
-    expect(chunks[0]).toBe(before);
+    expect(chunks[0]).toBe(before + "\n");
     expect(chunks[1]).toBe(after);
   });
 
@@ -210,8 +284,8 @@ describe("splitFinalReply", () => {
 
     const chunks = splitFinalReply(text);
     expect(chunks.length).toBe(2);
-    expect(chunks[0]).toBe(before);
-    expect(chunks[1]).toBe(" " + after);
+    expect(chunks[0]).toBe(before + " ");
+    expect(chunks[1]).toBe(after);
   });
 
   it("hard-splits at 4096 when no break is found inside the search window", () => {

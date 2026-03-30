@@ -291,7 +291,7 @@ describe("prepareTelegramReply", () => {
     });
 
     expect(prepared.parseMode).toBe("HTML");
-    expect(chunks).toEqual([before + "\n", after]);
+    expect(chunks).toEqual([before + "\n\n", after]);
     expect(chunks[0]?.length).toBeGreaterThan(3500);
   });
 
