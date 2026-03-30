@@ -36,18 +36,31 @@ Set:
 
 ## Run
 
-Development mode:
+Development mode (foreground):
 
 ```bash
 npm run dev
 ```
 
-Build + run compiled output:
+Build + run compiled output in the foreground:
 
 ```bash
 npm run build
 npm start
 ```
+
+Detached lifecycle CLI:
+
+```bash
+acmd help
+acmd status
+acmd start [--rebuild]
+acmd stop
+acmd restart [--rebuild]
+acmd doctor
+```
+
+`acmd start` and `acmd restart` launch the compiled runtime from `dist/` in one detached child process and free the terminal. Detached control state lives under `.agent-commander/control/` as `runtime.json` plus `runtime.log`.
 
 Global CLI link (makes `acmd` available from anywhere):
 
@@ -238,6 +251,15 @@ Common optional fields:
     - `runtime.tool_workflow_timeout_ms` (default `120000`)
     - `runtime.tool_command_timeout_ms` (default `15000`)
     - `runtime.tool_poll_max_attempts` (default `5`)
+
+## Detached Runtime CLI
+
+- `acmd` and `acmd help` print lifecycle usage and exit.
+- `acmd status` shows the detached runtime status, pid, configured agents, active agents, control log path, and last error.
+- `acmd start [--rebuild]` starts one detached runtime for the whole repo. `--rebuild` runs `npm run build` first.
+- `acmd stop` sends `SIGTERM`, waits up to 10 seconds, then escalates to `SIGKILL` if the runtime is still alive.
+- `acmd restart [--rebuild]` rebuilds first when requested, then replaces the detached runtime.
+- `acmd doctor` runs offline preflight checks for manifest/config/env/auth/build/control-state issues without connecting to Telegram or OpenAI.
     - `runtime.tool_idle_output_threshold_ms` (default `8000`)
     - `runtime.tool_heartbeat_interval_ms` (default `5000`)
     - `runtime.tool_cleanup_grace_ms` (default `3000`)

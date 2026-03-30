@@ -584,7 +584,8 @@ function createScopedHarness(
     execute: guardedExecute,
     executeWithOwner: (_ownerId, name, args, trace, signal) =>
       guardedExecute(name, args, trace, signal),
-    exportProviderTools: () => filteredTools
+    exportProviderTools: () => filteredTools,
+    shutdown: async () => {}
   };
 }
 

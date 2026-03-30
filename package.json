@@ -14,10 +14,10 @@
     "README.md"
   ],
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "tsx src/index.ts __runtime",
     "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/index.js",
     "prepare": "npm run build",
-    "start": "node dist/index.js",
+    "start": "node dist/index.js __runtime",
     "link:global": "npm run build && npm link",
     "unlink:global": "npm unlink -g agent-commander",
     "test": "vitest run",

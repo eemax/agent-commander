@@ -17,52 +17,151 @@ import { createAuthModeRegistry } from "../provider/auth-mode-registry.js";
 type AgentRuntime = {
   bot: ReturnType<typeof createTelegramBot>["bot"];
   logger: ReturnType<typeof createLogger>;
+  harness: ReturnType<typeof createToolHarness>;
 };
 
-export async function startRuntime(repoRoot: string): Promise<void> {
-  const envMap = loadEnvFile(repoRoot);
-  const manifest = loadAgentsManifest(repoRoot);
+export type RuntimeLifecycleHooks = {
+  onReady?: () => Promise<void> | void;
+  onShutdown?: (params: { signal: string | null; error?: unknown }) => Promise<void> | void;
+  onStartupError?: (error: unknown) => Promise<void> | void;
+};
 
-  const agentConfigs: Array<{ agent: AgentDefinition; config: Config }> = [];
-  for (const agent of manifest.agents) {
-    const secrets = extractAgentSecrets(envMap, agent.id);
-    const config = loadAgentConfig(repoRoot, agent, secrets);
-    agentConfigs.push({ agent, config });
-  }
+export async function startRuntime(repoRoot: string, hooks: RuntimeLifecycleHooks = {}): Promise<void> {
+  let readySignaled = false;
+  let shutdownStarted = false;
+  let shutdownPromise: Promise<void> | null = null;
+  let startupErrorHandled = false;
+  const signalHandlers = new Map<NodeJS.Signals, () => void>();
 
-  validateUniqueBotTokens(agentConfigs);
-
-  const runtimes: AgentRuntime[] = [];
-  for (const { agent, config } of agentConfigs) {
-    const runtime = await bootstrapAgentRuntime(agent, config);
-    runtimes.push(runtime);
-  }
-
-  const shutdown = (signal: string) => {
-    for (const rt of runtimes) {
-      rt.logger.info(`shutdown: received ${signal}`);
-      try {
-        rt.bot.stop();
-      } catch {
-        // best-effort stop
-      }
+  const removeSignalHandlers = (): void => {
+    for (const [signal, handler] of signalHandlers.entries()) {
+      process.off(signal, handler);
     }
-    process.exit(0);
+    signalHandlers.clear();
   };
 
-  process.once("SIGINT", () => shutdown("SIGINT"));
-  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  const invokeShutdown = async (runtimes: AgentRuntime[], signal: string | null, error?: unknown): Promise<void> => {
+    if (shutdownStarted) {
+      return shutdownPromise ?? Promise.resolve();
+    }
 
-  await Promise.all(
-    runtimes.map((rt) =>
+    shutdownStarted = true;
+    shutdownPromise = (async () => {
+      for (const rt of runtimes) {
+        rt.logger.info(`shutdown: received ${signal ?? "runtime_exit"}`);
+      }
+
+      for (const rt of runtimes) {
+        try {
+          await rt.harness.shutdown();
+        } catch (shutdownError) {
+          rt.logger.warn(`shutdown: harness cleanup failed: ${shutdownError instanceof Error ? shutdownError.message : String(shutdownError)}`);
+        }
+      }
+
+      for (const rt of runtimes) {
+        try {
+          rt.bot.stop();
+        } catch {
+          // best-effort stop
+        }
+      }
+
+      removeSignalHandlers();
+      await hooks.onShutdown?.({ signal, error });
+    })();
+
+    return shutdownPromise;
+  };
+
+  try {
+    const envMap = loadEnvFile(repoRoot);
+    const manifest = loadAgentsManifest(repoRoot);
+
+    const agentConfigs: Array<{ agent: AgentDefinition; config: Config }> = [];
+    for (const agent of manifest.agents) {
+      const secrets = extractAgentSecrets(envMap, agent.id);
+      const config = loadAgentConfig(repoRoot, agent, secrets);
+      agentConfigs.push({ agent, config });
+    }
+
+    validateUniqueBotTokens(agentConfigs);
+
+    const runtimes: AgentRuntime[] = [];
+    for (const { agent, config } of agentConfigs) {
+      const runtime = await bootstrapAgentRuntime(agent, config);
+      runtimes.push(runtime);
+    }
+
+    let readyResolve: (() => void) | null = null;
+    const readyPromise = new Promise<void>((resolve) => {
+      readyResolve = resolve;
+    });
+
+    let readyCount = 0;
+    const onRuntimeReady = (): void => {
+      readyCount += 1;
+      if (readyCount === runtimes.length && !readySignaled) {
+        readySignaled = true;
+        readyResolve?.();
+      }
+    };
+
+    const startPromises = runtimes.map((rt) =>
       rt.bot.start({
         drop_pending_updates: false,
         onStart: () => {
           rt.logger.info("startup: bot polling active");
+          onRuntimeReady();
         }
       })
-    )
-  );
+    );
+    const runPromise = Promise.all(startPromises);
+
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
+      const handler = () => {
+        void invokeShutdown(runtimes, signal);
+      };
+      signalHandlers.set(signal, handler);
+      process.once(signal, handler);
+    }
+
+    try {
+      const startupResult = await Promise.race([
+        readyPromise.then(() => "ready" as const),
+        runPromise.then(() => "stopped" as const)
+      ]);
+
+      if (startupResult === "ready") {
+        await hooks.onReady?.();
+      } else {
+        await invokeShutdown(runtimes, null);
+        return;
+      }
+    } catch (error) {
+      startupErrorHandled = true;
+      await invokeShutdown(runtimes, null, error);
+      removeSignalHandlers();
+      await hooks.onStartupError?.(error);
+      throw error;
+    }
+
+    try {
+      await runPromise;
+      await invokeShutdown(runtimes, null);
+    } catch (error) {
+      await invokeShutdown(runtimes, null, error);
+      throw error;
+    }
+
+    await shutdownPromise;
+  } catch (error) {
+    removeSignalHandlers();
+    if (!readySignaled && !startupErrorHandled) {
+      await hooks.onStartupError?.(error);
+    }
+    throw error;
+  }
 }
 
 async function bootstrapAgentRuntime(
@@ -231,5 +330,5 @@ async function bootstrapAgentRuntime(
 
   const me = await telegram.bot.api.getMe();
   logger.info(`startup: telegram initialized as @${me.username ?? me.id}`);
-  return { bot: telegram.bot, logger };
+  return { bot: telegram.bot, logger, harness };
 }

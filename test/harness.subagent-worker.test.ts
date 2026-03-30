@@ -254,7 +254,8 @@ function makeMockHarness(): ToolHarness {
     metrics: context.metrics,
     execute: vi.fn().mockResolvedValue({ ok: true, output: "mock output" }),
     executeWithOwner: vi.fn().mockResolvedValue({ ok: true, output: "mock output" }),
-    exportProviderTools: () => mockTools
+    exportProviderTools: () => mockTools,
+    shutdown: vi.fn().mockResolvedValue(undefined)
   };
 }
 

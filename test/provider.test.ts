@@ -69,6 +69,7 @@ function makeHarnessMock(): ToolHarness {
     metrics,
     execute: vi.fn(async () => ({ ok: true })),
     executeWithOwner: vi.fn(async () => ({ ok: true })),
+    shutdown: vi.fn(async () => {}),
     exportProviderTools: vi.fn(() => [
       {
         type: "function" as const,

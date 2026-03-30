@@ -431,11 +431,12 @@ export class ProcessManager {
     let forced = false;
     let signalSent: NodeJS.Signals = "SIGTERM";
     if (!gracefulDone && session.status === "running") {
-      forced = true;
-      const forceSignal = options.forceSignal ?? "SIGKILL";
-      this.sendSignal(session, forceSignal);
-      signalSent = forceSignal;
-      await this.waitForCompletion(sessionId, Math.max(1, options.graceMs));
+      if (options.forceSignal) {
+        forced = true;
+        this.sendSignal(session, options.forceSignal);
+        signalSent = options.forceSignal;
+        await this.waitForCompletion(sessionId, Math.max(1, options.graceMs));
+      }
     }
 
     let removed = false;
@@ -467,6 +468,32 @@ export class ProcessManager {
     return {
       killed: runningSessions.length,
       sessionIds: runningSessions.map((session) => session.sessionId)
+    };
+  }
+
+  public async terminateAllRunningSessions(options: {
+    graceMs: number;
+    forceSignal?: NodeJS.Signals;
+    removeAfterTerminate?: boolean;
+  }): Promise<{ terminated: number; forced: number; sessionIds: string[] }> {
+    const runningSessions = Array.from(this.sessions.values()).filter((session) => session.status === "running");
+    const results = await Promise.all(
+      runningSessions.map((session) =>
+        this.terminateSession(
+          session.sessionId,
+          {
+            graceMs: options.graceMs,
+            forceSignal: options.forceSignal,
+            removeAfterTerminate: options.removeAfterTerminate
+          }
+        )
+      )
+    );
+
+    return {
+      terminated: results.length,
+      forced: results.filter((result) => result.forced).length,
+      sessionIds: results.map((result) => result.sessionId)
     };
   }
 

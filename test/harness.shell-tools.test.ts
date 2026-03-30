@@ -239,6 +239,23 @@ describe("shell tools", () => {
     );
   });
 
+  it("shutdown force-kills stubborn background sessions", async () => {
+    const root = mkdtemp("acmd-shell-shutdown-");
+    const harness = createHarness(root);
+
+    const running = await harness.executeWithOwner("chat-1", "bash", {
+      command: "trap '' TERM; while true; do sleep 5; done",
+      background: true
+    });
+    const sessionId = (running as { sessionId: string }).sessionId;
+
+    await sleep(150);
+    await harness.shutdown();
+
+    await expect(harness.context.processManager.waitForCompletion(sessionId, 250)).resolves.toBe(true);
+    expect(harness.context.processManager.getHealth().runningSessions).toBe(0);
+  });
+
   it("resolves default cwd per owner when a resolver is configured", async () => {
     const root = mkdtemp("acmd-shell-owner-cwd-root-");
     const ownerOneCwd = mkdtemp("acmd-shell-owner-cwd-1-");

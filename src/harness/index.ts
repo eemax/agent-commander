@@ -22,6 +22,7 @@ export type ToolHarness = {
   executeWithOwner: (ownerId: string, name: string, args: unknown, trace?: TraceContext, abortSignal?: AbortSignal) => Promise<JsonValue>;
   exportProviderTools: () => ProviderFunctionTool[];
   resolveDefaultCwd?: (ownerId: string | null) => Promise<string>;
+  shutdown: () => Promise<void>;
 };
 
 export function createToolHarness(
@@ -176,7 +177,16 @@ export function createToolHarness(
     execute: (name, args, trace, abortSignal) => executeScoped(null, name, args, trace, abortSignal),
     executeWithOwner,
     exportProviderTools: () => registry.exportProviderTools(),
-    resolveDefaultCwd: deps.resolveDefaultCwd
+    resolveDefaultCwd: deps.resolveDefaultCwd,
+    shutdown: async () => {
+      await processManager.terminateAllRunningSessions({
+        graceMs: 3_000,
+        forceSignal: "SIGKILL"
+      });
+      if (subagentManager) {
+        await subagentManager.shutdown();
+      }
+    }
   };
 }
 

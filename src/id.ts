@@ -10,6 +10,10 @@ export function createProcessSessionId(): string {
   return `proc_${nextUlid()}`;
 }
 
+export function createRuntimeInstanceId(): string {
+  return `rt_${nextUlid()}`;
+}
+
 export function createTraceId(): string {
   return `trace_${nextUlid()}`;
 }

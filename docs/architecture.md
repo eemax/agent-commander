@@ -5,7 +5,8 @@
 Agent Commander is intentionally small:
 
 - one process
-- one entrypoint (`src/index.ts`)
+- one runtime process
+- one CLI entrypoint (`src/index.ts`)
 - one channel (Telegram)
 - one provider (OpenAI)
 - JSONL local state
@@ -15,9 +16,9 @@ Agent Commander is intentionally small:
 ### Boot
 
 - `src/index.ts`
-  Entrypoint delegating to runtime bootstrap.
+  Lifecycle CLI entrypoint. Public commands manage one detached runtime per repo; hidden `__runtime` runs the foreground bot process.
 - `src/runtime/bootstrap.ts`
-  Composition root for config/workspace/harness/provider/router wiring, and Telegram startup.
+  Composition root for config/workspace/harness/provider/router wiring, Telegram startup, and lifecycle readiness/shutdown hooks.
 - `src/runtime/contracts.ts`
   Core runtime interfaces (`Config`, `StateStore`, `WorkspaceCatalog`, `RuntimeLogger`, provider transport contracts).
 - `src/config.ts`

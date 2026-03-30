@@ -25,8 +25,12 @@ cp .env.example .env
 # 3. Edit config/agents.json and set per-agent allowlists:
 #    - telegram_allowlist (Telegram sender IDs)
 
-# 4. Start
+# 4. Start in the foreground
 npm run dev
+
+# Or build once, then run the detached lifecycle CLI
+npm run build
+acmd start
 ```
 
 ## Telegram commands
@@ -56,9 +60,15 @@ npm run dev
 ## Development
 
 ```bash
-npm run dev          # run from TypeScript source
+npm run dev          # foreground runtime from TypeScript source
 npm run build        # compile to dist/
-npm start            # run compiled output
+npm start            # foreground runtime from dist/
+acmd help            # lifecycle CLI help
+acmd status          # detached runtime status
+acmd start           # start detached runtime from dist/
+acmd stop            # stop detached runtime
+acmd restart         # restart detached runtime
+acmd doctor          # offline preflight checks
 npm run link:global  # install global acmd CLI
 npm run unlink:global
 npm run lint         # oxlint

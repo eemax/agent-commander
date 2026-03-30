@@ -1041,7 +1041,8 @@ export class SubagentManager {
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
+    const pendingStops: Promise<void>[] = [];
     for (const task of this.tasks.values()) {
       if (!isTerminal(task.state)) {
         this.clearTimers(task);
@@ -1067,9 +1068,11 @@ export class SubagentManager {
           stream.push(event);
           this.emitTaskEventLog(task.ownerId, event);
         }
-        void this.worker.stop(task.taskId, "shutdown").catch(() => {});
+        pendingStops.push(this.worker.stop(task.taskId, "shutdown").catch(() => {}));
       }
     }
+
+    await Promise.all(pendingStops);
   }
 
   getHealth(): {
