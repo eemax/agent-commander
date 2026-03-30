@@ -125,7 +125,7 @@ describe("loadConfig", () => {
     expect(config.observability.redaction.redactKeys).toContain("authorization");
     expect(config.subagents.logPath).toBe(path.join(root, ".agent-commander", "subagents.jsonl"));
     expect(config.runtime.promptHistoryLimit).toBe(20);
-    expect(config.paths.workspaceRoot).toContain(path.join(".agent-commander"));
+    expect(config.paths.workspaceRoot).toContain(path.join(".workspace"));
     expect(config.tools.defaultCwd).toBe(config.paths.workspaceRoot);
     expect(config.tools.defaultShell).toBe("/bin/bash");
     expect(config.tools.logPath).toBe(path.join(root, ".agent-commander", "tool-calls.jsonl"));
