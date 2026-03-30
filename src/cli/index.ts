@@ -1,4 +1,4 @@
-import { closeSync, openSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
@@ -7,11 +7,11 @@ import type { Logger } from "../logger.js";
 import { createRuntimeInstanceId } from "../id.js";
 import { loadAgentsManifest, loadAgentConfig, validateUniqueBotTokens } from "../agents.js";
 import { loadEnvFile, extractAgentSecrets } from "../env.js";
-import { startRuntime, type RuntimeLifecycleHooks } from "../runtime/bootstrap.js";
+import { startRuntime, type RuntimeLifecycleHooks, type RuntimeStartOptions } from "../runtime/bootstrap.js";
 import { createAuthModeRegistry } from "../provider/auth-mode-registry.js";
 import { createCodexAuthManager } from "../auth/codex-auth.js";
 import {
-  controlDirPath,
+  cliStateDirPath,
   createDefaultRuntimeControlState,
   isProcessAlive,
   isRuntimeActive,
@@ -40,7 +40,7 @@ export type RunCliDeps = {
   io?: Partial<CliIo>;
   runBuild?: (repoRoot: string, io: CliIo) => Promise<number>;
   spawnDetachedRuntime?: (params: { repoRoot: string; logPath: string; instanceId: string }) => Promise<{ pid: number }>;
-  startRuntime?: (repoRoot: string, hooks?: RuntimeLifecycleHooks) => Promise<void>;
+  startRuntime?: (repoRoot: string, hooks?: RuntimeLifecycleHooks, options?: RuntimeStartOptions) => Promise<void>;
   sleep?: (ms: number) => Promise<void>;
   isRuntimeProcessAlive?: (pid: number | null) => boolean;
   signalRuntimeProcess?: (pid: number, signal: NodeJS.Signals) => void;
@@ -186,16 +186,16 @@ function hasLiveRuntimeProcess(
   return state.pid !== null && isAlive(state.pid);
 }
 
-async function checkControlDirectoryAvailable(repoRoot: string): Promise<void> {
-  const controlDir = controlDirPath(repoRoot);
+async function checkCliStateDirectoryAvailable(repoRoot: string): Promise<void> {
+  const cliStateDir = cliStateDirPath(repoRoot);
 
   try {
-    const stat = await fs.stat(controlDir);
+    const stat = await fs.stat(cliStateDir);
     if (!stat.isDirectory()) {
-      throw new Error("Control path exists but is not a directory");
+      throw new Error("Runtime state path exists but is not a directory");
     }
 
-    const probePath = path.join(controlDir, `.doctor-${process.pid}-${Date.now()}.tmp`);
+    const probePath = path.join(cliStateDir, `.doctor-${process.pid}-${Date.now()}.tmp`);
     await fs.writeFile(probePath, "ok\n", "utf8");
     await fs.unlink(probePath);
     return;
@@ -206,23 +206,7 @@ async function checkControlDirectoryAvailable(repoRoot: string): Promise<void> {
     }
   }
 
-  const parentDir = path.dirname(controlDir);
-
-  try {
-    const parentStat = await fs.stat(parentDir);
-    if (!parentStat.isDirectory()) {
-      throw new Error("Control directory parent exists but is not a directory");
-    }
-    await fs.access(parentDir, fs.constants.W_OK | fs.constants.X_OK);
-    return;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException | undefined)?.code;
-    if (code !== "ENOENT") {
-      throw error;
-    }
-  }
-
-  await fs.access(repoRoot, fs.constants.W_OK | fs.constants.X_OK);
+  await fs.access(path.dirname(cliStateDir), fs.constants.W_OK | fs.constants.X_OK);
 }
 
 async function runStatus(repoRoot: string, io: CliIo): Promise<number> {
@@ -303,7 +287,7 @@ async function runStop(
       : `Detached runtime stopped. Log: ${stoppingState.logPath}`
   );
 
-  return exited ? 0 : 1;
+  return 0;
 }
 
 async function waitForRuntimeReady(
@@ -351,9 +335,9 @@ async function waitForRuntimeReady(
 
   const state = await readRuntimeControlState(repoRoot);
   return {
-    ok: true,
-    state,
-    warning: `Detached runtime is still starting. Check ${state.logPath} if it does not become ready soon.`
+    ok: false,
+    error: `Timed out waiting for runtime readiness after ${START_READY_TIMEOUT_MS / 1000}s. Check ${state.logPath}.`,
+    state
   };
 }
 
@@ -467,8 +451,17 @@ async function runRestart(
 
 async function runDoctor(repoRoot: string, io: CliIo): Promise<number> {
   const checks: DoctorCheck[] = [];
-  const envMap = loadEnvFile(repoRoot);
   const silentLogger = createSilentLogger();
+
+  const envPath = path.join(repoRoot, ".env");
+  const hasEnvFile = existsSync(envPath);
+  checks.push(
+    hasEnvFile
+      ? { ok: true, label: ".env file present" }
+      : { ok: false, label: ".env file missing — agent secrets will rely on environment variables only" }
+  );
+
+  const envMap = loadEnvFile(repoRoot);
 
   let manifest;
   try {
@@ -483,6 +476,7 @@ async function runDoctor(repoRoot: string, io: CliIo): Promise<number> {
   }
 
   const loadedConfigs: Array<{ agent: (typeof manifest.agents)[number]; config: Awaited<ReturnType<typeof loadAgentConfig>> }> = [];
+  const failedAgentIds: string[] = [];
 
   for (const agent of manifest.agents) {
     try {
@@ -490,25 +484,36 @@ async function runDoctor(repoRoot: string, io: CliIo): Promise<number> {
       loadedConfigs.push({ agent, config });
       checks.push({ ok: true, label: `config parsed: ${agent.id}` });
     } catch (error) {
+      failedAgentIds.push(agent.id);
       checks.push({ ok: false, label: `config invalid: ${agent.id} (${sanitizeError(error)})` });
     }
   }
 
   try {
     validateUniqueBotTokens(loadedConfigs);
-    checks.push({ ok: true, label: "bot tokens are unique" });
+    const tokenLabel = failedAgentIds.length > 0
+      ? `bot tokens unique among parseable agents (skipped: ${failedAgentIds.join(", ")})`
+      : "bot tokens are unique";
+    checks.push({ ok: true, label: tokenLabel });
   } catch (error) {
     checks.push({ ok: false, label: `bot token validation failed: ${sanitizeError(error)}` });
   }
 
   let codexAuth = null;
+  let codexAuthError: string | null = null;
   try {
     codexAuth = createCodexAuthManager(silentLogger);
-  } catch {
+  } catch (error) {
+    codexAuthError = sanitizeError(error);
     codexAuth = null;
   }
 
   for (const { agent, config } of loadedConfigs) {
+    if (config.openai.authMode === "codex" && codexAuthError !== null) {
+      checks.push({ ok: false, label: `auth unavailable: ${agent.id} (codex) - ${codexAuthError}` });
+      continue;
+    }
+
     const registry = createAuthModeRegistry({
       apiKey: config.openai.apiKey,
       codexAuth
@@ -523,10 +528,10 @@ async function runDoctor(repoRoot: string, io: CliIo): Promise<number> {
   }
 
   try {
-    await checkControlDirectoryAvailable(repoRoot);
-    checks.push({ ok: true, label: "control directory writable" });
+    await checkCliStateDirectoryAvailable(repoRoot);
+    checks.push({ ok: true, label: "runtime state directory writable" });
   } catch (error) {
-    checks.push({ ok: false, label: `control directory unavailable: ${sanitizeError(error)}` });
+    checks.push({ ok: false, label: `runtime state directory unavailable: ${sanitizeError(error)}` });
   }
 
   try {
@@ -537,15 +542,14 @@ async function runDoctor(repoRoot: string, io: CliIo): Promise<number> {
   }
 
   try {
-    const { state, changed } = await reconcileRuntimeControlState(repoRoot);
-    checks.push({
-      ok: true,
-      label: changed
-        ? `stale runtime state reconciled (status=${state.status})`
-        : `runtime state healthy (status=${state.status})`
-    });
+    const state = await readRuntimeControlState(repoRoot);
+    if (isRuntimeActive(state) && (state.pid === null || !isProcessAlive(state.pid))) {
+      checks.push({ ok: false, label: `runtime state stale: status=${state.status} but process is gone (run 'acmd stop' to reset)` });
+    } else {
+      checks.push({ ok: true, label: `runtime state healthy (status=${state.status})` });
+    }
   } catch (error) {
-    checks.push({ ok: false, label: `runtime state reconciliation failed: ${sanitizeError(error)}` });
+    checks.push({ ok: false, label: `runtime state unreadable: ${sanitizeError(error)}` });
   }
 
   for (const check of checks) {
@@ -558,7 +562,7 @@ async function runDoctor(repoRoot: string, io: CliIo): Promise<number> {
 async function runInternalRuntime(
   repoRoot: string,
   instanceId: string | null,
-  runtimeStarter: (repoRoot: string, hooks?: RuntimeLifecycleHooks) => Promise<void>
+  runtimeStarter: (repoRoot: string, hooks?: RuntimeLifecycleHooks, options?: RuntimeStartOptions) => Promise<void>
 ): Promise<number> {
   const hooks: RuntimeLifecycleHooks | undefined = instanceId
     ? {
@@ -607,7 +611,9 @@ async function runInternalRuntime(
     : undefined;
 
   try {
-    await runtimeStarter(repoRoot, hooks);
+    await runtimeStarter(repoRoot, hooks, {
+      logFilePath: instanceId === null ? null : runtimeLogPath(repoRoot)
+    });
     return 0;
   } catch {
     return 1;
@@ -640,6 +646,12 @@ export async function runCli(deps: RunCliDeps): Promise<number> {
       case "help":
         io.stdout(renderUsage());
         return 0;
+      case "version": {
+        const pkgPath = path.join(deps.repoRoot, "package.json");
+        const pkg = JSON.parse(await fs.readFile(pkgPath, "utf8")) as { version?: string };
+        io.stdout(pkg.version ?? "unknown");
+        return 0;
+      }
       case "status":
         return await runStatus(deps.repoRoot, io);
       case "start":

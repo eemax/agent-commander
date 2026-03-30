@@ -82,7 +82,6 @@ This is the canonical `config/config.json` shape.
   - maximum in-memory conversation sessions across the current active conversation plus any stashed conversations
   - when `/stash <name>` moves the current conversation into the stash pool, that conversation remains cache-eligible through the transition
   - archived, non-stashed conversations are read from JSONL on demand and are not retained in the session cache
-- `app_log_flush_interval_ms`: positive integer, default `1000`
 - `message_queue_mode`: `"batch" | "multi_turn"`, default `"batch"`
   - controls how messages sent during an active turn are processed after the turn completes
   - `"batch"`: all queued messages are combined (joined with `\n\n`) and sent as a single follow-up turn
@@ -124,7 +123,6 @@ This is the canonical `config/config.json` shape.
 
 - `workspace_root`: path string, default `"~/.agent-commander"`
 - `conversations_dir`: path string, default `".agent-commander/conversations"`
-- `app_log_path`: path string, default `".agent-commander/app.log"`
 
 `conversations_dir` is the storage root for the conversation tree:
 
@@ -146,7 +144,7 @@ No automatic migration is performed from older layouts. If you need to preserve 
 - `logs.tool_calls_max_lines`: positive integer or `null`, default `null`
 - `logs.subagents_max_lines`: positive integer or `null`, default `null`
 - `logs.observability_max_lines`: positive integer or `null`, default `null`
-- `logs.app_max_lines`: positive integer or `null`, default `null`
+- `logs.runtime_max_lines`: positive integer or `null`, default `null` — caps detached runtime logging in `./.agent-commander/runtime.log`
 
 For each log cap, `null` disables trimming. When enabled, the file keeps only the newest `N` lines after each append/flush.
 

@@ -87,38 +87,35 @@ describe("createObservabilitySink", () => {
     expect(truncated).toContain("[TRUNCATED:+");
   });
 
-  it("warns once when append fails and keeps writes non-blocking", async () => {
+  it("reports write failures through the warning reporter once and keeps writes non-blocking", async () => {
     const logPath = path.join("/dev/null", "observability.jsonl");
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warningReporter = vi.fn();
 
-    try {
-      const sink = createObservabilitySink({
-        enabled: true,
-        logPath
-      });
+    const sink = createObservabilitySink({
+      enabled: true,
+      logPath,
+      warningReporter
+    });
 
-      await expect(
-        sink.record({
-          event: "test.write_failure",
-          trace: createTraceRootContext("system"),
-          index: 1
-        })
-      ).resolves.toBeUndefined();
-      await expect(
-        sink.record({
-          event: "test.write_failure",
-          trace: createTraceRootContext("system"),
-          index: 2
-        })
-      ).resolves.toBeUndefined();
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      const warningText = String(warnSpy.mock.calls[0]?.[0] ?? "");
-      expect(warningText).toContain("observability: failed to append event");
-      expect(warningText).toContain(logPath);
-      expect(warningText).toContain("EEXIST");
-    } finally {
-      warnSpy.mockRestore();
-    }
+    await expect(
+      sink.record({
+        event: "test.write_failure",
+        trace: createTraceRootContext("system"),
+        index: 1
+      })
+    ).resolves.toBeUndefined();
+    await expect(
+      sink.record({
+        event: "test.write_failure",
+        trace: createTraceRootContext("system"),
+        index: 2
+      })
+    ).resolves.toBeUndefined();
+    expect(warningReporter).toHaveBeenCalledTimes(1);
+    const warningText = String(warningReporter.mock.calls[0]?.[0] ?? "");
+    expect(warningText).toContain("observability: failed to append event");
+    expect(warningText).toContain(logPath);
+    expect(warningText).toContain("EEXIST");
   });
 
   it("keeps only the newest observability lines when maxLines is configured", async () => {

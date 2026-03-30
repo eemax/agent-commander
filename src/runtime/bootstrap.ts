@@ -26,7 +26,15 @@ export type RuntimeLifecycleHooks = {
   onStartupError?: (error: unknown) => Promise<void> | void;
 };
 
-export async function startRuntime(repoRoot: string, hooks: RuntimeLifecycleHooks = {}): Promise<void> {
+export type RuntimeStartOptions = {
+  logFilePath?: string | null;
+};
+
+export async function startRuntime(
+  repoRoot: string,
+  hooks: RuntimeLifecycleHooks = {},
+  options: RuntimeStartOptions = {}
+): Promise<void> {
   let readySignaled = false;
   let shutdownStarted = false;
   let shutdownPromise: Promise<void> | null = null;
@@ -89,7 +97,7 @@ export async function startRuntime(repoRoot: string, hooks: RuntimeLifecycleHook
 
     const runtimes: AgentRuntime[] = [];
     for (const { agent, config } of agentConfigs) {
-      const runtime = await bootstrapAgentRuntime(agent, config);
+      const runtime = await bootstrapAgentRuntime(agent, config, options);
       runtimes.push(runtime);
     }
 
@@ -166,20 +174,24 @@ export async function startRuntime(repoRoot: string, hooks: RuntimeLifecycleHook
 
 async function bootstrapAgentRuntime(
   agent: AgentDefinition,
-  config: Config
+  config: Config,
+  options: RuntimeStartOptions
 ): Promise<AgentRuntime> {
   const logger = createLogger(config.runtime.logLevel, {
-    appLogPath: config.paths.appLogPath,
-    flushIntervalMs: config.runtime.appLogFlushIntervalMs,
+    filePath: options.logFilePath ?? undefined,
     tag: agent.id,
-    maxLines: config.retention.logs.appMaxLines
+    maxLines: config.retention.logs.runtimeMaxLines,
+    writeToConsole: !options.logFilePath
   });
 
   const observability = createObservabilitySink({
     enabled: config.observability.enabled,
     logPath: config.observability.logPath,
     maxLines: config.observability.logMaxLines,
-    redaction: config.observability.redaction
+    redaction: config.observability.redaction,
+    warningReporter: (message) => {
+      logger.warn(message);
+    }
   });
 
   logger.info(`startup: config loaded from ${config.configPath}`);
@@ -241,6 +253,9 @@ async function bootstrapAgentRuntime(
     {
       observability,
       subagentLogRedaction: config.observability.redaction,
+      subagentLogWarningReporter: (message) => {
+        logger.warn(message);
+      },
       resolveDefaultCwd: async (ownerId) => {
         if (!ownerId) return config.tools.defaultCwd;
         return conversations.getWorkingDirectory(ownerId);

@@ -70,7 +70,6 @@ const DEFAULT_CONFIG_TEMPLATE = {
     tool_cleanup_grace_ms: 3_000,
     tool_failure_breaker_threshold: 4,
     session_cache_max_entries: 200,
-    app_log_flush_interval_ms: 1_000,
     message_queue_mode: "batch"
   },
   tools: {
@@ -95,8 +94,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
   },
   paths: {
     workspace_root: "~/.agent-commander",
-    conversations_dir: ".agent-commander/conversations",
-    app_log_path: ".agent-commander/app.log"
+    conversations_dir: ".agent-commander/conversations"
   },
   retention: {
     archived_conversations_max_count: null as number | null,
@@ -104,7 +102,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
       tool_calls_max_lines: null as number | null,
       subagents_max_lines: null as number | null,
       observability_max_lines: null as number | null,
-      app_max_lines: null as number | null
+      runtime_max_lines: null as number | null
     }
   },
   observability: {
@@ -214,7 +212,6 @@ export const configSchema = z
         tool_cleanup_grace_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_cleanup_grace_ms),
         tool_failure_breaker_threshold: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.tool_failure_breaker_threshold),
         session_cache_max_entries: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.session_cache_max_entries),
-        app_log_flush_interval_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.runtime.app_log_flush_interval_ms),
         message_queue_mode: z.enum(["batch", "multi_turn"]).default(DEFAULT_CONFIG_TEMPLATE.runtime.message_queue_mode as "batch" | "multi_turn")
       })
       .strict(),
@@ -241,8 +238,7 @@ export const configSchema = z
     paths: z
       .object({
         workspace_root: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.paths.workspace_root),
-        conversations_dir: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.paths.conversations_dir),
-        app_log_path: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.paths.app_log_path)
+        conversations_dir: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.paths.conversations_dir)
       })
       .strict(),
     retention: z
@@ -253,7 +249,7 @@ export const configSchema = z
             tool_calls_max_lines: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.retention.logs.tool_calls_max_lines),
             subagents_max_lines: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.retention.logs.subagents_max_lines),
             observability_max_lines: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.retention.logs.observability_max_lines),
-            app_max_lines: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.retention.logs.app_max_lines)
+            runtime_max_lines: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.retention.logs.runtime_max_lines)
           })
           .strict()
           .default({})
@@ -626,7 +622,6 @@ export function buildConfigFromParsed(
       toolCleanupGraceMs: config.runtime.tool_cleanup_grace_ms,
       toolFailureBreakerThreshold: config.runtime.tool_failure_breaker_threshold,
       sessionCacheMaxEntries: config.runtime.session_cache_max_entries,
-      appLogFlushIntervalMs: config.runtime.app_log_flush_interval_ms,
       messageQueueMode: config.runtime.message_queue_mode
     },
     access: {
@@ -651,8 +646,7 @@ export function buildConfigFromParsed(
     },
     paths: {
       workspaceRoot,
-      conversationsDir: resolveConfigPath(repoRoot, config.paths.conversations_dir),
-      appLogPath: resolveConfigPath(repoRoot, config.paths.app_log_path)
+      conversationsDir: resolveConfigPath(repoRoot, config.paths.conversations_dir)
     },
     retention: {
       archivedConversationsMaxCount: config.retention.archived_conversations_max_count,
@@ -660,7 +654,7 @@ export function buildConfigFromParsed(
         toolCallsMaxLines: config.retention.logs.tool_calls_max_lines,
         subagentsMaxLines: config.retention.logs.subagents_max_lines,
         observabilityMaxLines: config.retention.logs.observability_max_lines,
-        appMaxLines: config.retention.logs.app_max_lines
+        runtimeMaxLines: config.retention.logs.runtime_max_lines
       }
     },
     observability: {

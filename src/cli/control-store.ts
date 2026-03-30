@@ -26,11 +26,11 @@ function asNullableNumber(value: unknown): number | null {
 
 function parseRuntimeControlState(raw: unknown, repoRoot: string): RuntimeControlState {
   if (!isRecord(raw)) {
-    throw new Error("Invalid runtime control state: expected object");
+    throw new Error("Invalid CLI state: expected object");
   }
 
   if (!isRuntimeStatus(raw.status)) {
-    throw new Error("Invalid runtime control state: status is missing or invalid");
+    throw new Error("Invalid CLI state: status is missing or invalid");
   }
 
   const instanceId = raw.instance_id === null ? null : asNullableString(raw.instance_id);
@@ -43,7 +43,7 @@ function parseRuntimeControlState(raw: unknown, repoRoot: string): RuntimeContro
   const lastError = raw.last_error === null ? null : asNullableString(raw.last_error);
 
   if (instanceId === undefined || pid === undefined || agentIds === null || startedAt === undefined || updatedAt === null || stoppedAt === undefined || logPath === null || lastError === undefined) {
-    throw new Error("Invalid runtime control state: one or more required fields are missing");
+    throw new Error("Invalid CLI state: one or more required fields are missing");
   }
 
   return {
@@ -80,16 +80,16 @@ async function atomicWriteJson(targetPath: string, payload: unknown): Promise<vo
   await fs.rename(tmpPath, targetPath);
 }
 
-export function controlDirPath(repoRoot: string): string {
-  return path.resolve(repoRoot, ".agent-commander", "control");
+export function cliStateDirPath(repoRoot: string): string {
+  return path.resolve(repoRoot, ".agent-commander");
 }
 
-export function runtimeStatePath(repoRoot: string): string {
-  return path.join(controlDirPath(repoRoot), "runtime.json");
+export function cliStatePath(repoRoot: string): string {
+  return path.join(cliStateDirPath(repoRoot), "cli.json");
 }
 
 export function runtimeLogPath(repoRoot: string): string {
-  return path.join(controlDirPath(repoRoot), "runtime.log");
+  return path.join(cliStateDirPath(repoRoot), "runtime.log");
 }
 
 export function createDefaultRuntimeControlState(repoRoot: string): RuntimeControlState {
@@ -107,7 +107,7 @@ export function createDefaultRuntimeControlState(repoRoot: string): RuntimeContr
 }
 
 export async function readRuntimeControlState(repoRoot: string): Promise<RuntimeControlState> {
-  const statePath = runtimeStatePath(repoRoot);
+  const statePath = cliStatePath(repoRoot);
 
   try {
     const raw = await fs.readFile(statePath, "utf8");
@@ -127,7 +127,7 @@ export async function writeRuntimeControlState(repoRoot: string, state: RuntimeC
     updatedAt: nowIso(),
     logPath: path.resolve(state.logPath)
   };
-  await atomicWriteJson(runtimeStatePath(repoRoot), serializeRuntimeControlState(nextState, repoRoot));
+  await atomicWriteJson(cliStatePath(repoRoot), serializeRuntimeControlState(nextState, repoRoot));
   return nextState;
 }
 

@@ -303,10 +303,9 @@ describe("cli commands", () => {
     }
   });
 
-  it("doctor fails on missing env, missing build artifacts, and unwritable control dir", async () => {
+  it("doctor fails on missing env, missing build artifacts, and unwritable runtime state dir", async () => {
     const root = setupRepo({ withEnv: false, withBuild: false, withSecondAgent: false });
-    fs.mkdirSync(path.join(root, ".agent-commander"), { recursive: true });
-    fs.writeFileSync(path.join(root, ".agent-commander", "control"), "not-a-directory\n", "utf8");
+    fs.writeFileSync(path.join(root, ".agent-commander"), "not-a-directory\n", "utf8");
     const io = captureIo();
 
     const exitCode = await runCli({
@@ -323,12 +322,13 @@ describe("cli commands", () => {
     });
 
     expect(exitCode).toBe(1);
+    expect(io.stdout.some((line) => line.includes("fail .env file missing"))).toBe(true);
     expect(io.stdout.some((line) => line.includes("fail config invalid: default"))).toBe(true);
-    expect(io.stdout.some((line) => line.includes("fail control directory unavailable"))).toBe(true);
+    expect(io.stdout.some((line) => line.includes("fail runtime state directory unavailable"))).toBe(true);
     expect(io.stdout.some((line) => line.includes("fail Build artifact missing"))).toBe(true);
   });
 
-  it("doctor does not create the control directory when it only checks availability", async () => {
+  it("doctor does not create the runtime state directory when it only checks availability", async () => {
     const root = setupRepo({ withSecondAgent: false });
     const io = captureIo();
 
@@ -346,7 +346,7 @@ describe("cli commands", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(fs.existsSync(path.join(root, ".agent-commander", "control"))).toBe(false);
-    expect(io.stdout.some((line) => line.includes("ok   control directory writable"))).toBe(true);
+    expect(fs.existsSync(path.join(root, ".agent-commander"))).toBe(false);
+    expect(io.stdout.some((line) => line.includes("ok   runtime state directory writable"))).toBe(true);
   });
 });

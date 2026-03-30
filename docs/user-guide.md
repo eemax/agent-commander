@@ -60,7 +60,7 @@ acmd restart [--rebuild]
 acmd doctor
 ```
 
-`acmd start` and `acmd restart` launch the compiled runtime from `dist/` in one detached child process and free the terminal. Detached control state lives under `.agent-commander/control/` as `runtime.json` plus `runtime.log`.
+`acmd start` and `acmd restart` launch the compiled runtime from `dist/` in one detached child process and free the terminal. Detached CLI state lives under `.agent-commander/` as `cli.json` plus `runtime.log`.
 
 Global CLI link (makes `acmd` available from anywhere):
 
@@ -103,9 +103,9 @@ Startup fails if frontmatter is missing/invalid, slug generation is invalid, or 
 - `/stash list` shows stashed conversations with alias, conversation tail, and relative stash age.
 - No automatic migration is performed from the previous filename layout; move/rename old files manually if you want to keep prior state.
 - New conversation and process session IDs are ULID-based (`conv_<ulid>`, `proc_<ulid>`), so they are lexically time-ordered.
-- Runtime app logs are written as human-readable single-line text to `paths.app_log_path`.
+- Detached runtime logs are written as human-readable single-line text to `.agent-commander/runtime.log`.
 - `retention.archived_conversations_max_count` can prune old archived conversations globally.
-- `retention.logs.*_max_lines` can cap `tool-calls.jsonl`, `subagents.jsonl`, `observability.jsonl`, and `app.log`.
+- `retention.logs.*_max_lines` can cap `tool-calls.jsonl`, `subagents.jsonl`, `observability.jsonl`, and detached `runtime.log`.
 
 ## Context Injection
 
@@ -240,29 +240,28 @@ Common optional fields:
 - `tools.default_cwd` (default: `paths.workspace_root`, usually `~/.agent-commander/`; used as the initial cwd for new conversations)
 - `tools.default_shell` (default: `/bin/bash`)
 - `paths.conversations_dir`
-- `paths.app_log_path`
 - `retention.archived_conversations_max_count`
 - `retention.logs.tool_calls_max_lines`
 - `retention.logs.subagents_max_lines`
 - `retention.logs.observability_max_lines`
-- `retention.logs.app_max_lines`
+- `retention.logs.runtime_max_lines`
 - Runtime/tool knobs (`runtime.*`, `tools.*`, and `openai.*` retry/timeout settings)
   - recommended guardrails are enabled by default:
     - `runtime.tool_workflow_timeout_ms` (default `120000`)
     - `runtime.tool_command_timeout_ms` (default `15000`)
     - `runtime.tool_poll_max_attempts` (default `5`)
+    - `runtime.tool_idle_output_threshold_ms` (default `8000`)
+    - `runtime.tool_heartbeat_interval_ms` (default `5000`)
+    - `runtime.tool_cleanup_grace_ms` (default `3000`)
 
 ## Detached Runtime CLI
 
 - `acmd` and `acmd help` print lifecycle usage and exit.
-- `acmd status` shows the detached runtime status, pid, configured agents, active agents, control log path, and last error.
+- `acmd status` shows the detached runtime status, pid, configured agents, active agents, runtime log path, and last error.
 - `acmd start [--rebuild]` starts one detached runtime for the whole repo. `--rebuild` runs `npm run build` first.
 - `acmd stop` sends `SIGTERM`, waits up to 10 seconds, then escalates to `SIGKILL` if the runtime is still alive.
 - `acmd restart [--rebuild]` rebuilds first when requested, then replaces the detached runtime.
 - `acmd doctor` runs offline preflight checks for manifest/config/env/auth/build/control-state issues without connecting to Telegram or OpenAI.
-    - `runtime.tool_idle_output_threshold_ms` (default `8000`)
-    - `runtime.tool_heartbeat_interval_ms` (default `5000`)
-    - `runtime.tool_cleanup_grace_ms` (default `3000`)
 
 ## Full Observability Mode
 
@@ -324,7 +323,7 @@ Ensure Telegram sender ID is present in the active agent's `telegram_allowlist`.
 ### Provider errors (4xx/5xx)
 
 Verify `DEFAULT_OPENAI_API_KEY`, model name, and account quota/limits.
-If observability is disabled, check `paths.app_log_path` for the structured final failure line (`reason`, OpenAI `type/code/param`, and `request_id`).
+If observability is disabled during detached runtime execution, check `.agent-commander/runtime.log` for the structured final failure line (`reason`, OpenAI `type/code/param`, and `request_id`).
 
 ### OpenAI 400: invalid_function_parameters
 

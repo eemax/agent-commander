@@ -14,6 +14,7 @@ export type RuntimeControlState = {
 
 export type CliCommand =
   | { name: "help" }
+  | { name: "version" }
   | { name: "status" }
   | { name: "start"; rebuild: boolean }
   | { name: "stop" }

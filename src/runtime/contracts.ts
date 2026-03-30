@@ -77,7 +77,6 @@ export type Config = {
     toolCleanupGraceMs: number;
     toolFailureBreakerThreshold: number;
     sessionCacheMaxEntries: number;
-    appLogFlushIntervalMs: number;
     messageQueueMode: "batch" | "multi_turn";
   };
   access: {
@@ -107,7 +106,6 @@ export type Config = {
     stashedConversationsPath?: string;
     activeConversationsPath?: string;
     contextSnapshotsDir?: string;
-    appLogPath: string;
   };
   retention: {
     archivedConversationsMaxCount: number | null;
@@ -115,7 +113,7 @@ export type Config = {
       toolCallsMaxLines: number | null;
       subagentsMaxLines: number | null;
       observabilityMaxLines: number | null;
-      appMaxLines: number | null;
+      runtimeMaxLines: number | null;
     };
   };
   observability: {

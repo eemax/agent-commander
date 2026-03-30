@@ -381,6 +381,7 @@ export function createSubagentLogSink(params: {
   logPath: string;
   maxLines?: number | null;
   redaction?: Partial<ObservabilityRedactionConfig>;
+  warningReporter?: (message: string) => void;
 }): SubagentLogSink {
   if (!params.enabled) {
     return createNoopSubagentLogSink();
@@ -390,6 +391,7 @@ export function createSubagentLogSink(params: {
   const maxLines = params.maxLines ?? null;
   const redactionConfig = normalizeRedactionConfig(params.redaction);
   const redactKeySet = new Set(redactionConfig.redactKeys.map((key) => normalizeRedactionKey(key)));
+  const reportWarning = params.warningReporter ?? ((message: string) => console.warn(message));
   let ensureDirectoryPromise: Promise<void> | null = null;
   let hasReportedWriteFailure = false;
   let queue: Promise<void> = Promise.resolve();
@@ -426,7 +428,7 @@ export function createSubagentLogSink(params: {
 
       hasReportedWriteFailure = true;
       const message = error instanceof Error ? error.message : String(error);
-      console.warn(
+      reportWarning(
         `${new Date().toISOString()} [WARN] subagent-log: failed to append entry to ${resolvedPath}: ${message}`
       );
     }

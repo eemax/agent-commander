@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { appendTextWithTailRetention, appendTextWithTailRetentionSync } from "./file-retention.js";
+import { appendTextWithTailRetentionSync } from "./file-retention.js";
 import type { LogLevel, RuntimeLogger } from "./runtime/contracts.js";
 
 const LEVEL_RANK: Record<LogLevel, number> = {
@@ -21,91 +21,14 @@ function formatLine(level: LogLevel, message: string, tag?: string): string {
 
 export function createLogger(
   level: LogLevel,
-  options: { appLogPath?: string; flushIntervalMs?: number; tag?: string; maxLines?: number | null } = {}
+  options: { filePath?: string; tag?: string; maxLines?: number | null; writeToConsole?: boolean } = {}
 ): RuntimeLogger {
   const tag = options.tag;
-  const appLogPath = options.appLogPath;
+  const filePath = options.filePath;
   const maxLines = options.maxLines ?? null;
-  if (appLogPath) {
-    fs.mkdirSync(path.dirname(appLogPath), { recursive: true });
-  }
-  const flushIntervalMs =
-    typeof options.flushIntervalMs === "number" ? Math.max(1, Math.floor(options.flushIntervalMs)) : 0;
-  const bufferedFileLogging = Boolean(appLogPath && flushIntervalMs > 0);
-  let bufferedLines = "";
-  let flushTimer: NodeJS.Timeout | null = null;
-  let flushQueue: Promise<void> = Promise.resolve();
-
-  const flushBufferedLinesAsync = (): void => {
-    if (!bufferedFileLogging || !appLogPath || bufferedLines.length === 0) {
-      return;
-    }
-
-    if (flushTimer) {
-      clearTimeout(flushTimer);
-      flushTimer = null;
-    }
-
-    const payload = bufferedLines;
-    bufferedLines = "";
-    flushQueue = flushQueue
-      .catch(() => undefined)
-      .then(async () => {
-        try {
-          await appendTextWithTailRetention({
-            filePath: appLogPath,
-            text: payload,
-            maxLines
-          });
-        } catch {
-          // Do not block runtime behavior on log file errors.
-        }
-      });
-  };
-
-  const flushBufferedLinesSync = (): void => {
-    if (!bufferedFileLogging || !appLogPath || bufferedLines.length === 0) {
-      return;
-    }
-
-    if (flushTimer) {
-      clearTimeout(flushTimer);
-      flushTimer = null;
-    }
-
-    const payload = bufferedLines;
-    bufferedLines = "";
-    try {
-      appendTextWithTailRetentionSync({
-        filePath: appLogPath,
-        text: payload,
-        maxLines
-      });
-    } catch {
-      // Do not block runtime behavior on log file errors.
-    }
-  };
-
-  const scheduleFlush = (): void => {
-    if (!bufferedFileLogging || flushTimer) {
-      return;
-    }
-
-    flushTimer = setTimeout(() => {
-      flushTimer = null;
-      flushBufferedLinesAsync();
-    }, flushIntervalMs);
-    if (typeof flushTimer.unref === "function") {
-      flushTimer.unref();
-    }
-  };
-
-  if (bufferedFileLogging) {
-    const flushOnExit = () => {
-      flushBufferedLinesSync();
-    };
-    process.once("beforeExit", flushOnExit);
-    process.once("exit", flushOnExit);
+  const writeToConsole = options.writeToConsole ?? true;
+  if (filePath) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
   }
 
   const writeLine = (targetLevel: LogLevel, message: string): void => {
@@ -115,32 +38,23 @@ export function createLogger(
 
     const line = formatLine(targetLevel, message, tag);
 
-    if (targetLevel === "warn") {
-      console.warn(line);
-    } else if (targetLevel === "error") {
-      console.error(line);
-    } else {
-      console.log(line);
-    }
-
-    if (!appLogPath) {
-      return;
-    }
-
-    if (bufferedFileLogging) {
-      bufferedLines += `${line}\n`;
-      // Flush quickly when the buffer grows large to cap memory usage.
-      if (bufferedLines.length >= 64 * 1024) {
-        flushBufferedLinesAsync();
+    if (writeToConsole) {
+      if (targetLevel === "warn") {
+        console.warn(line);
+      } else if (targetLevel === "error") {
+        console.error(line);
       } else {
-        scheduleFlush();
+        console.log(line);
       }
+    }
+
+    if (!filePath) {
       return;
     }
 
     try {
       appendTextWithTailRetentionSync({
-        filePath: appLogPath,
+        filePath,
         text: `${line}\n`,
         maxLines
       });

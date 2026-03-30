@@ -531,4 +531,57 @@ describe("subagents.jsonl audit log", () => {
     expect(entries).toHaveLength(2);
     expect(entries.map((entry) => entry.action)).toEqual(["inspect", "cancel"]);
   });
+
+  it("reports subagent log write failures through the warning reporter once", async () => {
+    const warningReporter = vi.fn();
+    const sink = createSubagentLogSink({
+      enabled: true,
+      logPath: path.join("/dev/null", "subagents.jsonl"),
+      warningReporter
+    });
+
+    await expect(
+      sink.record({
+        entry_type: "supervisor_tool_call",
+        timestamp: new Date().toISOString(),
+        owner_id: "owner-1",
+        task_id: null,
+        tool: "subagents",
+        action: "spawn",
+        normalized_request: { action: "spawn" },
+        success: false,
+        response: null,
+        error: { code: "WRITE_FAILED", message: "write failed", retryable: false },
+        error_code: "WRITE_FAILED",
+        started_at: new Date().toISOString(),
+        finished_at: new Date().toISOString(),
+        trace: createTraceRootContext("tool")
+      })
+    ).resolves.toBeUndefined();
+
+    await expect(
+      sink.record({
+        entry_type: "supervisor_tool_call",
+        timestamp: new Date().toISOString(),
+        owner_id: "owner-1",
+        task_id: null,
+        tool: "subagents",
+        action: "cancel",
+        normalized_request: { action: "cancel" },
+        success: false,
+        response: null,
+        error: { code: "WRITE_FAILED", message: "write failed", retryable: false },
+        error_code: "WRITE_FAILED",
+        started_at: new Date().toISOString(),
+        finished_at: new Date().toISOString(),
+        trace: createTraceRootContext("tool")
+      })
+    ).resolves.toBeUndefined();
+
+    expect(warningReporter).toHaveBeenCalledTimes(1);
+    const warningText = String(warningReporter.mock.calls[0]?.[0] ?? "");
+    expect(warningText).toContain("subagent-log: failed to append entry");
+    expect(warningText).toContain("/dev/null/subagents.jsonl");
+    expect(warningText).toContain("EEXIST");
+  });
 });

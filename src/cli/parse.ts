@@ -42,6 +42,14 @@ export function parseCliCommand(argv: string[]): CliParseResult {
         ok: true,
         command: { name: "help" }
       };
+    case "version":
+      if (rest.length > 0) {
+        return { ok: false, error: `Unexpected argument: ${rest[0]}` };
+      }
+      return {
+        ok: true,
+        command: { name: "version" }
+      };
     case "status":
       if (rest.length > 0) {
         return { ok: false, error: `Unexpected argument: ${rest[0]}` };

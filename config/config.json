@@ -60,7 +60,6 @@
     "tool_cleanup_grace_ms": 3000,
     "tool_failure_breaker_threshold": 5,
     "session_cache_max_entries": 10,
-    "app_log_flush_interval_ms": 250,
     "message_queue_mode": "batch"
   },
   "tools": {
@@ -85,8 +84,7 @@
   },
   "paths": {
     "workspace_root": "~/.agent-commander",
-    "conversations_dir": ".agent-commander/main/conversations",
-    "app_log_path": ".agent-commander/app.log"
+    "conversations_dir": ".agent-commander/main/conversations"
   },
   "retention": {
     "archived_conversations_max_count": 10,
@@ -94,7 +92,7 @@
       "tool_calls_max_lines": 1000,
       "subagents_max_lines": 1000,
       "observability_max_lines": 10000,
-      "app_max_lines": 1000
+      "runtime_max_lines": 1000
     }
   },
   "observability": {

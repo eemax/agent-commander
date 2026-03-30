@@ -135,8 +135,7 @@ export function deepMerge(base: unknown, overlay: unknown, depth: number = 0): u
 
 const DEFAULT_PATH_SEGMENTS = {
   workspace_root: ".agent-commander",
-  conversations_dir: ".agent-commander/conversations",
-  app_log_path: ".agent-commander/app.log"
+  conversations_dir: ".agent-commander/conversations"
 } as const;
 
 const DEFAULT_TOOL_LOG_SEGMENT = ".agent-commander/tool-calls.jsonl";

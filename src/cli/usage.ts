@@ -1,8 +1,10 @@
 export function renderUsage(): string {
   return [
+    "acmd — agent-commander lifecycle manager",
+    "",
     "Usage:",
-    "  acmd",
     "  acmd help",
+    "  acmd version",
     "  acmd status",
     "  acmd start [--rebuild]",
     "  acmd stop",

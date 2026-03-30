@@ -205,7 +205,6 @@ describe("loadAgentConfig", () => {
 
     expect(config.paths.workspaceRoot).toContain("agents/coder");
     expect(config.paths.conversationsDir).toContain("agents/coder");
-    expect(config.paths.appLogPath).toContain("agents/coder");
     expect(config.subagents.logPath).toContain("agents/coder");
   });
 

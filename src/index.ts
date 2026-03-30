@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runtimeLogPath } from "./cli/control-store.js";
 import { runCli } from "./cli/index.js";
+import { createLogger } from "./logger.js";
 
 function resolveRepoRoot(): string {
   const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
@@ -21,6 +23,13 @@ async function main(): Promise<void> {
 
 void main().catch((error) => {
   const message = error instanceof Error ? error.stack ?? error.message : String(error);
-  console.error(`${new Date().toISOString()} [ERROR] fatal: ${message}`);
+  if (process.argv.slice(2)[0] === "__runtime") {
+    createLogger("error", {
+      filePath: runtimeLogPath(resolveRepoRoot()),
+      writeToConsole: false
+    }).error(`fatal: ${message}`);
+  } else {
+    console.error(`${new Date().toISOString()} [ERROR] fatal: ${message}`);
+  }
   process.exit(1);
 });

@@ -1,6 +1,5 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLogger } from "../src/logger.js";
 import { createTempDir } from "./helpers.js";
@@ -18,15 +17,15 @@ describe("createLogger", () => {
     expect(typeof logger.error).toBe("function");
   });
 
-  it("writes readable text log lines to app.log", () => {
+  it("writes readable text log lines when a file sink is configured", () => {
     const root = createTempDir("acmd-logger-");
-    const appLogPath = path.join(root, "app.log");
-    const logger = createLogger("debug", { appLogPath });
+    const logPath = path.join(root, "runtime.log");
+    const logger = createLogger("debug", { filePath: logPath });
 
     logger.info("hello");
     logger.warn("careful");
 
-    const raw = fs.readFileSync(appLogPath, "utf8");
+    const raw = fs.readFileSync(logPath, "utf8");
     const lines = raw
       .trim()
       .split("\n")
@@ -55,29 +54,48 @@ describe("createLogger", () => {
     expect(errorSpy.mock.calls[0]?.[0]).toContain("[ERROR] show-error");
   });
 
-  it("buffers app log writes when flushIntervalMs is configured", async () => {
+  it("does not create a log file when no file sink is configured", () => {
     const root = createTempDir("acmd-logger-");
-    const appLogPath = path.join(root, "app.log");
-    const logger = createLogger("debug", { appLogPath, flushIntervalMs: 5 });
+    const logPath = path.join(root, "runtime.log");
+    const logger = createLogger("debug");
 
-    logger.info("buffered");
-    expect(fs.existsSync(appLogPath)).toBe(false);
-    await sleep(20);
-
-    const raw = fs.readFileSync(appLogPath, "utf8");
-    expect(raw).toContain("[INFO] buffered");
+    logger.info("terminal-only");
+    expect(fs.existsSync(logPath)).toBe(false);
   });
 
-  it("keeps only the newest app log lines when maxLines is configured", () => {
+  it("suppresses console output when writeToConsole is false", () => {
+    const root = createTempDir("acmd-logger-noconsole-");
+    const logPath = path.join(root, "runtime.log");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logger = createLogger("debug", { filePath: logPath, writeToConsole: false });
+
+    logger.info("file-only");
+    logger.warn("file-only-warn");
+    logger.error("file-only-error");
+
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+
+    const lines = fs.readFileSync(logPath, "utf8").trim().split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toContain("[INFO] file-only");
+    expect(lines[1]).toContain("[WARN] file-only-warn");
+    expect(lines[2]).toContain("[ERROR] file-only-error");
+  });
+
+  it("keeps only the newest log lines when maxLines is configured", () => {
     const root = createTempDir("acmd-logger-cap-");
-    const appLogPath = path.join(root, "app.log");
-    const logger = createLogger("debug", { appLogPath, maxLines: 2 });
+    const logPath = path.join(root, "runtime.log");
+    const logger = createLogger("debug", { filePath: logPath, maxLines: 2 });
 
     logger.info("first");
     logger.info("second");
     logger.info("third");
 
-    const lines = fs.readFileSync(appLogPath, "utf8").trim().split("\n");
+    const lines = fs.readFileSync(logPath, "utf8").trim().split("\n");
     expect(lines).toHaveLength(2);
     expect(lines[0]).toContain("[INFO] second");
     expect(lines[1]).toContain("[INFO] third");

@@ -134,12 +134,11 @@ describe("loadConfig", () => {
     expect(config.tools.webSearch.defaultPreset).toBe("pro-search");
     expect(config.tools.webSearch.presets.map((m) => m.id)).toContain("pro-search");
     expect(config.paths.conversationsDir).toBe(path.join(root, ".agent-commander", "conversations"));
-    expect(config.paths.appLogPath).toBe(path.join(root, ".agent-commander", "app.log"));
     expect(config.retention.archivedConversationsMaxCount).toBeNull();
     expect(config.retention.logs.toolCallsMaxLines).toBeNull();
     expect(config.retention.logs.subagentsMaxLines).toBeNull();
     expect(config.retention.logs.observabilityMaxLines).toBeNull();
-    expect(config.retention.logs.appMaxLines).toBeNull();
+    expect(config.retention.logs.runtimeMaxLines).toBeNull();
   });
 
   it("rejects removed verbose and draft-preview config keys", () => {
@@ -187,6 +186,51 @@ describe("loadConfig", () => {
     expect(config.tools.webSearch.apiKey).toBeNull();
     expect(config.tools.webSearch.defaultPreset).toBe("deep-research");
     expect(config.tools.webSearch.presets).toHaveLength(2);
+  });
+
+  it("rejects removed app log config keys", () => {
+    const root = createTempDir("acmd-config-removed-app-log-");
+    writeConfig(root, {
+      ...minimalPayload(),
+      runtime: {
+        app_log_flush_interval_ms: 1000
+      },
+      paths: {
+        app_log_path: ".agent-commander/app.log"
+      },
+      retention: {
+        logs: {
+          app_max_lines: 100
+        }
+      }
+    });
+
+    withDefaultSecrets(
+      {
+        DEFAULT_TELEGRAM_BOT_TOKEN: "tg-default",
+        DEFAULT_OPENAI_API_KEY: "oa-default"
+      },
+      () => {
+        expect(() => loadConfig(root)).toThrow(
+          "config.runtime: Unrecognized key(s) in object: 'app_log_flush_interval_ms'"
+        );
+      }
+    );
+  });
+
+  it("loads runtime log retention overrides", () => {
+    const root = createTempDir("acmd-config-runtime-log-retention-");
+    writeConfig(root, {
+      ...minimalPayload(),
+      retention: {
+        logs: {
+          runtime_max_lines: 321
+        }
+      }
+    });
+
+    const config = loadConfigWithRequiredDefaults(root);
+    expect(config.retention.logs.runtimeMaxLines).toBe(321);
   });
 
   it("loads default credentials from .env defaults", () => {

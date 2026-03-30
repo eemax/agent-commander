@@ -178,6 +178,7 @@ export function createObservabilitySink(params: {
   logPath: string;
   maxLines?: number | null;
   redaction?: Partial<ObservabilityRedactionConfig>;
+  warningReporter?: (message: string) => void;
 }): ObservabilitySink {
   if (!params.enabled) {
     return createNoopObservabilitySink();
@@ -187,6 +188,7 @@ export function createObservabilitySink(params: {
   const redactionConfig = normalizeRedactionConfig(params.redaction);
   const redactKeySet = new Set(redactionConfig.redactKeys.map((key) => normalizeRedactionKey(key)));
   const maxLines = params.maxLines ?? null;
+  const reportWarning = params.warningReporter ?? ((message: string) => console.warn(message));
   let hasReportedWriteFailure = false;
   let ensureDirectoryPromise: Promise<void> | null = null;
   let queue: Promise<void> = Promise.resolve();
@@ -230,7 +232,7 @@ export function createObservabilitySink(params: {
 
             hasReportedWriteFailure = true;
             const message = error instanceof Error ? error.message : String(error);
-            console.warn(
+            reportWarning(
               `${new Date().toISOString()} [WARN] observability: failed to append event to ${resolvedPath}: ${message}`
             );
           }
@@ -250,7 +252,7 @@ export function createObservabilitySink(params: {
 
             hasReportedWriteFailure = true;
             const message = error instanceof Error ? error.message : String(error);
-            console.warn(
+            reportWarning(
               `${new Date().toISOString()} [WARN] observability: failed to append event to ${resolvedPath}: ${message}`
             );
           }

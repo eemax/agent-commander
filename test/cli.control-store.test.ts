@@ -1,5 +1,7 @@
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  cliStatePath,
   createDefaultRuntimeControlState,
   readRuntimeControlState,
   reconcileRuntimeControlState,
@@ -9,7 +11,7 @@ import {
 import { createTempDir } from "./helpers.js";
 
 describe("cli control store", () => {
-  it("returns a default stopped state when runtime.json is missing", async () => {
+  it("returns a default stopped state when cli.json is missing", async () => {
     const root = createTempDir("acmd-cli-state-default-");
     const state = await readRuntimeControlState(root);
 
@@ -31,6 +33,7 @@ describe("cli control store", () => {
 
     const loaded = await readRuntimeControlState(root);
     expect(loaded).toEqual(written);
+    expect(cliStatePath(root)).toContain(path.join(".agent-commander", "cli.json"));
   });
 
   it("reconciles stale active state when pid is missing", async () => {

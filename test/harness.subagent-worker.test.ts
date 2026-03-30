@@ -79,7 +79,6 @@ function makeConfig(): Config {
       toolCleanupGraceMs: 5_000,
       toolFailureBreakerThreshold: 3,
       sessionCacheMaxEntries: 10,
-      appLogFlushIntervalMs: 5_000,
       messageQueueMode: "batch"
     },
     access: {
@@ -103,8 +102,7 @@ function makeConfig(): Config {
     },
     paths: {
       workspaceRoot: "/tmp",
-      conversationsDir: "/tmp/conversations",
-      appLogPath: "/tmp/app.log"
+      conversationsDir: "/tmp/conversations"
     },
     retention: {
       archivedConversationsMaxCount: null,
@@ -112,7 +110,7 @@ function makeConfig(): Config {
         toolCallsMaxLines: null,
         subagentsMaxLines: null,
         observabilityMaxLines: null,
-        appMaxLines: null
+        runtimeMaxLines: null
       }
     },
     observability: {

@@ -249,7 +249,7 @@ Both transports return `{ payload: OpenAIResponsesResponse; attempt: number }`. 
 - Missing/invalid config fails startup.
 - Unknown top-level/section config keys fail startup (strict schema).
 - Invalid skill frontmatter or slug collisions fail startup.
-- Provider failures return safe reason-aware fallback text, persist failure events, and emit structured provider diagnostics to `app.log`.
+- Provider failures return safe reason-aware fallback text, persist failure events, and emit structured provider diagnostics to detached `runtime.log` or foreground stderr.
 - Telegram middleware errors are logged and return safe internal-error reply.
 - Runtime state is JSONL-only; no SQLite cleanup path is part of startup.
 
@@ -257,6 +257,6 @@ Both transports return `{ payload: OpenAIResponsesResponse; attempt: number }`. 
 
 - Runtime is foreground-only; no daemon/service manager.
 - Sender allowlist is mandatory.
-- Logs go to stdout/stderr and repo-local app log file (human-readable single-line text).
+- Logs go to stdout/stderr, plus detached runtime logging mirrors to repo-local `runtime.log`.
 - Observability JSONL is trace/span-first (`traceId`, `spanId`, `parentSpanId`, `origin`) and records Telegram I/O, routing decisions, state mutations, OpenAI request lifecycle, and tool execution lifecycle.
 - No plugin loading path.

@@ -31,6 +31,7 @@ export function createToolHarness(
     observability?: ObservabilitySink;
     subagentLog?: SubagentLogSink;
     subagentLogRedaction?: Partial<ObservabilityRedactionConfig>;
+    subagentLogWarningReporter?: (message: string) => void;
     createWebSearchClient?: WebSearchClientFactory;
     resolveDefaultCwd?: (ownerId: string | null) => Promise<string>;
     resolveWebSearchModel?: (ownerId: string | null) => Promise<string>;
@@ -68,7 +69,8 @@ export function createToolHarness(
         enabled: true,
         logPath: subagentConfig.logPath,
         maxLines: subagentConfig.logMaxLines,
-        redaction: deps.subagentLogRedaction
+        redaction: deps.subagentLogRedaction,
+        warningReporter: deps.subagentLogWarningReporter
       }))
     : undefined;
   const subagentManager = subagentConfig?.enabled === true

@@ -81,7 +81,6 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       toolCleanupGraceMs: 3_000,
       toolFailureBreakerThreshold: 4,
       sessionCacheMaxEntries: 200,
-      appLogFlushIntervalMs: 1_000,
       messageQueueMode: "batch" as const
     },
     access: {
@@ -111,8 +110,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
     },
     paths: {
       workspaceRoot: path.join(root, "workspace"),
-      conversationsDir: path.join(root, ".agent-commander", "conversations"),
-      appLogPath: path.join(root, ".agent-commander", "app.log")
+      conversationsDir: path.join(root, ".agent-commander", "conversations")
     },
     retention: {
       archivedConversationsMaxCount: null,
@@ -120,7 +118,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
         toolCallsMaxLines: null,
         subagentsMaxLines: null,
         observabilityMaxLines: null,
-        appMaxLines: null
+        runtimeMaxLines: null
       }
     },
     observability: {
