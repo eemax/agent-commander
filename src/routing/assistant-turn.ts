@@ -106,8 +106,8 @@ export function createAssistantTurnHandler(params: {
           transcript.setToolSummary(notice.text);
           transcript.setToolExecutionActive(false);
           break;
-        case "latest_success":
-          transcript.setLatestSuccessfulToolNotice(notice.text);
+        case "latest_tool_notice":
+          transcript.setLatestToolNotice(notice.text);
           transcript.setToolExecutionActive(false);
           break;
         case "persistent":
@@ -202,11 +202,7 @@ export function createAssistantTurnHandler(params: {
             await emitToolNotice({ kind: "summary", text: buffer });
           }
 
-          if (event.success) {
-            await emitToolNotice({ kind: "latest_success", text: notice });
-          } else {
-            await emitToolNotice({ kind: "persistent", text: notice });
-          }
+          await emitToolNotice({ kind: "latest_tool_notice", text: notice });
         },
         onToolProgress: async (event) => {
           if (event.type === "steer") {

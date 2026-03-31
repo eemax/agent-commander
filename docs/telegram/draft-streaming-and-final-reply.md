@@ -245,7 +245,7 @@ Example:
 
 This becomes a `tool_notice` transcript entry.
 
-Raw non-empty string notices are normalized into this persistent case by default. That conservative fallback means transport-level heuristics cannot accidentally downgrade a notice into draft-only behavior. Draft-only latest-success rendering happens only when the caller explicitly sends a structured `{ kind: "latest_success", text }` event.
+Raw non-empty string notices are normalized into this persistent case by default. That conservative fallback means transport-level heuristics cannot accidentally downgrade a notice into draft-only behavior. Draft-only latest-tool-notice rendering happens only when the caller explicitly sends a structured `{ kind: "latest_tool_notice", text }` event.
 
 ### Case B: cumulative summary update
 
@@ -264,15 +264,15 @@ then later:
 
 This summary is stored separately from chronological notices so the draft can keep one running count block while the final reply includes only the cumulative summary.
 
-### Case C: latest successful tool notice
+### Case C: latest tool notice
 
-Successful tool calls also refresh a draft-only "latest successful tool notice" block such as:
+Structured tool-call notices refresh a draft-only "latest tool notice" block such as:
 
 ```text
 📖 Read: `foo.ts`
 ```
 
-Only the newest successful tool notice stays visible in full inside the draft bubble; it does not get copied into the permanent final reply.
+Only the newest tool notice stays visible in full inside the draft bubble; it does not get copied into the permanent final reply.
 
 ### Case D: empty notice
 
@@ -432,8 +432,8 @@ Current shape:
 ```text
 status section:
   cumulative successful-tool count summary
-  latest successful tool notice in full
-  chronological steer/failure notices
+  latest tool notice in full
+  chronological persistent steer notices
 
 assistant section:
   Assistant: <n> chars
@@ -744,7 +744,7 @@ These are the rules future changes should preserve unless there is an explicit p
 - The draft bubble is a small, compact status surface, not a permanent log.
 - Bubble resets should be explicit: overflow becomes a spinner-only `◐` frame.
 - The next visible page starts with the overflow-triggering content instead of dropping it.
-- The cumulative summary and latest successful tool notice remain pinned when they still fit on the current page.
+- The cumulative summary and latest tool notice remain pinned when they still fit on the current page.
 
 ## 16. Known conceptual pain points
 

@@ -105,7 +105,7 @@ export type Provider = {
 export type ToolCallNoticeEvent =
   | { kind: "activity" }
   | { kind: "summary"; text: string }
-  | { kind: "latest_success"; text: string }
+  | { kind: "latest_tool_notice"; text: string }
   | { kind: "persistent"; text: string };
 
 export type MessageStreamingSink = {

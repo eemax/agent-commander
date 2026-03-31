@@ -1180,7 +1180,7 @@ describe("createMessageRouter", () => {
     expect(result).toEqual({ type: "reply", text: "assistant-reply", origin: "assistant" });
   });
 
-  it("keeps tool failure notices in fallback replies", async () => {
+  it("keeps tool failure summaries in fallback replies", async () => {
     const config = makeConfig();
     const workspace = createWorkspaceManager(config);
     await workspace.bootstrap();
@@ -1223,7 +1223,6 @@ describe("createMessageRouter", () => {
       expect(result.text).toBe(
         [
           "📖 Read ×1 · 1 failed",
-          "⚠️ Read failed: `missing.txt` - File not found",
           "",
           "Temporary provider error. Please try again."
         ].join("\n")
@@ -1438,9 +1437,7 @@ describe("createMessageRouter", () => {
     const reply = await router.handleIncomingMessage(sampleIncoming({ text: "hello", messageId: "msg-2" }));
     expect(reply.type).toBe("reply");
     if (reply.type === "reply") {
-      expect(reply.text).toContain("🐚 Bash ×1 · 1 failed");
-      expect(reply.text).toContain("⚠️ Bash failed: `grep missing` - Command exited with status 2");
-      expect(reply.text).toContain("assistant-reply");
+      expect(reply.text).toBe("🐚 Bash ×1 · 1 failed\n\nassistant-reply");
       expect(reply.origin).toBe("assistant");
     }
 

@@ -373,8 +373,8 @@ export async function dispatchTelegramTextMessage(params: {
             transcript.setToolSummary(normalizedNotice.text);
             draftDirtySinceLastTick = true;
             break;
-          case "latest_success":
-            transcript.setLatestSuccessfulToolNotice(normalizedNotice.text);
+          case "latest_tool_notice":
+            transcript.setLatestToolNotice(normalizedNotice.text);
             draftDirtySinceLastTick = true;
             break;
           case "persistent":

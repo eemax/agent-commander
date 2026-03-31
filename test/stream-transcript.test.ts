@@ -16,7 +16,7 @@ describe("StreamTranscript", () => {
       liveDraftText: "Hello world",
       totalAssistantChars: 11,
       toolSummary: null,
-      latestSuccessfulToolNotice: null,
+      latestToolNotice: null,
       toolExecutionActive: false
     });
   });
@@ -39,10 +39,10 @@ describe("StreamTranscript", () => {
     expect(t.renderFullTranscript()).toBe("📖 Read ×2 (120 chars)");
   });
 
-  it("keeps the latest successful tool notice draft-only", () => {
+  it("keeps the latest tool notice draft-only", () => {
     const t = new StreamTranscript();
     t.setToolSummary("📖 Read ×1 (50 chars)");
-    t.setLatestSuccessfulToolNotice("📖 Read: `foo.ts` (50 chars)");
+    t.setLatestToolNotice("📖 Read: `foo.ts` (50 chars)");
 
     expect(t.renderDraft()).toEqual(
       contentDraft("📖 Read ×1 (50 chars)\n📖 Read: `foo.ts` (50 chars)")
@@ -50,21 +50,20 @@ describe("StreamTranscript", () => {
     expect(t.renderFullTranscript()).toBe("📖 Read ×1 (50 chars)");
   });
 
-  it("renders summary, latest success, persistent notices, and assistant counter in order", () => {
+  it("renders the latest tool notice transiently while keeping persistent notes in order", () => {
     const t = new StreamTranscript();
     t.setToolSummary("📖 Read ×1 (50 chars)");
-    t.setLatestSuccessfulToolNotice("📖 Read: `foo.ts` (50 chars)");
+    t.setLatestToolNotice("📖 Read: `foo.ts` (50 chars)");
     t.appendSystemNote("🎯 Steer: focus on the parser");
-    t.appendToolNotice("⚠️ Read failed: `missing.ts` - not found");
+    t.setLatestToolNotice("⚠️ Read failed: `missing.ts` - not found");
     t.appendTextDelta("Hello");
 
     expect(t.renderDraft()).toEqual(
       contentDraft(
         [
           "📖 Read ×1 (50 chars)",
-          "📖 Read: `foo.ts` (50 chars)",
-          "🎯 Steer: focus on the parser",
           "⚠️ Read failed: `missing.ts` - not found",
+          "🎯 Steer: focus on the parser",
           "",
           "Assistant: 5 chars"
         ].join("\n")
@@ -94,7 +93,7 @@ describe("StreamTranscript", () => {
   it("carries the overflow-triggering notice to the next page before allowing later resets", () => {
     const t = new StreamTranscript();
     t.setToolSummary("📖 Read ×1");
-    t.setLatestSuccessfulToolNotice("📖 Read: `foo.ts`");
+    t.setLatestToolNotice("📖 Read: `foo.ts`");
     t.appendToolNotice("A".repeat(25));
     t.appendToolNotice("B".repeat(25));
     t.appendToolNotice("C".repeat(25));
@@ -113,7 +112,7 @@ describe("StreamTranscript", () => {
   it("advances past an oversized first pageable notice after showing its carried page", () => {
     const t = new StreamTranscript();
     t.setToolSummary("SUMMARY");
-    t.setLatestSuccessfulToolNotice("SUCCESS");
+    t.setLatestToolNotice("SUCCESS");
     t.appendToolNotice("X".repeat(100));
     t.appendToolNotice("NEXT");
 
@@ -124,12 +123,11 @@ describe("StreamTranscript", () => {
     expect(t.renderDraft(40)).toEqual(contentDraft(["SUMMARY", "SUCCESS", "NEXT"].join("\n")));
   });
 
-  it("builds final replies from summary, persistent notices, and text blocks without the latest success notice", () => {
+  it("builds final replies without the latest tool notice", () => {
     const t = new StreamTranscript();
     t.setToolSummary("📖 Read ×1 (50 chars)");
-    t.setLatestSuccessfulToolNotice("📖 Read: `foo.ts` (50 chars)");
+    t.setLatestToolNotice("⚠️ Read failed: `missing.ts` - not found");
     t.appendSystemNote("🎯 Steer: focus on the parser");
-    t.appendToolNotice("⚠️ Read failed: `missing.ts` - not found");
     t.appendTextDelta("Final answer");
     t.commitLiveDraft();
 
@@ -137,7 +135,6 @@ describe("StreamTranscript", () => {
       [
         "📖 Read ×1 (50 chars)",
         "🎯 Steer: focus on the parser",
-        "⚠️ Read failed: `missing.ts` - not found",
         "Final answer"
       ].join("\n")
     );
@@ -146,12 +143,12 @@ describe("StreamTranscript", () => {
   it("appends the clean reply text when the transcript does not already end with it", () => {
     const t = new StreamTranscript();
     t.setToolSummary("📖 Read ×1 (50 chars)");
-    t.appendToolNotice("⚠️ Read failed: `missing.ts` - not found");
+    t.appendSystemNote("🎯 Steer: focus on the parser");
 
     expect(t.buildFinalReplyText("Fallback answer")).toBe(
       [
         "📖 Read ×1 (50 chars)",
-        "⚠️ Read failed: `missing.ts` - not found",
+        "🎯 Steer: focus on the parser",
         "",
         "Fallback answer"
       ].join("\n")

@@ -432,9 +432,9 @@ On the text-message dispatch path, `reply` and `fallback` share the same final-t
 Important current behavior:
 
 - the draft bubble is a compact status surface, not a verbatim stream of the full assistant text buffer
-- successful-tool activity contributes both a cumulative summary and the latest successful tool call in full inside the draft bubble
+- structured tool-call activity contributes both a cumulative summary and the latest tool notice in full inside the draft bubble
 - assistant text in the draft bubble is reduced to a whole-turn character counter that updates on throttled ticks
-- raw non-empty string tool notices are normalized conservatively as persistent transcript entries; draft-only latest-success behavior requires an explicit structured event
+- raw non-empty string tool notices are normalized conservatively as persistent transcript entries; draft-only latest-tool-notice behavior requires an explicit structured event
 - `telegram.draft_bubble_max_chars` remains the outer reset cap for the whole bubble
 - draft resets are now a safety valve for unusually long tool/status runs; when reset happens, the overflowing content seeds the next page instead of being dropped
 - formatting happens before chunking, so the splitter sees the final rendered text

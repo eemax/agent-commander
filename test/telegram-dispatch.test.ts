@@ -14,7 +14,7 @@ describe("dispatchTelegramTextMessage", () => {
     text: "hello",
     receivedAt: new Date().toISOString()
   };
-  const latestSuccessNotice = (text: string) => ({ kind: "latest_success", text }) as const;
+  const latestToolNotice = (text: string) => ({ kind: "latest_tool_notice", text }) as const;
 
   it("routes one inbound message to one outbound reply", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
@@ -311,7 +311,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(outboundEntries.map((entry) => entry.isExtra)).toEqual([true, true, false]);
   });
 
-  it("keeps only the latest successful tool notice in the draft bubble", async () => {
+  it("keeps only the latest tool notice in the draft bubble", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -319,9 +319,9 @@ describe("dispatchTelegramTextMessage", () => {
     await dispatchTelegramTextMessage({
       message: baseMessage,
       handleMessage: async (_message, stream) => {
-        await stream?.onToolCallNotice?.(latestSuccessNotice("📖 Read: `foo.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `foo.ts`"));
         clock = 120;
-        await stream?.onToolCallNotice?.(latestSuccessNotice("✍️ Write: `bar.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("✍️ Write: `bar.ts`"));
         clock = 240;
         return { type: "reply", text: "done" };
       },
@@ -341,6 +341,36 @@ describe("dispatchTelegramTextMessage", () => {
     });
   });
 
+  it("replaces the latest tool notice across failure and success transitions", async () => {
+    const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
+    const sendDraft = vi.fn(async (_text: string) => {});
+    let clock = 0;
+
+    await dispatchTelegramTextMessage({
+      message: baseMessage,
+      handleMessage: async (_message, stream) => {
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `foo.ts`"));
+        clock = 120;
+        await stream?.onToolCallNotice?.(latestToolNotice("⚠️ Read failed: `missing.ts` - not found"));
+        clock = 240;
+        await stream?.onToolCallNotice?.(latestToolNotice("✍️ Write: `bar.ts`"));
+        return { type: "reply", text: "done" };
+      },
+      sendReply,
+      sendDraft,
+      draftMinUpdateMs: 100,
+      nowMs: () => clock
+    });
+
+    expect(sendDraft.mock.calls.map((call) => call[0])).toEqual([
+      "◐",
+      "⚠️ Read failed: `missing.ts` - not found",
+      "✍️ Write: `bar.ts`"
+    ]);
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0]?.[0]).toBe("done");
+  });
+
   it("splits transcript and final reply when combined exceeds 4096", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
@@ -352,9 +382,9 @@ describe("dispatchTelegramTextMessage", () => {
     await dispatchTelegramTextMessage({
       message: baseMessage,
       handleMessage: async (_message, stream) => {
-        await stream?.onToolCallNotice?.(latestSuccessNotice(longNotice));
+        await stream?.onToolCallNotice?.(latestToolNotice(longNotice));
         clock = 120;
-        await stream?.onToolCallNotice?.(latestSuccessNotice(shortNotice));
+        await stream?.onToolCallNotice?.(latestToolNotice(shortNotice));
         clock = 240;
         return { type: "reply", text: "done" };
       },
@@ -369,7 +399,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply.mock.calls[0]?.[0]).toBe("done");
   });
 
-  it("renders the latest successful tool notice with the assistant char counter", async () => {
+  it("renders the latest tool notice with the assistant char counter", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -377,7 +407,7 @@ describe("dispatchTelegramTextMessage", () => {
     await dispatchTelegramTextMessage({
       message: baseMessage,
       handleMessage: async (_message, stream) => {
-        await stream?.onToolCallNotice?.(latestSuccessNotice("📖 Read: `foo.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `foo.ts`"));
         clock = 120;
         await stream?.onTextDelta?.("Reply ");
         clock = 240;
@@ -431,9 +461,9 @@ describe("dispatchTelegramTextMessage", () => {
     await dispatchTelegramTextMessage({
       message: baseMessage,
       handleMessage: async (_message, stream) => {
-        await stream?.onToolCallNotice?.(latestSuccessNotice("📖 Read: `foo.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `foo.ts`"));
         clock = 120;
-        await stream?.onToolCallNotice?.(latestSuccessNotice("✍️ Write: `bar.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("✍️ Write: `bar.ts`"));
         return { type: "reply", text: "done" };
       },
       sendReply,
@@ -459,11 +489,11 @@ describe("dispatchTelegramTextMessage", () => {
     await dispatchTelegramTextMessage({
       message: baseMessage,
       handleMessage: async (_message, stream) => {
-        await stream?.onToolCallNotice?.(latestSuccessNotice("📖 Read: `foo.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `foo.ts`"));
         clock = 120;
         await stream?.onTextDelta?.("Reply");
         clock = 240;
-        await stream?.onToolCallNotice?.(latestSuccessNotice("✍️ Write: `bar.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("✍️ Write: `bar.ts`"));
         return { type: "reply", text: "Reply" };
       },
       sendReply,
@@ -489,7 +519,7 @@ describe("dispatchTelegramTextMessage", () => {
         await stream?.onToolCallNotice?.("");
         clock = 120;
         // Tool completes, verbose notice arrives
-        await stream?.onToolCallNotice?.(latestSuccessNotice("📖 Read: `foo.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `foo.ts`"));
         clock = 240;
         return { type: "reply", text: "done" };
       },
@@ -577,7 +607,7 @@ describe("dispatchTelegramTextMessage", () => {
     await dispatchTelegramTextMessage({
       message: baseMessage,
       handleMessage: async (_message, stream) => {
-        await stream?.onToolCallNotice?.(latestSuccessNotice("📖 Read: `foo.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `foo.ts`"));
         clock = 120;
         return { type: "ignore" };
       },
@@ -600,7 +630,7 @@ describe("dispatchTelegramTextMessage", () => {
     await dispatchTelegramTextMessage({
       message: baseMessage,
       handleMessage: async (_message, stream) => {
-        await stream?.onToolCallNotice?.(latestSuccessNotice(hugeNotice));
+        await stream?.onToolCallNotice?.(latestToolNotice(hugeNotice));
         return { type: "reply", text: "done" };
       },
       sendReply,
@@ -626,7 +656,7 @@ describe("dispatchTelegramTextMessage", () => {
       handleMessage: async (_message, stream) => {
         await stream?.onTextDelta?.("Part 1");
         clock = 120;
-        await stream?.onToolCallNotice?.(latestSuccessNotice("📖 Read: `foo.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `foo.ts`"));
         clock = 240;
         await stream?.onTextDelta?.("Part 2");
         return { type: "reply", text: "Part 2" };
@@ -650,11 +680,11 @@ describe("dispatchTelegramTextMessage", () => {
     await dispatchTelegramTextMessage({
       message: baseMessage,
       handleMessage: async (_message, stream) => {
-        await stream?.onToolCallNotice?.(latestSuccessNotice("🔍 Search"));
+        await stream?.onToolCallNotice?.(latestToolNotice("🔍 Search"));
         clock = 120;
         await stream?.onTextDelta?.("Found it. ");
         clock = 240;
-        await stream?.onToolCallNotice?.(latestSuccessNotice("📖 Read: `result.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `result.ts`"));
         clock = 360;
         await stream?.onTextDelta?.("Here are the results.");
         return { type: "reply", text: "Here are the results." };
@@ -765,7 +795,7 @@ describe("dispatchTelegramTextMessage", () => {
       handleMessage: async (_message, stream) => {
         await stream?.onTextDelta?.("Draft answer");
         clock = 120;
-        await stream?.onToolCallNotice?.(latestSuccessNotice("📖 Read: `foo.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `foo.ts`"));
         clock = 240;
         return { type: "fallback", text: "Provider error. Please try again." };
       },
@@ -790,7 +820,7 @@ describe("dispatchTelegramTextMessage", () => {
       handleMessage: async (_message, stream) => {
         await stream?.onTextDelta?.("Draft answer");
         clock = 120;
-        await stream?.onToolCallNotice?.(latestSuccessNotice("📖 Read: `foo.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `foo.ts`"));
         clock = 240;
         return { type: "ignore" };
       },
@@ -838,7 +868,7 @@ describe("dispatchTelegramTextMessage", () => {
       handleMessage: async (_message, stream) => {
         await stream?.onTextDelta?.("Same text");
         clock = 120;
-        await stream?.onToolCallNotice?.(latestSuccessNotice("📖 Read: `foo.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `foo.ts`"));
         clock = 240;
         return { type: "reply", text: "Same text" };
       },
@@ -866,7 +896,7 @@ describe("dispatchTelegramTextMessage", () => {
         // extraReplies is NOT populated when onTextDelta is available)
         await stream?.onTextDelta?.(`${bannerText}\n`);
         clock = 120;
-        await stream?.onToolCallNotice?.(latestSuccessNotice("📖 Read: `foo.ts`"));
+        await stream?.onToolCallNotice?.(latestToolNotice("📖 Read: `foo.ts`"));
         clock = 240;
         await stream?.onTextDelta?.("Final answer");
         return {
@@ -1137,7 +1167,7 @@ describe("dispatchTelegramTextMessage", () => {
     expect(sendReply.mock.calls[0]?.[0]).toBe(longText);
   });
 
-  it("replaces the latest successful tool notice without paging it into the final reply", async () => {
+  it("replaces the latest tool notice without paging it into the final reply", async () => {
     const sendReply = vi.fn(async (_text: string, _meta: unknown) => {});
     const sendDraft = vi.fn(async (_text: string) => {});
     let clock = 0;
@@ -1150,13 +1180,13 @@ describe("dispatchTelegramTextMessage", () => {
     await dispatchTelegramTextMessage({
       message: baseMessage,
       handleMessage: async (_message, stream) => {
-        await stream?.onToolCallNotice?.(latestSuccessNotice(firstNotice));
+        await stream?.onToolCallNotice?.(latestToolNotice(firstNotice));
         clock = 200;
-        await stream?.onToolCallNotice?.(latestSuccessNotice(secondNotice));
+        await stream?.onToolCallNotice?.(latestToolNotice(secondNotice));
         clock = 400;
-        await stream?.onToolCallNotice?.(latestSuccessNotice(overflowNotice));
+        await stream?.onToolCallNotice?.(latestToolNotice(overflowNotice));
         clock = 600;
-        await stream?.onToolCallNotice?.(latestSuccessNotice(afterResetNotice));
+        await stream?.onToolCallNotice?.(latestToolNotice(afterResetNotice));
         clock = 800;
         return {
           type: "reply",
@@ -1190,11 +1220,11 @@ describe("dispatchTelegramTextMessage", () => {
       await dispatchTelegramTextMessage({
         message: baseMessage,
         handleMessage: async (_message, stream) => {
-          await stream?.onToolCallNotice?.(latestSuccessNotice("A".repeat(20)));
+          await stream?.onToolCallNotice?.(latestToolNotice("A".repeat(20)));
           clock = 120;
-          await stream?.onToolCallNotice?.(latestSuccessNotice("B".repeat(20)));
+          await stream?.onToolCallNotice?.(latestToolNotice("B".repeat(20)));
           clock = 240;
-          await stream?.onToolCallNotice?.(latestSuccessNotice("C".repeat(20)));
+          await stream?.onToolCallNotice?.(latestToolNotice("C".repeat(20)));
           clock = 360;
           await vi.advanceTimersByTimeAsync(200);
           return { type: "reply", text: "done" };

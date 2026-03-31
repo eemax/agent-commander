@@ -10,7 +10,7 @@ export type TranscriptSnapshot = {
   liveDraftText: string;
   totalAssistantChars: number;
   toolSummary: string | null;
-  latestSuccessfulToolNotice: string | null;
+  latestToolNotice: string | null;
   toolExecutionActive: boolean;
 };
 
@@ -21,7 +21,7 @@ export type DraftRenderResult =
 
 type DraftRenderSource =
   | { kind: "summary" }
-  | { kind: "latest_success" }
+  | { kind: "latest_tool_notice" }
   | { kind: "entry"; entryIndex: number }
   | { kind: "assistant_counter" };
 
@@ -59,7 +59,7 @@ export class StreamTranscript {
   private draftCarryEntryIndex: number | null = null;
   private draftLastVisiblePageText: string | null = null;
   private toolSummary: string | null = null;
-  private latestSuccessfulToolNotice: string | null = null;
+  private latestToolNotice: string | null = null;
 
   appendTextDelta(delta: string): void {
     if (delta.length === 0) {
@@ -75,10 +75,10 @@ export class StreamTranscript {
     this.toolSummary = trimmed.length > 0 ? trimmed : null;
   }
 
-  setLatestSuccessfulToolNotice(notice: string): void {
+  setLatestToolNotice(notice: string): void {
     this.commitLiveDraft();
     const trimmed = notice.trim();
-    this.latestSuccessfulToolNotice = trimmed.length > 0 ? trimmed : null;
+    this.latestToolNotice = trimmed.length > 0 ? trimmed : null;
   }
 
   appendToolNotice(notice: string, _options?: { replace?: boolean }): void {
@@ -145,7 +145,7 @@ export class StreamTranscript {
       liveDraftText: this.liveDraftText,
       totalAssistantChars: this.totalAssistantChars,
       toolSummary: this.toolSummary,
-      latestSuccessfulToolNotice: this.latestSuccessfulToolNotice,
+      latestToolNotice: this.latestToolNotice,
       toolExecutionActive: this.toolExecutionActive
     };
   }
@@ -163,11 +163,11 @@ export class StreamTranscript {
       });
     }
 
-    if (this.latestSuccessfulToolNotice) {
+    if (this.latestToolNotice) {
       blocks.push({
         kind: "status",
-        text: this.latestSuccessfulToolNotice,
-        source: { kind: "latest_success" },
+        text: this.latestToolNotice,
+        source: { kind: "latest_tool_notice" },
         separatorBefore: blocks.length > 0 ? "\n" : "",
         pinned: true
       });
