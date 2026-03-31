@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderBasicTelegramHtml, renderMarkdownToTelegramHtml } from "../src/telegram/assistant-format.js";
 import { prepareTelegramReply } from "../src/telegram/bot.js";
-import { sendTelegramReplyChunks } from "../src/telegram/outbound.js";
+import { prepareTelegramDraft, sendTelegramReplyChunks } from "../src/telegram/outbound.js";
 
 describe("renderMarkdownToTelegramHtml", () => {
   it("renders common markdown formatting into Telegram-safe HTML", () => {
@@ -171,6 +171,13 @@ describe("prepareTelegramReply", () => {
     error: vi.fn()
   };
 
+  beforeEach(() => {
+    logger.debug.mockReset();
+    logger.info.mockReset();
+    logger.warn.mockReset();
+    logger.error.mockReset();
+  });
+
   it("formats only final assistant replies when markdown_to_html is enabled", () => {
     const formatted = prepareTelegramReply({
       text: "**done**",
@@ -308,6 +315,83 @@ describe("prepareTelegramReply", () => {
     });
 
     expect(result).toEqual({ text: "📖 Read: `foo.ts`" });
+  });
+});
+
+describe("prepareTelegramDraft", () => {
+  const logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn()
+  };
+
+  beforeEach(() => {
+    logger.debug.mockReset();
+    logger.info.mockReset();
+    logger.warn.mockReset();
+    logger.error.mockReset();
+  });
+
+  it("keeps draft text plain when plain_text formatting is enabled", () => {
+    const draft = prepareTelegramDraft({
+      text: "📖 Read: `foo.ts`\n\nAssistant: 4 chars",
+      assistantFormat: "plain_text",
+      chatId: "chat-1",
+      messageId: "msg-draft-1",
+      logger
+    });
+
+    expect(draft).toEqual({ text: "📖 Read: `foo.ts`\n\nAssistant: 4 chars" });
+  });
+
+  it("formats compact draft text as basic HTML without ZWSP breakers", () => {
+    const ZWSP = "\u200B";
+    const draft = prepareTelegramDraft({
+      text: "Use /start and edit `README.md`\n\nAssistant: **4** chars",
+      assistantFormat: "markdown_to_html",
+      chatId: "chat-1",
+      messageId: "msg-draft-2",
+      logger
+    });
+
+    expect(draft.parseMode).toBe("HTML");
+    expect(draft.text).toContain("/start");
+    expect(draft.text).toContain("<code>README.md</code>");
+    expect(draft.text).toContain("<strong>4</strong>");
+    expect(draft.text).not.toContain(ZWSP);
+  });
+
+  it("falls back to plain text when draft formatting fails", () => {
+    const draft = prepareTelegramDraft({
+      text: "**broken**",
+      assistantFormat: "markdown_to_html",
+      chatId: "chat-1",
+      messageId: "msg-draft-3",
+      logger,
+      markdownToHtml: () => {
+        throw new Error("format failure");
+      }
+    });
+
+    expect(draft).toEqual({ text: "**broken**" });
+    expect(logger.warn).toHaveBeenCalledWith(
+      "telegram: draft formatting failed for chat=chat-1 message=msg-draft-3: format failure"
+    );
+  });
+
+  it("falls back to plain text when formatted draft output exceeds Telegram limits", () => {
+    const draft = prepareTelegramDraft({
+      text: "compact draft",
+      assistantFormat: "markdown_to_html",
+      chatId: "chat-1",
+      messageId: "msg-draft-4",
+      logger,
+      markdownToHtml: () => "x".repeat(4097)
+    });
+
+    expect(draft).toEqual({ text: "compact draft" });
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });
 

@@ -18,6 +18,7 @@ import { createTelegramAttachmentResolver } from "./inbound-attachments.js";
 import { TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
 import { normalizeTelegramCallbackQuery, normalizeTelegramMessage } from "./normalize.js";
 import {
+  prepareTelegramDraft,
   prepareTelegramReply,
   sendTelegramReplyChunks,
   toTelegramInlineKeyboard,
@@ -26,7 +27,7 @@ import {
 import { dispatchTelegramTextMessage, type TelegramTextHandler } from "./text-dispatch.js";
 
 export { dispatchTelegramTextMessage, type TelegramTextHandler } from "./text-dispatch.js";
-export { prepareTelegramReply } from "./outbound.js";
+export { prepareTelegramDraft, prepareTelegramReply } from "./outbound.js";
 
 export type TelegramCallbackQueryHandler = (
   query: NormalizedTelegramCallbackQuery,
@@ -228,11 +229,24 @@ export function createTelegramBot(params: {
                   const truncated = text.length > TELEGRAM_MESSAGE_LIMIT
                     ? text.slice(0, TELEGRAM_MESSAGE_LIMIT)
                     : text;
+                  const prepared = prepareTelegramDraft({
+                    text: truncated,
+                    assistantFormat: params.assistantFormat,
+                    chatId: normalized.chatId,
+                    messageId: normalized.messageId,
+                    logger: params.logger
+                  });
                   await withTelegramRateLimitBackoff(
                     `send draft chat=${normalized.chatId} message=${normalized.messageId}`,
                     params.logger,
                     async () => {
-                      await ctx.replyWithDraft(truncated);
+                      const draftOptions = prepared.parseMode
+                        ? ({ parse_mode: prepared.parseMode } as Parameters<typeof ctx.replyWithDraft>[1])
+                        : undefined;
+                      await ctx.replyWithDraft(
+                        prepared.text,
+                        draftOptions
+                      );
                     }
                   );
                 }

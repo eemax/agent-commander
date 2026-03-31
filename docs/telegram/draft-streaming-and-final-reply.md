@@ -671,7 +671,9 @@ sendReply(text, meta)
 Formatting rules today:
 
 - only `resultType === "reply"` is eligible for assistant Markdown formatting
+- the compact draft bubble can also use HTML transport formatting when `assistant_format = "markdown_to_html"`, but it still renders the same compact status/counter surface
 - the main final reply uses the full Telegram-safe Markdown-to-HTML renderer when `assistant_format = "markdown_to_html"`
+- draft HTML uses the basic Telegram renderer rather than the full final-reply renderer, so it formats Markdown like backticks/emphasis without adding ZWSP auto-link breakers
 - rendered block-level content preserves visible blank lines between paragraphs, lists, blockquotes, and code blocks
 - extra replies use a simpler HTML renderer
 - `fallback` and `unauthorized` stay plain text

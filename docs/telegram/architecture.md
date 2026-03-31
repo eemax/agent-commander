@@ -432,6 +432,7 @@ On the text-message dispatch path, `reply` and `fallback` share the same final-t
 Important current behavior:
 
 - the draft bubble is a compact status surface, not a verbatim stream of the full assistant text buffer
+- when `assistant_format = "markdown_to_html"`, the compact draft bubble is transported as basic Telegram HTML; this does not change the draft view model itself
 - structured tool-call activity contributes both a cumulative summary and the latest tool notice in full inside the draft bubble
 - assistant text in the draft bubble is reduced to a whole-turn character counter that updates on throttled ticks
 - raw non-empty string tool notices are normalized conservatively as persistent transcript entries; draft-only latest-tool-notice behavior requires an explicit structured event
@@ -439,6 +440,7 @@ Important current behavior:
 - draft resets are now a safety valve for unusually long tool/status runs; when reset happens, the overflowing content seeds the next page instead of being dropped
 - formatting happens before chunking, so the splitter sees the final rendered text
 - the Markdown renderer preserves visible blank lines between block-level elements
+- draft HTML formatting uses the basic Telegram renderer rather than the full final-reply renderer, so it does not add ZWSP auto-link breakers
 - `fallback` and `unauthorized` stay plain text even when `reply` uses Markdown-to-HTML formatting
 - permanent reply chunking searches backward from `4096` down to `3000`, preferring `\n\n`, then `\n`, then space, then a hard split
 - in HTML mode, the splitter still closes and reopens supported tags across chunk boundaries

@@ -229,7 +229,7 @@ Common optional fields:
 - `telegram.streaming_enabled` (default `true`)
 - `telegram.streaming_min_update_ms` (default `1000`)
 - `telegram.draft_bubble_max_chars` (default `1500`, reset safety cap for the compact draft bubble)
-- `telegram.assistant_format` (`plain_text` by default, `markdown_to_html` to enable Markdown->HTML formatting for final assistant replies; `fallback`/`unauthorized` stay plain text)
+- `telegram.assistant_format` (`plain_text` by default, `markdown_to_html` to enable Markdown->HTML formatting for final assistant replies and compact draft bubbles; `fallback`/`unauthorized` stay plain text and the draft bubble remains compact rather than becoming a live full-answer render)
 - `telegram.acknowledged_emoji` (default `"off"`, set to an emoji like `"👍"` to react to messages when OpenAI accepts the request)
 - `observability.enabled` (default `false`)
 - `observability.log_path` (default `.agent-commander/observability.jsonl`)

@@ -1,7 +1,7 @@
 import type { RuntimeLogger, TelegramAssistantFormat } from "../runtime/contracts.js";
 import type { MessageRouteResult, TelegramInlineKeyboard } from "../types.js";
 import { renderBasicTelegramHtml, renderMarkdownToTelegramHtml } from "./assistant-format.js";
-import { splitTelegramMessage } from "./message-split.js";
+import { splitTelegramMessage, TELEGRAM_MESSAGE_LIMIT } from "./message-split.js";
 
 export type OutboundResultType = Exclude<MessageRouteResult["type"], "ignore">;
 
@@ -34,7 +34,14 @@ export function toTelegramInlineKeyboard(
 }
 
 function tryFormat(
-  params: { text: string; chatId: string; messageId: string; logger: RuntimeLogger },
+  params: {
+    text: string;
+    chatId: string;
+    messageId: string;
+    logger: RuntimeLogger;
+    label: "assistant" | "draft";
+    limit?: number;
+  },
   convert: (markdown: string) => string
 ): TelegramPreparedReply {
   try {
@@ -42,14 +49,42 @@ function tryFormat(
     if (formatted.trim().length === 0) {
       return { text: params.text };
     }
+    if (typeof params.limit === "number" && formatted.length > params.limit) {
+      return { text: params.text };
+    }
     return { text: formatted, parseMode: "HTML" };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     params.logger.warn(
-      `telegram: assistant formatting failed for chat=${params.chatId} message=${params.messageId}: ${message}`
+      `telegram: ${params.label} formatting failed for chat=${params.chatId} message=${params.messageId}: ${message}`
     );
     return { text: params.text };
   }
+}
+
+export function prepareTelegramDraft(params: {
+  text: string;
+  assistantFormat: TelegramAssistantFormat;
+  chatId: string;
+  messageId: string;
+  logger: RuntimeLogger;
+  markdownToHtml?: (markdown: string) => string;
+}): TelegramPreparedReply {
+  if (params.assistantFormat !== "markdown_to_html") {
+    return { text: params.text };
+  }
+
+  return tryFormat(
+    {
+      text: params.text,
+      chatId: params.chatId,
+      messageId: params.messageId,
+      logger: params.logger,
+      label: "draft",
+      limit: TELEGRAM_MESSAGE_LIMIT
+    },
+    params.markdownToHtml ?? renderBasicTelegramHtml
+  );
 }
 
 export function prepareTelegramReply(params: {
@@ -66,10 +101,22 @@ export function prepareTelegramReply(params: {
   }
 
   if (!params.meta.isExtra) {
-    return tryFormat(params, params.markdownToHtml ?? renderMarkdownToTelegramHtml);
+    return tryFormat(
+      {
+        ...params,
+        label: "assistant"
+      },
+      params.markdownToHtml ?? renderMarkdownToTelegramHtml
+    );
   }
 
-  return tryFormat(params, renderBasicTelegramHtml);
+  return tryFormat(
+    {
+      ...params,
+      label: "assistant"
+    },
+    renderBasicTelegramHtml
+  );
 }
 
 export async function sendTelegramReplyChunks(params: {
