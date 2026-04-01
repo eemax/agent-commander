@@ -39,6 +39,7 @@ Run a shell command in the local environment.
 - If `background=true`, returns a `sessionId` immediately without waiting
 - If command completes within `yieldMs`, returns completed output
 - If command is still running after `yieldMs`, returns running tail + `sessionId` for polling via `process`
+- If `tools.max_running_sessions` is configured and the running-session cap has been reached, command start fails before spawning
 - Output truncated at `tools.max_output_chars` (default 200K chars)
 
 ### `process`
@@ -110,6 +111,7 @@ Delete a completed session record. Fails if the process is still running.
 - Sessions are owner-scoped — only the creating owner can access them
 - Completed sessions auto-prune after `tools.completed_session_retention_ms` or when exceeding `tools.max_completed_sessions`
 - Running sessions are never pruned by that retention pass
+- When `tools.max_running_sessions` is set, new sessions are rejected once that many sessions are already in `running` state
 - Output per stream (stdout, stderr, combined) is independently bounded by `tools.max_output_chars`
 - Timed-out processes receive SIGKILL and are flagged as timed out
 

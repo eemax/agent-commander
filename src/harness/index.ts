@@ -48,6 +48,7 @@ export function createToolHarness(
   const processManager = new ProcessManager({
     completedSessionRetentionMs: config.completedSessionRetentionMs,
     maxCompletedSessions: config.maxCompletedSessions,
+    maxRunningSessions: config.maxRunningSessions,
     maxOutputChars: config.maxOutputChars
   });
   const metrics: ToolRuntimeMetrics = {

@@ -4,12 +4,13 @@ import * as path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import { createToolHarness } from "../src/harness/index.js";
+import type { HarnessConfig } from "../src/harness/types.js";
 
 function mkdtemp(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-function createHarness(root: string) {
+function createHarness(root: string, overrides: Partial<HarnessConfig> = {}) {
   return createToolHarness({
     defaultCwd: root,
     defaultShell: "/bin/bash",
@@ -19,7 +20,8 @@ function createHarness(root: string) {
     logPath: ".agent-commander/tool-calls.jsonl",
     completedSessionRetentionMs: 3_600_000,
     maxCompletedSessions: 500,
-    maxOutputChars: 200_000
+    maxOutputChars: 200_000,
+    ...overrides
   });
 }
 
@@ -185,6 +187,27 @@ describe("shell tools", () => {
         sessionId
       })
     ).rejects.toThrow("Unauthorized session access");
+  });
+
+  it("enforces maxRunningSessions through the bash tool", async () => {
+    const root = mkdtemp("acmd-shell-running-cap-");
+    const harness = createHarness(root, { maxRunningSessions: 1 });
+
+    const running = await harness.executeWithOwner("chat-1", "bash", {
+      command: "sleep 5",
+      background: true
+    });
+    const sessionId = (running as { sessionId: string }).sessionId;
+
+    await expect(
+      harness.executeWithOwner("chat-1", "bash", {
+        command: "printf 'blocked'",
+        background: true
+      })
+    ).rejects.toThrow("Running session limit reached");
+
+    await harness.context.processManager.terminateAllRunningSessions({ graceMs: 500, forceSignal: "SIGKILL" });
+    await waitForSessionCompleted(harness, "chat-1", sessionId);
   });
 
   it("ignores irrelevant process fields for the selected action", async () => {

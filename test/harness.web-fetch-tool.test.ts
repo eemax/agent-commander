@@ -84,7 +84,7 @@ describe("web_fetch tool", () => {
     ).rejects.toThrow("Defuddle fetch failed: defuddle command not found");
   });
 
-  it("normalizes url aliases and ignores legacy mode aliases before validation", async () => {
+  it("normalizes url aliases and drops unsupported fields before validation", async () => {
     const root = createHarnessRoot("acmd-web-fetch-alias-");
     const runDefuddle = vi.fn(async () => ({
       markdown: "alias mode content"

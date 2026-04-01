@@ -234,6 +234,7 @@ async function bootstrapAgentRuntime(
       logMaxLines: config.tools.logMaxLines,
       completedSessionRetentionMs: config.tools.completedSessionRetentionMs,
       maxCompletedSessions: config.tools.maxCompletedSessions,
+      maxRunningSessions: config.tools.maxRunningSessions,
       maxOutputChars: config.tools.maxOutputChars,
       webSearch: config.tools.webSearch,
       subagents: config.subagents

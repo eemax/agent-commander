@@ -22,6 +22,7 @@ export type HarnessConfig = {
   logMaxLines?: number | null;
   completedSessionRetentionMs: number;
   maxCompletedSessions: number;
+  maxRunningSessions?: number | null;
   maxOutputChars: number;
   webSearch?: {
     apiKey: string | null;

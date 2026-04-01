@@ -261,7 +261,7 @@ describe("web_search tool", () => {
     );
   });
 
-  it("silently drops old fields that are no longer supported", async () => {
+  it("drops unsupported fields during normalization", async () => {
     const root = createHarnessRoot("acmd-web-search-strict-");
     const responsesCreate = vi.fn(async () => makeResponseCreateResponse());
     const harness = createToolHarness(

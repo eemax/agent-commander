@@ -15,7 +15,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-atomic-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json")
     });
 
     const conversationId = await store.ensureActiveConversation("chat-1");
@@ -55,7 +54,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-history-null-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json")
     });
 
     const conversationId = await store.ensureActiveConversation("chat-1");
@@ -91,7 +89,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-store-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json")
     });
 
     const conversationId = await store.ensureActiveConversation("chat-1");
@@ -118,7 +115,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-new-select-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json")
     });
 
     const first = await store.ensureActiveConversation("chat-1");
@@ -243,7 +239,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-stash-switch-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json"),
       defaultThinkingEffort: "medium"
     });
 
@@ -306,7 +301,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-stash-alias-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json")
     });
 
     const chatId = "chat-1";
@@ -327,7 +321,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-stash-alias-same-id-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json")
     });
 
     const chatId = "chat-1";
@@ -349,7 +342,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-stash-list-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json")
     });
 
     const chatId = "chat-1";
@@ -371,14 +363,10 @@ describe("conversation store", () => {
   it("preserves last cache-hit timestamp across no-hit updates and restart", async () => {
     const root = createTempDir("acmd-conv-cache-hit-");
     const conversationsDir = path.join(root, "conversations");
-    const stashedConversationsPath = path.join(root, "stashed.json");
-    const activeConversationsPath = path.join(root, "active.json");
     const chatId = "chat-1";
 
     const firstStore = createConversationStore({
-      conversationsDir,
-      stashedConversationsPath,
-      activeConversationsPath
+      conversationsDir
     });
     const conversationId = await firstStore.ensureActiveConversation(chatId);
     const firstHitAt = 1_700_000_000_000;
@@ -416,9 +404,7 @@ describe("conversation store", () => {
     });
 
     const secondStore = createConversationStore({
-      conversationsDir,
-      stashedConversationsPath,
-      activeConversationsPath
+      conversationsDir
     });
     expect(await secondStore.getLatestUsageSnapshot(chatId)).toEqual({
       inputTokens: 120,
@@ -432,13 +418,9 @@ describe("conversation store", () => {
   it("persists current and stashed runtime profiles across restart", async () => {
     const root = createTempDir("acmd-conv-persist-");
     const conversationsDir = path.join(root, "conversations");
-    const stashedConversationsPath = path.join(root, "stashed.json");
-    const activeConversationsPath = path.join(root, "active.json");
 
     const firstStore = createConversationStore({
-      conversationsDir,
-      stashedConversationsPath,
-      activeConversationsPath
+      conversationsDir
     });
 
     const chatId = "chat-1";
@@ -449,9 +431,7 @@ describe("conversation store", () => {
     await firstStore.completeStashSelection(chatId, "alpha", { type: "new" }, "manual_stash");
 
     const secondStore = createConversationStore({
-      conversationsDir,
-      stashedConversationsPath,
-      activeConversationsPath
+      conversationsDir
     });
 
     const stashes = await secondStore.listStashedConversations(chatId);
@@ -466,14 +446,10 @@ describe("conversation store", () => {
   it("persists last provider failure summary across stash and restart", async () => {
     const root = createTempDir("acmd-conv-provider-failure-persist-");
     const conversationsDir = path.join(root, "conversations");
-    const stashedConversationsPath = path.join(root, "stashed.json");
-    const activeConversationsPath = path.join(root, "active.json");
     const chatId = "chat-1";
 
     const firstStore = createConversationStore({
-      conversationsDir,
-      stashedConversationsPath,
-      activeConversationsPath
+      conversationsDir
     });
 
     const conversationId = await firstStore.ensureActiveConversation(chatId);
@@ -504,9 +480,7 @@ describe("conversation store", () => {
     });
 
     const secondStore = createConversationStore({
-      conversationsDir,
-      stashedConversationsPath,
-      activeConversationsPath
+      conversationsDir
     });
 
     expect(await secondStore.getLastProviderFailure(chatId)).toEqual({
@@ -518,13 +492,11 @@ describe("conversation store", () => {
     });
   });
 
-  it("starts fresh when legacy runtime-settings/index schema is present", async () => {
-    const root = createTempDir("acmd-conv-legacy-fresh-");
+  it("starts fresh when unrecognized files exist alongside conversations dir", async () => {
+    const root = createTempDir("acmd-conv-unrecognized-fresh-");
     const conversationsDir = path.join(root, "conversations");
-    const stashedConversationsPath = path.join(root, "stashed.json");
-    const activeConversationsPath = path.join(root, "active.json");
 
-    fs.writeFileSync(stashedConversationsPath, JSON.stringify({ "chat-1": "conv_legacy" }, null, 2), "utf8");
+    fs.writeFileSync(path.join(root, "stashed.json"), JSON.stringify({ "chat-1": "conv_stale" }, null, 2), "utf8");
     fs.writeFileSync(
       path.join(root, "runtime-settings.json"),
       JSON.stringify(
@@ -539,20 +511,17 @@ describe("conversation store", () => {
 
     const store = createConversationStore({
       conversationsDir,
-      stashedConversationsPath,
-      activeConversationsPath,
       defaultThinkingEffort: "medium"
     });
 
     const conversationId = await store.ensureActiveConversation("chat-1");
-    expect(conversationId).not.toBe("conv_legacy");
+    expect(conversationId).not.toBe("conv_stale");
     expect(await store.getThinkingEffort("chat-1")).toBe("medium");
   });
 
-  it("does not migrate old filename layout automatically", async () => {
-    const root = createTempDir("acmd-conv-old-layout-");
+  it("ignores unrecognized index files in the workspace directory", async () => {
+    const root = createTempDir("acmd-conv-unrecognized-layout-");
     const conversationsDir = path.join(root, ".agent-commander", "conversations");
-    const newStashedPath = path.join(root, ".agent-commander", "stashed-conversations.json");
     const newCurrentPath = path.join(root, ".agent-commander", "active-conversations.json");
     const oldCurrentPath = path.join(root, ".agent-commander", "current-conversations.json");
 
@@ -612,8 +581,6 @@ describe("conversation store", () => {
 
     const store = createConversationStore({
       conversationsDir,
-      stashedConversationsPath: newStashedPath,
-      activeConversationsPath: newCurrentPath,
       defaultThinkingEffort: "medium"
     });
 
@@ -668,7 +635,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-defaults-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json"),
       defaultWorkingDirectory: "/tmp/default-cwd",
       defaultThinkingEffort: "xhigh"
     });
@@ -684,7 +650,6 @@ describe("conversation store", () => {
     const observabilityPath = path.join(root, "observability.jsonl");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json"),
       observability: createObservabilitySink({
         enabled: true,
         logPath: observabilityPath
@@ -727,7 +692,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-malformed-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json")
     });
 
     const conversationId = await store.ensureActiveConversation("chat-1");
@@ -755,7 +719,6 @@ describe("conversation store", () => {
     // Force cache eviction by creating a new store instance
     const freshStore = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json")
     });
     const activeConvId = await freshStore.ensureActiveConversation("chat-1");
     expect(activeConvId).toBe(conversationId);
@@ -781,7 +744,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-cache-eligibility-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json"),
       sessionCacheMaxEntries: 10
     });
 
@@ -812,7 +774,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-cache-stash-transition-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json"),
       sessionCacheMaxEntries: 10
     });
 
@@ -837,7 +798,6 @@ describe("conversation store", () => {
     const root = createTempDir("acmd-conv-cache-cap-");
     const store = createConversationStore({
       conversationsDir: path.join(root, "conversations"),
-      stashedConversationsPath: path.join(root, "active.json"),
       sessionCacheMaxEntries: 2
     });
 
@@ -857,5 +817,74 @@ describe("conversation store", () => {
     expect(health.cachedSessions).toBe(2);
     expect(health.maxCachedSessions).toBe(2);
     expect(health.evictedSessions).toBeGreaterThanOrEqual(1);
+  });
+
+  it("handles concurrent appendUserMessage calls without data loss", async () => {
+    const root = createTempDir("acmd-conv-concurrent-append-");
+    const store = createConversationStore({
+      conversationsDir: path.join(root, "conversations"),
+    });
+
+    const conversationId = await store.ensureActiveConversation("chat-1");
+
+    await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        store.appendUserMessage({
+          chatId: "chat-1",
+          conversationId,
+          telegramMessageId: `m${i}`,
+          senderId: "u1",
+          senderName: "Ada",
+          content: `message-${i}`
+        })
+      )
+    );
+
+    const history = await store.getPromptHistory("chat-1", conversationId, null);
+    expect(history).toHaveLength(10);
+
+    const contents = history.map((item) => item.content);
+    for (let i = 0; i < 10; i++) {
+      expect(contents).toContain(`message-${i}`);
+    }
+  });
+
+  it("handles concurrent ensureActiveConversation calls safely", async () => {
+    const root = createTempDir("acmd-conv-concurrent-ensure-");
+    const store = createConversationStore({
+      conversationsDir: path.join(root, "conversations"),
+    });
+
+    const [idA, idB] = await Promise.all([
+      store.ensureActiveConversation("chat-1"),
+      store.ensureActiveConversation("chat-1")
+    ]);
+    expect(idA).toBe(idB);
+
+    await Promise.all([
+      store.appendUserMessage({
+        chatId: "chat-1",
+        conversationId: idA,
+        telegramMessageId: "m1",
+        senderId: "u1",
+        senderName: "Ada",
+        content: "first"
+      }),
+      store.appendUserMessage({
+        chatId: "chat-1",
+        conversationId: idA,
+        telegramMessageId: "m2",
+        senderId: "u1",
+        senderName: "Ada",
+        content: "second"
+      })
+    ]);
+
+    const history = await store.getPromptHistory("chat-1", idA, null);
+    expect(history).toHaveLength(2);
+
+    const contents = history.map((item) => item.content);
+    expect(contents).toContain("first");
+    expect(contents).toContain("second");
   });
 });

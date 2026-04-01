@@ -424,4 +424,47 @@ describe("cli commands", () => {
     expect(fs.existsSync(path.join(root, ".agent-commander"))).toBe(false);
     expect(io.stdout.some((line) => line.includes("ok   runtime state directory writable"))).toBe(true);
   });
+
+  it("doctor reports all checks passing for valid setup", async () => {
+    const root = setupRepo();
+    const io = captureIo();
+
+    const exitCode = await runCli({
+      repoRoot: root,
+      argv: ["doctor"],
+      io: {
+        stdout: (line) => {
+          io.stdout.push(line);
+        },
+        stderr: (line) => {
+          io.stderr.push(line);
+        }
+      }
+    });
+
+    expect(exitCode).toBe(0);
+    expect(io.stderr).toEqual([]);
+    expect(io.stdout.length).toBeGreaterThan(0);
+  });
+
+  it("doctor reports failure when .env secrets are missing", async () => {
+    const root = setupRepo({ withEnv: false });
+    const io = captureIo();
+
+    const exitCode = await runCli({
+      repoRoot: root,
+      argv: ["doctor"],
+      io: {
+        stdout: (line) => {
+          io.stdout.push(line);
+        },
+        stderr: (line) => {
+          io.stderr.push(line);
+        }
+      }
+    });
+
+    expect(exitCode).toBe(1);
+    expect(io.stdout.some((line) => line.includes("fail"))).toBe(true);
+  });
 });

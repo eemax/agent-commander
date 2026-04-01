@@ -127,8 +127,7 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath,
-        defaultWorkingDirectory: config.tools.defaultCwd
+                defaultWorkingDirectory: config.tools.defaultCwd
       }),
       workspace,
       harness: makeHarnessMock()
@@ -154,8 +153,7 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath,
-        defaultWorkingDirectory: config.tools.defaultCwd
+                defaultWorkingDirectory: config.tools.defaultCwd
       }),
       workspace,
       harness: makeHarnessMock()
@@ -200,8 +198,7 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath,
-        defaultWorkingDirectory: config.tools.defaultCwd
+                defaultWorkingDirectory: config.tools.defaultCwd
       }),
       workspace,
       harness: makeHarnessMock()
@@ -227,8 +224,7 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath,
-      defaultWorkingDirectory: config.tools.defaultCwd
+            defaultWorkingDirectory: config.tools.defaultCwd
     });
 
     const router = createMessageRouter({
@@ -269,8 +265,7 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath,
-      defaultWorkingDirectory: config.tools.defaultCwd
+            defaultWorkingDirectory: config.tools.defaultCwd
     });
 
     const router = createMessageRouter({
@@ -326,7 +321,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -347,7 +341,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -369,7 +362,6 @@ describe("createMessageRouter", () => {
 
       const conversations = createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       });
 
       const router = createMessageRouter({
@@ -418,8 +410,7 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath,
-      defaultWorkingDirectory: config.tools.defaultCwd
+            defaultWorkingDirectory: config.tools.defaultCwd
     });
 
     const router = createMessageRouter({
@@ -469,7 +460,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -502,8 +492,7 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath,
-      defaultWorkingDirectory: config.tools.defaultCwd
+            defaultWorkingDirectory: config.tools.defaultCwd
     });
 
     for (let index = 1; index <= 7; index += 1) {
@@ -563,8 +552,7 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath,
-        defaultWorkingDirectory: config.tools.defaultCwd
+                defaultWorkingDirectory: config.tools.defaultCwd
       }),
       workspace,
       harness
@@ -590,8 +578,7 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath,
-        defaultWorkingDirectory: config.tools.defaultCwd
+                defaultWorkingDirectory: config.tools.defaultCwd
       }),
       workspace,
       harness
@@ -625,8 +612,7 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath,
-      defaultWorkingDirectory: config.tools.defaultCwd
+            defaultWorkingDirectory: config.tools.defaultCwd
     });
     const harness = makeHarnessMock();
 
@@ -681,7 +667,6 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath
     });
 
     const router = createMessageRouter({
@@ -721,7 +706,6 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath
     });
 
     const router = createMessageRouter({
@@ -774,7 +758,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -797,7 +780,6 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath
     });
 
     const router = createMessageRouter({
@@ -840,7 +822,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -866,7 +847,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -905,7 +885,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -949,7 +928,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -963,7 +941,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -1016,7 +993,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -1073,7 +1049,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -1114,7 +1089,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -1164,7 +1138,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -1211,7 +1184,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -1259,7 +1231,6 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath
     });
 
     const router = createMessageRouter({
@@ -1331,7 +1302,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -1368,7 +1338,6 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath
     });
 
     const router = createMessageRouter({
@@ -1422,7 +1391,6 @@ describe("createMessageRouter", () => {
 
     const conversations = createConversationStore({
       conversationsDir: config.paths.conversationsDir,
-      stashedConversationsPath: config.paths.stashedConversationsPath
     });
 
     const router = createMessageRouter({
@@ -1476,7 +1444,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -1504,7 +1471,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -1528,7 +1494,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock(),
@@ -1579,7 +1544,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -1616,7 +1580,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -1664,7 +1627,6 @@ describe("createMessageRouter", () => {
       config,
       conversations: createConversationStore({
         conversationsDir: config.paths.conversationsDir,
-        stashedConversationsPath: config.paths.stashedConversationsPath
       }),
       workspace,
       harness: makeHarnessMock()
@@ -1695,5 +1657,46 @@ describe("createMessageRouter", () => {
     expect(retainedTurn.abortSignal.aborted).toBe(true);
 
     await retainedTurn.finalize();
+  });
+
+  it("persists user and assistant messages in conversation history after round-trip", async () => {
+    const config = makeConfig();
+    const workspace = createWorkspaceManager(config);
+    await workspace.bootstrap();
+
+    const provider: Provider = {
+      generateReply: vi.fn(async () => "Hello from assistant!")
+    };
+
+    const conversations = createConversationStore({
+      conversationsDir: config.paths.conversationsDir,
+            defaultWorkingDirectory: config.tools.defaultCwd
+    });
+
+    const router = createMessageRouter({
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      provider,
+      config,
+      conversations,
+      workspace,
+      harness: makeHarnessMock()
+    });
+
+    const result = await router.handleIncomingMessage(sampleIncoming({ text: "ping" }));
+    expect(result.type).toBe("reply");
+    if (result.type === "reply") {
+      expect(result.text).toBe("Hello from assistant!");
+    }
+    expect(provider.generateReply).toHaveBeenCalledTimes(1);
+
+    const conversationId = await conversations.getActiveConversation("chat-1");
+    expect(conversationId).toBeTruthy();
+
+    const history = await conversations.getPromptHistory("chat-1", conversationId!, null);
+    expect(history).toHaveLength(2);
+    expect(history[0]?.role).toBe("user");
+    expect(history[0]?.content).toBe("ping");
+    expect(history[1]?.role).toBe("assistant");
+    expect(history[1]?.content).toBe("Hello from assistant!");
   });
 });

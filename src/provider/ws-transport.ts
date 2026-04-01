@@ -10,9 +10,6 @@ import { sanitizeReason } from "./sanitize.js";
 import type { AuthModeAdapter } from "./auth-mode-contracts.js";
 import { buildResolvedRequestBody } from "./auth-mode-contracts.js";
 
-const WS_ROTATION_MS = 55 * 60 * 1000;
-const WS_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-
 export type WsTransportDeps = {
   WebSocketImpl?: typeof WebSocket;
   sleepImpl?: (ms: number) => Promise<void>;
@@ -71,6 +68,8 @@ export function createWsTransportManager(
   const nowMsImpl = deps.nowMsImpl ?? Date.now;
   const observability = deps.observability;
   const maxReconnectAttempts = config.openai.maxRetries;
+  const wsRotationMs = config.openai.wsRotationMs;
+  const wsIdleTimeoutMs = config.openai.wsIdleTimeoutMs;
 
   function computeAuthFingerprint(adapterId: string, wsUrl: string, headers: Record<string, string>): string {
     const sorted = Object.entries(headers).sort(([a], [b]) => a.localeCompare(b));
@@ -110,12 +109,12 @@ export function createWsTransportManager(
           chatId: conn.chatId
         });
       }
-    }, WS_IDLE_TIMEOUT_MS);
+    }, wsIdleTimeoutMs);
   }
 
   function scheduleRotation(conn: WsConnection): void {
     const elapsed = nowMsImpl() - conn.createdAtMs;
-    const remaining = Math.max(0, WS_ROTATION_MS - elapsed);
+    const remaining = Math.max(0, wsRotationMs - elapsed);
     conn.rotationTimer = setTimeout(() => {
       conn.rotationTimer = null;
       if (conn.pendingRequest === null) {

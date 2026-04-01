@@ -151,6 +151,6 @@ describe("file tools", () => {
         content: "hello",
         encoding: "utf16le"
       })
-    ).rejects.toThrow("Invalid encoding");
+    ).rejects.toThrow("only utf8 is supported");
   });
 });

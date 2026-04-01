@@ -266,4 +266,38 @@ describe("process manager", () => {
     expect(sessionIds).toContain(thirdSessionId);
     expect(sessions).toHaveLength(2);
   });
+
+  it("rejects startCommand when running session cap is reached", async () => {
+    const manager = new ProcessManager({
+      completedSessionRetentionMs: 3_600_000,
+      maxCompletedSessions: 500,
+      maxRunningSessions: 1,
+      maxOutputChars: 200_000
+    });
+
+    await startQuickCommand(manager, "chat-1", "sleep 10");
+
+    await expect(
+      startQuickCommand(manager, "chat-1", "echo hi")
+    ).rejects.toThrow("Running session limit reached");
+
+    await manager.terminateAllRunningSessions({ graceMs: 500, forceSignal: "SIGKILL" });
+  });
+
+  it("allows startCommand when cap is null (unlimited)", async () => {
+    const manager = new ProcessManager({
+      completedSessionRetentionMs: 3_600_000,
+      maxCompletedSessions: 500,
+      maxRunningSessions: null,
+      maxOutputChars: 200_000
+    });
+
+    const id1 = await startQuickCommand(manager, "chat-1", "sleep 10");
+    const id2 = await startQuickCommand(manager, "chat-1", "sleep 10");
+
+    expect(id1).toBeTruthy();
+    expect(id2).toBeTruthy();
+
+    await manager.terminateAllRunningSessions({ graceMs: 500, forceSignal: "SIGKILL" });
+  });
 });

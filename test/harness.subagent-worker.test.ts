@@ -64,7 +64,9 @@ function makeConfig(): Config {
       timeoutMs: 30_000,
       maxRetries: 0, // No retries in tests
       retryBaseMs: 100,
-      retryMaxMs: 1_000
+      retryMaxMs: 1_000,
+      wsRotationMs: 3_300_000,
+      wsIdleTimeoutMs: 300_000
     },
     runtime: {
       logLevel: "error",
@@ -93,6 +95,7 @@ function makeConfig(): Config {
       logPath: "/tmp/test-log.jsonl",
       completedSessionRetentionMs: 60_000,
       maxCompletedSessions: 20,
+      maxRunningSessions: null,
       maxOutputChars: 100_000,
       webSearch: {
         apiKey: null,

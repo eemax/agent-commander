@@ -17,7 +17,7 @@ function normalizeEncoding(raw: string | undefined): BufferEncoding {
     return "utf8";
   }
 
-  throw new Error(`Invalid encoding: ${raw ?? ""}`);
+  throw new Error(`Unsupported encoding "${raw ?? ""}": only utf8 is supported`);
 }
 
 function countChar(content: string, char: string): number {

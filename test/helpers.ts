@@ -66,7 +66,9 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       timeoutMs: 1_000,
       maxRetries: 2,
       retryBaseMs: 250,
-      retryMaxMs: 2_000
+      retryMaxMs: 2_000,
+      wsRotationMs: 3_300_000,
+      wsIdleTimeoutMs: 300_000
     },
     runtime: {
       logLevel: "info",
@@ -96,6 +98,7 @@ export function makeConfig(overrides: DeepPartial<Config> = {}): Config {
       logMaxLines: null,
       completedSessionRetentionMs: 900_000,
       maxCompletedSessions: 50,
+      maxRunningSessions: null,
       maxOutputChars: 200_000,
       webSearch: {
         apiKey: null,

@@ -61,6 +61,8 @@ This is the canonical `config/config.json` shape.
 - `max_retries`: non-negative integer, default `2` — HTTP: retry attempts per request; WebSocket: reconnect attempts on connection failure
 - `retry_base_ms`: positive integer, default `250` — base delay for exponential backoff (both transports)
 - `retry_max_ms`: positive integer, default `2000`, must be `>= retry_base_ms` — max backoff delay (both transports)
+- `ws_rotation_ms`: positive integer, default `3300000` — proactively rotates WebSocket connections after this age; if a request is still in flight when the timer fires, the connection closes immediately after that request completes
+- `ws_idle_timeout_ms`: positive integer, default `300000` — closes idle WebSocket connections after this many milliseconds with no in-flight request
 
 - `default_transport`: `"http" | "wss"`, default `"http"` — sets the transport mode for new conversations and any provider path that omits an explicit transport. Per-conversation override via `/transport http|wss`. See [architecture.md](architecture.md#transport-modes) for details.
 
@@ -105,6 +107,7 @@ This is the canonical `config/config.json` shape.
 - `log_path`: path string, default `".agent-commander/tool-calls.jsonl"`
 - `completed_session_retention_ms`: positive integer, default `900000`
 - `max_completed_sessions`: positive integer, default `50`
+- `max_running_sessions`: positive integer or `null`, default `null` — cap on concurrently running shell sessions; when reached, new `bash` executions fail before spawning
 - `max_output_chars`: positive integer, default `200000`
 - `web_search`: object (optional, defaults shown)
   - API key source: `DEFAULT_PERPLEXITY_API_KEY` (optional)

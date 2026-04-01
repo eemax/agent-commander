@@ -97,15 +97,27 @@ export class ProcessManager {
   private readonly sessions = new Map<string, Session>();
   private readonly completedSessionRetentionMs: number;
   private readonly maxCompletedSessions: number;
+  private readonly maxRunningSessions: number | null;
   private readonly maxOutputChars: number;
 
-  public constructor(params: { completedSessionRetentionMs: number; maxCompletedSessions: number; maxOutputChars: number }) {
+  public constructor(params: { completedSessionRetentionMs: number; maxCompletedSessions: number; maxRunningSessions?: number | null; maxOutputChars: number }) {
     this.completedSessionRetentionMs = params.completedSessionRetentionMs;
     this.maxCompletedSessions = params.maxCompletedSessions;
+    this.maxRunningSessions = params.maxRunningSessions ?? null;
     this.maxOutputChars = params.maxOutputChars;
   }
 
   public async startCommand(params: StartCommandParams): Promise<ManagedSessionView> {
+    if (this.maxRunningSessions !== null) {
+      let running = 0;
+      for (const session of this.sessions.values()) {
+        if (session.status === "running") running++;
+      }
+      if (running >= this.maxRunningSessions) {
+        throw new Error(`Running session limit reached (${this.maxRunningSessions})`);
+      }
+    }
+
     this.pruneCompletedSessions();
 
     const sessionId = createProcessSessionId();

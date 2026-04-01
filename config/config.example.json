@@ -39,7 +39,9 @@
     "timeout_ms": 45000,
     "max_retries": 2,
     "retry_base_ms": 250,
-    "retry_max_ms": 2000
+    "retry_max_ms": 2000,
+    "ws_rotation_ms": 3300000,
+    "ws_idle_timeout_ms": 300000
   },
   "runtime": {
     "log_level": "info",
@@ -65,6 +67,7 @@
     "log_path": ".agent-commander/tool-calls.jsonl",
     "completed_session_retention_ms": 900000,
     "max_completed_sessions": 50,
+    "max_running_sessions": null,
     "max_output_chars": 200000,
     "web_search": {
       "default_preset": "pro-search",

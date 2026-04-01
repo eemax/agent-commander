@@ -364,6 +364,73 @@ describe("createWsTransportManager", () => {
     manager.closeAll();
   });
 
+  it("closes idle sockets using the configured idle timeout", async () => {
+    const config = makeConfig({
+      openai: {
+        timeoutMs: 5_000,
+        wsRotationMs: 1_000,
+        wsIdleTimeoutMs: 25
+      }
+    });
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+      WebSocketImpl: trackingSockets()
+    }));
+
+    const promise = manager.sendResponseCreate(
+      { model: "gpt-5.4-mini", input: [] },
+      "chat-idle",
+      { authModeAdapter: mockAdapter }
+    );
+
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
+    const ws = createdSockets[0]!;
+    await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
+
+    ws._receiveMessage({
+      type: "response.completed",
+      response: { id: "resp_idle", output_text: "done", output: [] }
+    });
+    await promise;
+
+    expect(ws.closed).toBe(false);
+    await vi.waitFor(() => expect(ws.closed).toBe(true), { timeout: 250 });
+
+    manager.closeAll();
+  });
+
+  it("closes sockets using the configured rotation timeout", async () => {
+    const config = makeConfig({
+      openai: {
+        timeoutMs: 5_000,
+        wsRotationMs: 25,
+        wsIdleTimeoutMs: 1_000
+      }
+    });
+    const manager = createWsTransportManager(config, makeLogger(), makeDeps({
+      WebSocketImpl: trackingSockets()
+    }));
+
+    const promise = manager.sendResponseCreate(
+      { model: "gpt-5.4-mini", input: [] },
+      "chat-rotate",
+      { authModeAdapter: mockAdapter }
+    );
+
+    await vi.waitFor(() => expect(createdSockets).toHaveLength(1));
+    const ws = createdSockets[0]!;
+    await vi.waitFor(() => expect(ws.sent).toHaveLength(1));
+
+    ws._receiveMessage({
+      type: "response.completed",
+      response: { id: "resp_rotate", output_text: "done", output: [] }
+    });
+    await promise;
+
+    await vi.waitFor(() => expect(ws.closed).toBe(true), { timeout: 250 });
+
+    manager.closeAll();
+  });
+
   it("strips prompt_cache_key and prompt_cache_retention from WSS envelope", async () => {
     const config = makeConfig({ openai: { timeoutMs: 5_000 } });
     const manager = createWsTransportManager(config, makeLogger(), makeDeps({

@@ -63,6 +63,8 @@ export type Config = {
     maxRetries: number;
     retryBaseMs: number;
     retryMaxMs: number;
+    wsRotationMs: number;
+    wsIdleTimeoutMs: number;
   };
   runtime: {
     logLevel: LogLevel;
@@ -92,6 +94,7 @@ export type Config = {
     logMaxLines?: number | null;
     completedSessionRetentionMs: number;
     maxCompletedSessions: number;
+    maxRunningSessions: number | null;
     maxOutputChars: number;
     webSearch: {
       apiKey: string | null;
@@ -102,10 +105,6 @@ export type Config = {
   paths: {
     workspaceRoot: string;
     conversationsDir: string;
-    // Legacy fields are no longer populated by config loading.
-    stashedConversationsPath?: string;
-    activeConversationsPath?: string;
-    contextSnapshotsDir?: string;
   };
   retention: {
     archivedConversationsMaxCount: number | null;

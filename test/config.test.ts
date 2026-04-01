@@ -1,8 +1,21 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
+import { readRawConfig, configSchema, formatZodError, buildConfigFromParsed } from "../src/config.js";
+import { loadEnvFile, extractAgentSecrets } from "../src/env.js";
 import { createTempDir } from "./helpers.js";
+
+function loadConfig(repoRoot: string) {
+  const configPath = path.resolve(repoRoot, "config", "config.json");
+  const raw = readRawConfig(configPath);
+  const parsed = configSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`Invalid config in ${configPath}: ${formatZodError(parsed.error)}`);
+  }
+  const envMap = loadEnvFile(repoRoot);
+  const secrets = extractAgentSecrets(envMap, "default");
+  return buildConfigFromParsed(parsed.data, configPath, repoRoot, "default", secrets, []);
+}
 
 function writeConfig(dir: string, payload: Record<string, unknown>): void {
   const configDir = path.join(dir, "config");
@@ -108,6 +121,8 @@ describe("loadConfig", () => {
     expect(config.openai.models.find((item) => item.id === "gpt-5.3-codex")?.maxOutputTokens).toBeNull();
     expect(config.openai.models.find((item) => item.id === "gpt-5.3-codex")?.defaultThinking).toBe("medium");
     expect(config.openai.models.find((item) => item.id === "gpt-5.3-codex")?.cacheRetention).toBe("in_memory");
+    expect(config.openai.wsRotationMs).toBe(3_300_000);
+    expect(config.openai.wsIdleTimeoutMs).toBe(300_000);
     expect(config.runtime.logLevel).toBe("info");
     expect(config.runtime.toolLoopMaxSteps).toBe(30);
     expect(config.runtime.toolWorkflowTimeoutMs).toBe(120000);
@@ -130,6 +145,7 @@ describe("loadConfig", () => {
     expect(config.tools.defaultShell).toBe("/bin/bash");
     expect(config.tools.logPath).toBe(path.join(root, ".agent-commander", "tool-calls.jsonl"));
     expect(config.tools.logMaxLines).toBeNull();
+    expect(config.tools.maxRunningSessions).toBeNull();
     expect(config.tools.webSearch.apiKey).toBeNull();
     expect(config.tools.webSearch.defaultPreset).toBe("pro-search");
     expect(config.tools.webSearch.presets.map((m) => m.id)).toContain("pro-search");
@@ -186,6 +202,25 @@ describe("loadConfig", () => {
     expect(config.tools.webSearch.apiKey).toBeNull();
     expect(config.tools.webSearch.defaultPreset).toBe("deep-research");
     expect(config.tools.webSearch.presets).toHaveLength(2);
+  });
+
+  it("loads websocket transport timing and running session limits from config", () => {
+    const root = createTempDir("acmd-config-ws-limits-");
+    writeConfig(root, {
+      ...minimalPayload(),
+      openai: {
+        ws_rotation_ms: 12_345,
+        ws_idle_timeout_ms: 67_890
+      },
+      tools: {
+        max_running_sessions: 3
+      }
+    });
+
+    const config = loadConfigWithRequiredDefaults(root);
+    expect(config.openai.wsRotationMs).toBe(12_345);
+    expect(config.openai.wsIdleTimeoutMs).toBe(67_890);
+    expect(config.tools.maxRunningSessions).toBe(3);
   });
 
   it("rejects removed app log config keys", () => {
@@ -282,8 +317,8 @@ describe("loadConfig", () => {
     );
   });
 
-  it("rejects deprecated credential keys in config.json", () => {
-    const root = createTempDir("acmd-config-legacy-keys-");
+  it("rejects unsupported credential keys in config.json", () => {
+    const root = createTempDir("acmd-config-unsupported-keys-");
     writeConfig(root, {
       ...minimalPayload(),
       telegram: {

@@ -216,48 +216,27 @@ export function createObservabilitySink(params: {
       });
       const payload = applyRedactionAndTruncation(serialized, redactionConfig, redactKeySet);
 
-      queue = queue.then(
-        async () => {
-          try {
-            await ensureLogDirectory();
-            await appendTextWithTailRetention({
-              filePath: resolvedPath,
-              text: `${JSON.stringify(payload)}\n`,
-              maxLines
-            });
-          } catch (error) {
-            if (hasReportedWriteFailure) {
-              return;
-            }
-
-            hasReportedWriteFailure = true;
-            const message = error instanceof Error ? error.message : String(error);
-            reportWarning(
-              `${new Date().toISOString()} [WARN] observability: failed to append event to ${resolvedPath}: ${message}`
-            );
+      const writeRecord = async (): Promise<void> => {
+        try {
+          await ensureLogDirectory();
+          await appendTextWithTailRetention({
+            filePath: resolvedPath,
+            text: `${JSON.stringify(payload)}\n`,
+            maxLines
+          });
+        } catch (error) {
+          if (hasReportedWriteFailure) {
+            return;
           }
-        },
-        async () => {
-          try {
-            await ensureLogDirectory();
-            await appendTextWithTailRetention({
-              filePath: resolvedPath,
-              text: `${JSON.stringify(payload)}\n`,
-              maxLines
-            });
-          } catch (error) {
-            if (hasReportedWriteFailure) {
-              return;
-            }
 
-            hasReportedWriteFailure = true;
-            const message = error instanceof Error ? error.message : String(error);
-            reportWarning(
-              `${new Date().toISOString()} [WARN] observability: failed to append event to ${resolvedPath}: ${message}`
-            );
-          }
+          hasReportedWriteFailure = true;
+          const message = error instanceof Error ? error.message : String(error);
+          reportWarning(
+            `${new Date().toISOString()} [WARN] observability: failed to append event to ${resolvedPath}: ${message}`
+          );
         }
-      );
+      };
+      queue = queue.then(writeRecord, writeRecord);
 
       await queue;
     }

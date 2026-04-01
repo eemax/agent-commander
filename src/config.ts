@@ -10,10 +10,6 @@ import { THINKING_EFFORT_VALUES, CACHE_RETENTION_VALUES, type ThinkingEffort, ty
 
 const LOG_LEVEL_VALUES = ["debug", "info", "warn", "error"] as const;
 const TELEGRAM_ASSISTANT_FORMAT_VALUES = ["plain_text", "markdown_to_html"] as const;
-const DEFAULT_TELEGRAM_BOT_TOKEN_KEY = "DEFAULT_TELEGRAM_BOT_TOKEN";
-const DEFAULT_OPENAI_API_KEY_KEY = "DEFAULT_OPENAI_API_KEY";
-const DEFAULT_PERPLEXITY_API_KEY_KEY = "DEFAULT_PERPLEXITY_API_KEY";
-
 const DEFAULT_CONFIG_TEMPLATE = {
   telegram: {
     streaming_enabled: true,
@@ -55,7 +51,9 @@ const DEFAULT_CONFIG_TEMPLATE = {
     timeout_ms: 45_000 as number | null,
     max_retries: 2,
     retry_base_ms: 250,
-    retry_max_ms: 2_000
+    retry_max_ms: 2_000,
+    ws_rotation_ms: 3_300_000,
+    ws_idle_timeout_ms: 300_000
   },
   runtime: {
     log_level: "info",
@@ -81,6 +79,7 @@ const DEFAULT_CONFIG_TEMPLATE = {
     log_path: ".agent-commander/tool-calls.jsonl",
     completed_session_retention_ms: 900_000,
     max_completed_sessions: 50,
+    max_running_sessions: null as number | null,
     max_output_chars: 200_000,
     web_search: {
       default_preset: "pro-search",
@@ -195,7 +194,9 @@ export const configSchema = z
         timeout_ms: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.openai.timeout_ms),
         max_retries: nonNegativeInt.default(DEFAULT_CONFIG_TEMPLATE.openai.max_retries),
         retry_base_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.openai.retry_base_ms),
-        retry_max_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.openai.retry_max_ms)
+        retry_max_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.openai.retry_max_ms),
+        ws_rotation_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.openai.ws_rotation_ms),
+        ws_idle_timeout_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.openai.ws_idle_timeout_ms)
       })
       .strict(),
     runtime: z
@@ -225,6 +226,7 @@ export const configSchema = z
         log_path: optionalNonEmptyString.default(DEFAULT_CONFIG_TEMPLATE.tools.log_path),
         completed_session_retention_ms: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.tools.completed_session_retention_ms),
         max_completed_sessions: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.tools.max_completed_sessions),
+        max_running_sessions: positiveInt.nullable().default(DEFAULT_CONFIG_TEMPLATE.tools.max_running_sessions),
         max_output_chars: positiveInt.default(DEFAULT_CONFIG_TEMPLATE.tools.max_output_chars),
         web_search: z
           .object({
@@ -360,46 +362,6 @@ function normalizeSecretCandidate(value: string | null | undefined): string | nu
     return null;
   }
   return trimmed;
-}
-
-function parseDotEnv(content: string): Record<string, string> {
-  const output: Record<string, string> = {};
-  const lines = content.split(/\r?\n/u);
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0 || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    const match = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/u.exec(trimmed);
-    if (!match || !match[1]) {
-      continue;
-    }
-
-    const rawValue = match[2] ?? "";
-    const singleQuoted = rawValue.startsWith("'") && rawValue.endsWith("'");
-    const doubleQuoted = rawValue.startsWith("\"") && rawValue.endsWith("\"");
-    output[match[1]] = singleQuoted || doubleQuoted ? rawValue.slice(1, -1) : rawValue.trim();
-  }
-
-  return output;
-}
-
-function readDotEnvDefaults(repoRoot: string): Record<string, string> {
-  const envPath = path.resolve(repoRoot, ".env");
-  if (!fs.existsSync(envPath)) {
-    return {};
-  }
-  return parseDotEnv(fs.readFileSync(envPath, "utf8"));
-}
-
-function resolveDefaultSecret(dotEnvValues: Record<string, string>, key: string): string | null {
-  const fromProcess = normalizeSecretCandidate(process.env[key]);
-  if (fromProcess !== null) {
-    return fromProcess;
-  }
-  return normalizeSecretCandidate(dotEnvValues[key]);
 }
 
 function normalizeAllowedSenderIds(value: string[]): Set<string> {
@@ -607,7 +569,9 @@ export function buildConfigFromParsed(
       timeoutMs: config.openai.timeout_ms,
       maxRetries: config.openai.max_retries,
       retryBaseMs: config.openai.retry_base_ms,
-      retryMaxMs: config.openai.retry_max_ms
+      retryMaxMs: config.openai.retry_max_ms,
+      wsRotationMs: config.openai.ws_rotation_ms,
+      wsIdleTimeoutMs: config.openai.ws_idle_timeout_ms
     },
     runtime: {
       logLevel: config.runtime.log_level,
@@ -637,6 +601,7 @@ export function buildConfigFromParsed(
       logMaxLines: config.retention.logs.tool_calls_max_lines,
       completedSessionRetentionMs: config.tools.completed_session_retention_ms,
       maxCompletedSessions: config.tools.max_completed_sessions,
+      maxRunningSessions: config.tools.max_running_sessions,
       maxOutputChars: config.tools.max_output_chars,
       webSearch: {
         apiKey: defaultPerplexityApiKey,
@@ -685,25 +650,6 @@ export function buildConfigFromParsed(
       awaitMaxTimeoutMs: config.subagents.await_max_timeout_ms
     }
   };
-}
-
-export function loadConfig(repoRoot = process.cwd()): Config {
-  const configPath = path.resolve(repoRoot, "config", "config.json");
-  const raw = readRawConfig(configPath);
-  const dotEnvDefaults = readDotEnvDefaults(repoRoot);
-
-  const parsed = configSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(`Invalid config in ${configPath}: ${formatZodError(parsed.error)}`);
-  }
-
-  const secrets: EnvSecrets = {
-    telegramBotToken: resolveDefaultSecret(dotEnvDefaults, DEFAULT_TELEGRAM_BOT_TOKEN_KEY),
-    openaiApiKey: resolveDefaultSecret(dotEnvDefaults, DEFAULT_OPENAI_API_KEY_KEY),
-    webSearchApiKey: resolveDefaultSecret(dotEnvDefaults, DEFAULT_PERPLEXITY_API_KEY_KEY)
-  };
-
-  return buildConfigFromParsed(parsed.data, configPath, repoRoot, "default", secrets, []);
 }
 
 export function buildConfigTemplate(): string {
