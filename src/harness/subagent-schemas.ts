@@ -8,32 +8,6 @@ const attachmentSchema = z.object({
   label: z.string().optional()
 });
 
-const approvalPolicySchema = z.object({
-  can_edit_code: z.boolean().default(true),
-  can_run_tests: z.boolean().default(true),
-  can_open_pr: z.boolean().default(false),
-  requires_supervisor_for: z.array(z.string()).default([])
-});
-
-const constraintsSchema = z.object({
-  time_budget_sec: z.number().int().positive().optional(),
-  max_turns: z.number().int().positive().optional(),
-  max_total_tokens: z.number().int().positive().optional(),
-  sandbox: z.string().default("repo-write"),
-  network: z.enum(["off", "restricted", "full"]).default("off"),
-  require_plan_by_turn: z.number().int().min(0).optional(),
-  no_child_spawn: z.literal(true).default(true),
-  approval_policy: approvalPolicySchema.optional()
-});
-
-const executionSchema = z.object({
-  agent_type: z.string().default("coding"),
-  model: z.string().optional(),
-  heartbeat_interval_sec: z.number().int().positive().optional(),
-  idle_timeout_sec: z.number().int().positive().optional(),
-  stall_timeout_sec: z.number().int().positive().optional()
-});
-
 const completionContractSchema = z.object({
   require_final_summary: z.boolean().default(true),
   require_structured_result: z.boolean().default(true)
@@ -45,8 +19,6 @@ const taskSchema = z.object({
   instructions: z.string().min(1),
   context: z.record(z.unknown()).optional(),
   artifacts: z.array(attachmentSchema).optional(),
-  constraints: constraintsSchema.optional(),
-  execution: executionSchema.optional(),
   completion_contract: completionContractSchema.optional(),
   labels: z.record(z.string()).optional()
 });

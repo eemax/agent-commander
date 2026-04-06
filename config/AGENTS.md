@@ -26,7 +26,6 @@ For everything else — multi-step tasks, research, file modifications, debuggin
 
 When delegating:
 - Write a clear, complete task description. The subagent has no context beyond what you give it.
-- Set appropriate budgets. Do not over-allocate for simple tasks.
 - Spawn multiple subagents in parallel when tasks are independent.
 - Monitor progress. A delegated task is still your responsibility.
 - Verify the result before reporting to Max. A subagent's "done" is not your "done."

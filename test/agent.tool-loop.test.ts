@@ -165,6 +165,27 @@ describe("runOpenAIToolLoop", () => {
     expect(harness.metrics.workflowsTimedOut).toBe(1);
   });
 
+  it("treats a null workflow timeout as unbounded", async () => {
+    const harness = makeHarness();
+    (harness.execute as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, data: "result" });
+    const request = vi.fn()
+      .mockImplementationOnce(async () => {
+        await vi.advanceTimersByTimeAsync(70_000);
+        return makeFunctionCallResponse([{ name: "bash", args: { command: "slow" } }]);
+      })
+      .mockResolvedValueOnce(makeResponse({ output_text: "done" }));
+
+    const result = await runOpenAIToolLoop(makeParams({
+      request,
+      harness,
+      limits: { ...DEFAULT_LIMITS, workflowTimeoutMs: null }
+    }));
+
+    expect(result.reply).toBe("done");
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(harness.metrics.workflowsTimedOut).toBe(0);
+  });
+
   it("triggers failure breaker after repeated identical failures", async () => {
     const harness = makeHarness();
     (harness.execute as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("always fails"));

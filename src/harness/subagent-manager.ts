@@ -21,7 +21,6 @@ import {
   type TaskConstraints,
   type TaskExecution,
   type CompletionContract,
-  type ApprovalPolicy,
   type ProgressInfo,
   type TaskResult,
   type TaskError,
@@ -352,26 +351,34 @@ export class SubagentManager {
       used: number;
       limit: number;
       code: "TURN_LIMIT_EXCEEDED" | "TOKEN_BUDGET_EXCEEDED" | "TIME_BUDGET_EXCEEDED";
-    }> = [
-      {
+    }> = [];
+
+    if (task.constraints.maxTurns !== null) {
+      checks.push({
         resource: "turns",
         used: task.budgetUsage.turnsUsed,
         limit: task.constraints.maxTurns,
         code: "TURN_LIMIT_EXCEEDED"
-      },
-      {
+      });
+    }
+
+    if (task.constraints.maxTotalTokens !== null) {
+      checks.push({
         resource: "tokens",
         used: task.budgetUsage.tokensUsed,
         limit: task.constraints.maxTotalTokens,
         code: "TOKEN_BUDGET_EXCEEDED"
-      },
-      {
+      });
+    }
+
+    if (task.constraints.timeBudgetSec !== null) {
+      checks.push({
         resource: "time",
         used: (Date.now() - task.startedAtMs) / 1000,
         limit: task.constraints.timeBudgetSec,
         code: "TIME_BUDGET_EXCEEDED"
-      }
-    ];
+      });
+    }
 
     for (const check of checks) {
       const percent = Math.round((check.used / check.limit) * 100);
@@ -412,44 +419,20 @@ export class SubagentManager {
     }
   }
 
-  private checkPlanEnforcement(task: SubagentTask): void {
-    if (isTerminal(task.state)) return;
-    if (task.constraints.requirePlanByTurn <= 0) return;
-    if (task.budgetUsage.planSubmitted) return;
-    if (task.budgetUsage.turnsUsed < task.constraints.requirePlanByTurn) return;
-
-    this.appendEvent(task.taskId, "status_change", "needs_steer", "supervisor", {
-      message: `Subagent has not produced a plan after ${task.constraints.requirePlanByTurn} turns. Provide guidance or cancel.`,
-      requiresResponse: true
-    });
-  }
-
-  private buildConstraints(input?: Partial<TaskConstraints>): TaskConstraints {
-    const approvalPolicy: ApprovalPolicy = {
-      canEditCode: input?.approvalPolicy?.canEditCode ?? true,
-      canRunTests: input?.approvalPolicy?.canRunTests ?? true,
-      canOpenPr: input?.approvalPolicy?.canOpenPr ?? false,
-      requiresSupervisorFor: input?.approvalPolicy?.requiresSupervisorFor ?? []
-    };
+  private buildConstraints(): TaskConstraints {
     return {
-      timeBudgetSec: input?.timeBudgetSec ?? this.config.defaultTimeBudgetSec,
-      maxTurns: input?.maxTurns ?? this.config.defaultMaxTurns,
-      maxTotalTokens: input?.maxTotalTokens ?? this.config.defaultMaxTotalTokens,
-      requirePlanByTurn: input?.requirePlanByTurn ?? this.config.defaultRequirePlanByTurn,
-      sandbox: input?.sandbox ?? "repo-write",
-      network: input?.network ?? "off",
-      noChildSpawn: true,
-      approvalPolicy
+      timeBudgetSec: this.config.defaultTimeBudgetSec,
+      maxTurns: this.config.defaultMaxTurns,
+      maxTotalTokens: this.config.defaultMaxTotalTokens
     };
   }
 
-  private buildExecution(input?: Partial<TaskExecution>): TaskExecution {
+  private buildExecution(): TaskExecution {
     return {
-      agentType: input?.agentType ?? "coding",
-      model: input?.model ?? this.config.defaultModel,
-      heartbeatIntervalSec: input?.heartbeatIntervalSec ?? this.config.defaultHeartbeatIntervalSec,
-      idleTimeoutSec: input?.idleTimeoutSec ?? this.config.defaultIdleTimeoutSec,
-      stallTimeoutSec: input?.stallTimeoutSec ?? this.config.defaultStallTimeoutSec
+      model: this.config.defaultModel,
+      heartbeatIntervalSec: this.config.defaultHeartbeatIntervalSec,
+      idleTimeoutSec: this.config.defaultIdleTimeoutSec,
+      stallTimeoutSec: this.config.defaultStallTimeoutSec
     };
   }
 
@@ -498,16 +481,7 @@ export class SubagentManager {
       awaiting,
       result,
       error,
-      labels: { ...task.labels },
-      capabilities: {
-        model: task.execution.model,
-        tools: [...task.availableTools],
-        constraints: {
-          maxTurns: task.constraints.maxTurns,
-          timeBudgetSec: task.constraints.timeBudgetSec,
-          maxTotalTokens: task.constraints.maxTotalTokens
-        }
-      }
+      labels: { ...task.labels }
     };
   }
 
@@ -539,8 +513,8 @@ export class SubagentManager {
 
     const taskId = createSubagentTaskId();
     const now = nowIso();
-    const constraints = this.buildConstraints(params.constraints);
-    const execution = this.buildExecution(params.execution);
+    const constraints = this.buildConstraints();
+    const execution = this.buildExecution();
     const completionContract = this.buildCompletionContract(params.completionContract);
 
     const task: SubagentTask = {
@@ -560,7 +534,6 @@ export class SubagentManager {
       budgetUsage: {
         turnsUsed: 0,
         tokensUsed: 0,
-        planSubmitted: false,
         budgetWarnings: new Set()
       },
       nextSeq: 0,
@@ -976,10 +949,6 @@ export class SubagentManager {
       case "checkpoint":
         targetState = "running";
         targetOwnership = "subagent";
-        // Mark plan as submitted if checkpoint has a plan
-        if (fields.checkpoint?.plan) {
-          task.budgetUsage.planSubmitted = true;
-        }
         break;
     }
 
@@ -1029,7 +998,6 @@ export class SubagentManager {
     if (isTerminal(task.state)) return;
     task.budgetUsage.turnsUsed++;
     this.checkBudgets(task);
-    this.checkPlanEnforcement(task);
   }
 
   recordTokensUsed(taskId: string, count: number): void {

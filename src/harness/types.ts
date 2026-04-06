@@ -35,13 +35,12 @@ export type HarnessConfig = {
     logMaxLines?: number | null;
     defaultModel: string;
     maxConcurrentTasks: number;
-    defaultTimeBudgetSec: number;
-    defaultMaxTurns: number;
-    defaultMaxTotalTokens: number;
+    defaultTimeBudgetSec: number | null;
+    defaultMaxTurns: number | null;
+    defaultMaxTotalTokens: number | null;
     defaultHeartbeatIntervalSec: number;
     defaultIdleTimeoutSec: number;
     defaultStallTimeoutSec: number;
-    defaultRequirePlanByTurn: number;
     recvMaxEvents: number;
     recvDefaultWaitMs: number;
     awaitMaxTimeoutMs: number;

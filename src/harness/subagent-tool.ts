@@ -32,8 +32,6 @@ export const subagentsTool: ToolDef<typeof subagentInputSchema> = {
     switch (input.action) {
       case "spawn": {
         const task = input.task;
-        const constraints = task.constraints;
-        const execution = task.execution;
         const completionContract = task.completion_contract;
 
         const params: SpawnTaskParams = {
@@ -42,33 +40,6 @@ export const subagentsTool: ToolDef<typeof subagentInputSchema> = {
           instructions: task.instructions,
           context: task.context as Record<string, unknown> | undefined,
           artifacts: task.artifacts,
-          constraints: constraints
-            ? {
-                timeBudgetSec: constraints.time_budget_sec,
-                maxTurns: constraints.max_turns,
-                maxTotalTokens: constraints.max_total_tokens,
-                requirePlanByTurn: constraints.require_plan_by_turn,
-                sandbox: constraints.sandbox,
-                network: constraints.network,
-                approvalPolicy: constraints.approval_policy
-                  ? {
-                      canEditCode: constraints.approval_policy.can_edit_code,
-                      canRunTests: constraints.approval_policy.can_run_tests,
-                      canOpenPr: constraints.approval_policy.can_open_pr,
-                      requiresSupervisorFor: constraints.approval_policy.requires_supervisor_for
-                    }
-                  : undefined
-              }
-            : undefined,
-          execution: execution
-            ? {
-                agentType: execution.agent_type,
-                model: execution.model,
-                heartbeatIntervalSec: execution.heartbeat_interval_sec,
-                idleTimeoutSec: execution.idle_timeout_sec,
-                stallTimeoutSec: execution.stall_timeout_sec
-              }
-            : undefined,
           completionContract: completionContract
             ? {
                 requireFinalSummary: completionContract.require_final_summary,

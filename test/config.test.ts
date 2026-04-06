@@ -139,6 +139,9 @@ describe("loadConfig", () => {
     expect(config.observability.redaction.maxStringChars).toBe(4000);
     expect(config.observability.redaction.redactKeys).toContain("authorization");
     expect(config.subagents.logPath).toBe(path.join(root, ".agent-commander", "subagents.jsonl"));
+    expect(config.subagents.defaultTimeBudgetSec).toBeNull();
+    expect(config.subagents.defaultMaxTurns).toBeNull();
+    expect(config.subagents.defaultMaxTotalTokens).toBeNull();
     expect(config.runtime.promptHistoryLimit).toBe(20);
     expect(config.paths.workspaceRoot).toContain(path.join(".workspace"));
     expect(config.tools.defaultCwd).toBe(config.paths.workspaceRoot);
@@ -178,6 +181,28 @@ describe("loadConfig", () => {
       () => {
         expect(() => loadConfig(root)).toThrow(
           "config.telegram: Unrecognized key(s) in object: 'draft_preview_max_sentences', 'draft_preview_max_chars'"
+        );
+      }
+    );
+  });
+
+  it("rejects removed subagent plan enforcement config", () => {
+    const root = createTempDir("acmd-config-removed-subagent-plan-");
+    writeConfig(root, {
+      ...minimalPayload(),
+      subagents: {
+        default_require_plan_by_turn: 3
+      }
+    });
+
+    withDefaultSecrets(
+      {
+        DEFAULT_TELEGRAM_BOT_TOKEN: "tg-default",
+        DEFAULT_OPENAI_API_KEY: "oa-default"
+      },
+      () => {
+        expect(() => loadConfig(root)).toThrow(
+          "config.subagents: Unrecognized key(s) in object: 'default_require_plan_by_turn'"
         );
       }
     );

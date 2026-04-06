@@ -1,10 +1,10 @@
 # Subagents
 
-Subagents are disposable, protocol-driven work sessions that the supervisor can spawn to delegate tasks. Each subagent runs its own LLM tool loop with budget enforcement, liveness tracking, and a structured event protocol for supervisor–subagent communication.
+Subagents are disposable, protocol-driven work sessions that the supervisor can spawn to delegate tasks. Each subagent runs its own LLM tool loop with config-owned policy, liveness tracking, and a structured event protocol for supervisor–subagent communication.
 
 ## How It Works
 
-1. The supervisor calls `subagents` tool with `action: "spawn"` and a task definition (goal, instructions, context, constraints).
+1. The supervisor calls `subagents` tool with `action: "spawn"` and a task definition (goal, instructions, context, labels, completion contract).
 2. The runtime creates a `SubagentTask`, starts a dedicated LLM tool loop for it, and returns a `taskId` + `cursor`.
 3. The subagent works autonomously — calling tools, reasoning, making progress.
 4. The supervisor polls events via `recv` or blocks via `await` to track progress.
@@ -41,7 +41,7 @@ Subagents do **not** have access to skills. Skills are a routing-layer feature (
 
 | Setting | Subagent behavior |
 |---------|-------------------|
-| **Model** | Configurable per-task via `task.execution.model`. Defaults to `subagents.default_model` in config (default: `gpt-5.4-mini`). |
+| **Model** | Resolved from `subagents.default_model` in config (default: `gpt-5.4-mini`). |
 | **Thinking effort** | Uses the resolved model's `default_thinking` from the model catalog. Does not inherit the supervisor's per-conversation `/thinking` override. |
 | **Cache retention** | Hardcoded to `"in_memory"` for prompt cache. Does not inherit the supervisor's `/cache` override. |
 | **Compaction** | Uses the resolved model's `compaction_tokens` and `compaction_threshold` from the model catalog. |
@@ -57,7 +57,7 @@ The subagent LLM receives a dynamically built system message (`instructions` fie
 2. **Goal** — `task.goal`
 3. **Instructions** — `task.instructions` (if provided)
 4. **Context** — key-value entries from `task.context` (if any)
-5. **Constraints** — `maxTurns`, `timeBudgetSec`, `maxTotalTokens`
+5. **Configured caps** — included only when `maxTurns`, `timeBudgetSec`, or `maxTotalTokens` are configured
 6. **Completion protocol** — must end every non-tool-call response with `[TASK_COMPLETE]` or `[NEEDS_INPUT]`
 7. **Asking for help** — instructions for using `[NEEDS_INPUT]` when blocked
 
@@ -81,8 +81,7 @@ queued → starting → running ──→ completed
 - **needs_steer**: subagent sent `[NEEDS_INPUT]` — waiting for supervisor guidance via `send`.
 - **needs_input**: subagent requested user-facing input — waiting for supervisor to relay answer.
 - **stalled**: no activity for `default_idle_timeout_sec` — auto-fails after `default_stall_timeout_sec`.
-- Budget warnings fire at 80% of turns/tokens/time. Hard cutoff at 100%.
-- Plan enforcement: if no checkpoint with a plan by turn `require_plan_by_turn`, task transitions to `needs_steer`.
+- Budget warnings fire at 80% of turns/tokens/time only when those caps are configured. Hard cutoff at 100%.
 
 ## Pause and Resume
 
@@ -151,15 +150,17 @@ Failed actions show `⚠️ Subagent \`{action}\` failed: {error}`.
 
 All settings are in `config/config.json` under the `subagents` key. See [config-reference.md](config-reference.md#subagents) for the full schema.
 
+If you are upgrading an older config, remove `default_require_plan_by_turn`; that setting was deleted and strict config validation now rejects it.
+
 Key defaults:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `enabled` | `true` | Register the subagents tool |
 | `max_concurrent_tasks` | `10` | Simultaneous non-terminal tasks |
-| `default_time_budget_sec` | `900` | Per-task time limit |
-| `default_max_turns` | `30` | Per-task LLM turn limit |
-| `default_max_total_tokens` | `500000` | Per-task cumulative token limit |
+| `default_time_budget_sec` | `null` | Per-task time limit (`null` disables the cap) |
+| `default_max_turns` | `null` | Per-task LLM turn limit (`null` disables the cap) |
+| `default_max_total_tokens` | `null` | Per-task cumulative token limit (`null` disables the cap) |
 | `default_model` | `gpt-5.4-mini` | Default model for subagent inference |
 
 ## Key Files
@@ -168,6 +169,6 @@ Key defaults:
 |------|------|
 | `src/harness/subagent-tool.ts` | Supervisor-facing tool (7 actions) |
 | `src/harness/subagent-worker.ts` | LLM execution, scoped harness, system prompt |
-| `src/harness/subagent-manager.ts` | State machine, event protocol, budget enforcement |
+| `src/harness/subagent-manager.ts` | State machine, event protocol, config-owned cap enforcement |
 | `src/harness/subagent-types.ts` | Type definitions (task, event, result, constraints) |
 | `src/harness/subagent-schemas.ts` | Zod input schemas for the tool |

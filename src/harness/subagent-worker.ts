@@ -617,11 +617,21 @@ function buildSystemInstructions(task: SubagentTask): string {
     parts.push("");
   }
 
-  parts.push("## Constraints");
-  parts.push(`- Maximum turns: ${task.constraints.maxTurns}`);
-  parts.push(`- Time budget: ${task.constraints.timeBudgetSec}s`);
-  parts.push(`- Token budget: ${task.constraints.maxTotalTokens} tokens`);
-  parts.push("");
+  const constraintLines: string[] = [];
+  if (task.constraints.maxTurns !== null) {
+    constraintLines.push(`- Maximum turns: ${task.constraints.maxTurns}`);
+  }
+  if (task.constraints.timeBudgetSec !== null) {
+    constraintLines.push(`- Time budget: ${task.constraints.timeBudgetSec}s`);
+  }
+  if (task.constraints.maxTotalTokens !== null) {
+    constraintLines.push(`- Token budget: ${task.constraints.maxTotalTokens} tokens`);
+  }
+  if (constraintLines.length > 0) {
+    parts.push("## Constraints");
+    parts.push(...constraintLines);
+    parts.push("");
+  }
 
   parts.push("## Reporting Contract");
   parts.push("");
@@ -748,7 +758,7 @@ export function createSubagentWorker(deps: SubagentWorkerDeps): SubagentWorker {
 
   function buildToolLoopLimits(task: SubagentTask) {
     return {
-      workflowTimeoutMs: task.constraints.timeBudgetSec * 1000,
+      workflowTimeoutMs: task.constraints.timeBudgetSec === null ? null : task.constraints.timeBudgetSec * 1000,
       commandTimeoutMs: config.runtime.toolCommandTimeoutMs,
       pollIntervalMs: config.runtime.toolPollIntervalMs,
       pollMaxAttempts: config.runtime.toolPollMaxAttempts,

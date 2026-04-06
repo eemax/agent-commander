@@ -13,13 +13,12 @@ function makeManagerConfig(overrides: Partial<SubagentManagerConfig> = {}): Suba
   return {
     defaultModel: "test-model",
     maxConcurrentTasks: 10,
-    defaultTimeBudgetSec: 900,
-    defaultMaxTurns: 30,
-    defaultMaxTotalTokens: 500_000,
+    defaultTimeBudgetSec: null,
+    defaultMaxTurns: null,
+    defaultMaxTotalTokens: null,
     defaultHeartbeatIntervalSec: 9999, // Large to avoid heartbeat interference
     defaultIdleTimeoutSec: 9999,
     defaultStallTimeoutSec: 99999,
-    defaultRequirePlanByTurn: 999,
     recvMaxEvents: 100,
     recvDefaultWaitMs: 200,
     awaitMaxTimeoutMs: 30_000,
@@ -130,13 +129,12 @@ function makeConfig(): Config {
       logPath: "/tmp/subagents.jsonl",
       defaultModel: "test-model",
       maxConcurrentTasks: 10,
-      defaultTimeBudgetSec: 900,
-      defaultMaxTurns: 30,
-      defaultMaxTotalTokens: 500_000,
+      defaultTimeBudgetSec: null,
+      defaultMaxTurns: null,
+      defaultMaxTotalTokens: null,
       defaultHeartbeatIntervalSec: 9999,
       defaultIdleTimeoutSec: 9999,
       defaultStallTimeoutSec: 99999,
-      defaultRequirePlanByTurn: 999,
       recvMaxEvents: 100,
       recvDefaultWaitMs: 200,
       awaitMaxTimeoutMs: 30_000
@@ -326,20 +324,9 @@ describe("SubagentWorker", () => {
       constraints: {
         timeBudgetSec: 900,
         maxTurns: 30,
-        maxTotalTokens: 500_000,
-        requirePlanByTurn: 999,
-        sandbox: "none",
-        network: "full",
-        noChildSpawn: true,
-        approvalPolicy: {
-          canEditCode: true,
-          canRunTests: true,
-          canOpenPr: false,
-          requiresSupervisorFor: []
-        }
+        maxTotalTokens: 500_000
       },
       execution: {
-        agentType: "coding",
         model: "test-model",
         heartbeatIntervalSec: 9999,
         idleTimeoutSec: 9999,
@@ -355,7 +342,6 @@ describe("SubagentWorker", () => {
       budgetUsage: {
         turnsUsed: 0,
         tokensUsed: 0,
-        planSubmitted: false,
         budgetWarnings: new Set()
       },
       nextSeq: 0,
@@ -900,15 +886,11 @@ describe("SubagentWorker", () => {
     });
   });
 
-  describe("capabilities in inspect", () => {
-    it("inspect snapshot includes capabilities", () => {
+  describe("inspect snapshot", () => {
+    it("does not expose internal capabilities", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
       const snapshot = manager.inspect("owner-1", response.taskId);
-      expect(snapshot.capabilities).toBeDefined();
-      expect(snapshot.capabilities.model).toBeDefined();
-      expect(snapshot.capabilities.constraints.maxTurns).toBe(30);
-      expect(snapshot.capabilities.constraints.timeBudgetSec).toBe(900);
-      expect(Array.isArray(snapshot.capabilities.tools)).toBe(true);
+      expect(snapshot).not.toHaveProperty("capabilities");
     });
   });
 

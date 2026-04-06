@@ -74,21 +74,20 @@ export function createToolHarness(
         warningReporter: deps.subagentLogWarningReporter
       }))
     : undefined;
-  const subagentManager = subagentConfig?.enabled === true
+  const subagentManager = subagentConfig && subagentConfig.enabled === true
     ? new SubagentManager(
         {
-          defaultModel: subagentConfig?.defaultModel ?? "gpt-5.4-mini",
-          maxConcurrentTasks: subagentConfig?.maxConcurrentTasks ?? 10,
-          defaultTimeBudgetSec: subagentConfig?.defaultTimeBudgetSec ?? 900,
-          defaultMaxTurns: subagentConfig?.defaultMaxTurns ?? 30,
-          defaultMaxTotalTokens: subagentConfig?.defaultMaxTotalTokens ?? 500_000,
-          defaultHeartbeatIntervalSec: subagentConfig?.defaultHeartbeatIntervalSec ?? 30,
-          defaultIdleTimeoutSec: subagentConfig?.defaultIdleTimeoutSec ?? 120,
-          defaultStallTimeoutSec: subagentConfig?.defaultStallTimeoutSec ?? 300,
-          defaultRequirePlanByTurn: subagentConfig?.defaultRequirePlanByTurn ?? 3,
-          recvMaxEvents: subagentConfig?.recvMaxEvents ?? 100,
-          recvDefaultWaitMs: subagentConfig?.recvDefaultWaitMs ?? 200,
-          awaitMaxTimeoutMs: subagentConfig?.awaitMaxTimeoutMs ?? 30_000
+          defaultModel: subagentConfig.defaultModel,
+          maxConcurrentTasks: subagentConfig.maxConcurrentTasks,
+          defaultTimeBudgetSec: subagentConfig.defaultTimeBudgetSec,
+          defaultMaxTurns: subagentConfig.defaultMaxTurns,
+          defaultMaxTotalTokens: subagentConfig.defaultMaxTotalTokens,
+          defaultHeartbeatIntervalSec: subagentConfig.defaultHeartbeatIntervalSec,
+          defaultIdleTimeoutSec: subagentConfig.defaultIdleTimeoutSec,
+          defaultStallTimeoutSec: subagentConfig.defaultStallTimeoutSec,
+          recvMaxEvents: subagentConfig.recvMaxEvents,
+          recvDefaultWaitMs: subagentConfig.recvDefaultWaitMs,
+          awaitMaxTimeoutMs: subagentConfig.awaitMaxTimeoutMs
         },
         undefined,
         deps.observability,

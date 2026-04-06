@@ -19,13 +19,12 @@ function createHarness(root: string): ToolHarness {
       logPath: `${root}/subagents.jsonl`,
       defaultModel: "gpt-5.4-mini",
       maxConcurrentTasks: 5,
-      defaultTimeBudgetSec: 60,
-      defaultMaxTurns: 10,
-      defaultMaxTotalTokens: 50_000,
+      defaultTimeBudgetSec: null,
+      defaultMaxTurns: null,
+      defaultMaxTotalTokens: null,
       defaultHeartbeatIntervalSec: 30,
       defaultIdleTimeoutSec: 120,
       defaultStallTimeoutSec: 300,
-      defaultRequirePlanByTurn: 3,
       recvMaxEvents: 50,
       recvDefaultWaitMs: 100,
       awaitMaxTimeoutMs: 5_000
@@ -51,6 +50,17 @@ describe("subagents tool (integration)", () => {
   it("is registered in the tool harness", () => {
     const tools = harness.exportProviderTools();
     expect(tools.some((t) => t.name === "subagents")).toBe(true);
+  });
+
+  it("exports an intent-only spawn schema", () => {
+    const subagentsTool = harness.exportProviderTools().find((tool) => tool.name === "subagents");
+    const taskProperties = ((subagentsTool?.parameters.properties as Record<string, unknown>)?.task as {
+      properties?: Record<string, unknown>;
+    } | undefined)?.properties;
+
+    expect(taskProperties).toBeDefined();
+    expect(taskProperties).not.toHaveProperty("constraints");
+    expect(taskProperties).not.toHaveProperty("execution");
   });
 
   it("spawn creates a task and returns response", async () => {
@@ -218,13 +228,12 @@ describe("subagents tool (integration)", () => {
         logPath: `${root}/subagents.jsonl`,
         defaultModel: "gpt-5.4-mini",
         maxConcurrentTasks: 5,
-        defaultTimeBudgetSec: 60,
-        defaultMaxTurns: 10,
-        defaultMaxTotalTokens: 50_000,
+        defaultTimeBudgetSec: null,
+        defaultMaxTurns: null,
+        defaultMaxTotalTokens: null,
         defaultHeartbeatIntervalSec: 30,
         defaultIdleTimeoutSec: 120,
         defaultStallTimeoutSec: 300,
-        defaultRequirePlanByTurn: 3,
         recvMaxEvents: 50,
         recvDefaultWaitMs: 100,
         awaitMaxTimeoutMs: 5_000

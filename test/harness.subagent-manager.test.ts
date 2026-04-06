@@ -7,13 +7,12 @@ function makeConfig(overrides: Partial<SubagentManagerConfig> = {}): SubagentMan
   return {
     defaultModel: "gpt-5.4-mini",
     maxConcurrentTasks: 10,
-    defaultTimeBudgetSec: 900,
-    defaultMaxTurns: 30,
-    defaultMaxTotalTokens: 500_000,
+    defaultTimeBudgetSec: null,
+    defaultMaxTurns: null,
+    defaultMaxTotalTokens: null,
     defaultHeartbeatIntervalSec: 30,
     defaultIdleTimeoutSec: 120,
     defaultStallTimeoutSec: 300,
-    defaultRequirePlanByTurn: 3,
     recvMaxEvents: 100,
     recvDefaultWaitMs: 200,
     awaitMaxTimeoutMs: 30_000,
@@ -70,18 +69,6 @@ describe("SubagentManager", () => {
       expect(recv.events.length).toBeGreaterThanOrEqual(1);
       expect(recv.events[0].kind).toBe("started");
       expect(recv.events[0].state).toBe("running");
-    });
-
-    it("applies custom constraints", () => {
-      const response = manager.spawn("owner-1", makeSpawnParams({
-        constraints: {
-          timeBudgetSec: 60,
-          maxTurns: 5,
-          maxTotalTokens: 10_000
-        }
-      }));
-      const snapshot = manager.inspect("owner-1", response.taskId);
-      expect(snapshot).toBeDefined();
     });
 
     it("rejects spawn when concurrent limit reached", () => {
@@ -429,7 +416,7 @@ describe("SubagentManager", () => {
       expect(snapshot.turnOwnership).toBe("supervisor");
     });
 
-    it("pushes checkpoint with plan and marks plan as submitted", () => {
+    it("pushes checkpoint and keeps the task running", () => {
       const response = manager.spawn("owner-1", makeSpawnParams());
       manager.pushWorkerEvent(response.taskId, "checkpoint", {
         message: "Plan established",
@@ -439,7 +426,6 @@ describe("SubagentManager", () => {
         }
       });
 
-      // Plan is submitted — no needs_steer on turn 3
       manager.recordTurnUsed(response.taskId);
       manager.recordTurnUsed(response.taskId);
       manager.recordTurnUsed(response.taskId);
@@ -461,6 +447,21 @@ describe("SubagentManager", () => {
   // ── Budget enforcement ────────────────────────────────────────────────────
 
   describe("budget enforcement", () => {
+    it("does not warn or time out when all caps are null", () => {
+      const response = manager.spawn("owner-1", makeSpawnParams());
+
+      for (let i = 0; i < 100; i++) {
+        manager.recordTurnUsed(response.taskId);
+      }
+      manager.recordTokensUsed(response.taskId, 1_000_000);
+
+      const snapshot = manager.inspect("owner-1", response.taskId);
+      const recv = manager.recv("owner-1", { [response.taskId]: "" });
+
+      expect(snapshot.state).toBe("running");
+      expect(recv.events.some((e) => e.kind === "budget_warning")).toBe(false);
+    });
+
     it("emits budget_warning at 80% turns", () => {
       manager.shutdown();
       manager = new SubagentManager(makeConfig({ defaultMaxTurns: 10 }));
@@ -501,55 +502,6 @@ describe("SubagentManager", () => {
 
       const snapshot = manager.inspect("owner-1", response.taskId);
       expect(snapshot.state).toBe("timed_out");
-    });
-  });
-
-  // ── Plan enforcement ──────────────────────────────────────────────────────
-
-  describe("plan enforcement", () => {
-    it("transitions to needs_steer when no plan by deadline", () => {
-      manager.shutdown();
-      manager = new SubagentManager(makeConfig({ defaultRequirePlanByTurn: 2 }));
-
-      const response = manager.spawn("owner-1", makeSpawnParams());
-
-      manager.recordTurnUsed(response.taskId);
-      manager.recordTurnUsed(response.taskId);
-
-      const snapshot = manager.inspect("owner-1", response.taskId);
-      expect(snapshot.state).toBe("needs_steer");
-    });
-
-    it("does not trigger if plan is submitted before deadline", () => {
-      manager.shutdown();
-      manager = new SubagentManager(makeConfig({ defaultRequirePlanByTurn: 3 }));
-
-      const response = manager.spawn("owner-1", makeSpawnParams());
-
-      manager.recordTurnUsed(response.taskId);
-      manager.pushWorkerEvent(response.taskId, "checkpoint", {
-        message: "Plan",
-        checkpoint: { plan: ["step 1"] }
-      });
-      manager.recordTurnUsed(response.taskId);
-      manager.recordTurnUsed(response.taskId);
-
-      const snapshot = manager.inspect("owner-1", response.taskId);
-      expect(snapshot.state).toBe("running");
-    });
-
-    it("does not trigger when require_plan_by_turn is 0", () => {
-      manager.shutdown();
-      manager = new SubagentManager(makeConfig({ defaultRequirePlanByTurn: 0 }));
-
-      const response = manager.spawn("owner-1", makeSpawnParams());
-
-      for (let i = 0; i < 5; i++) {
-        manager.recordTurnUsed(response.taskId);
-      }
-
-      const snapshot = manager.inspect("owner-1", response.taskId);
-      expect(snapshot.state).toBe("running");
     });
   });
 

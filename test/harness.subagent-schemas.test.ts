@@ -19,7 +19,7 @@ describe("subagentInputSchema", () => {
       }
     });
 
-    it("parses spawn with full constraints", () => {
+    it("parses spawn with all optional task fields", () => {
       const input = {
         action: "spawn",
         task: {
@@ -28,27 +28,6 @@ describe("subagentInputSchema", () => {
           instructions: "Consolidate token validation.",
           context: { repo: "my-app" },
           artifacts: [{ type: "file", ref: "sandbox:/src/auth.ts" }],
-          constraints: {
-            time_budget_sec: 600,
-            max_turns: 20,
-            max_total_tokens: 300000,
-            sandbox: "repo-write",
-            network: "restricted",
-            require_plan_by_turn: 2,
-            approval_policy: {
-              can_edit_code: true,
-              can_run_tests: true,
-              can_open_pr: false,
-              requires_supervisor_for: ["dependency_changes"]
-            }
-          },
-          execution: {
-            agent_type: "coding",
-            model: "strong-reasoning",
-            heartbeat_interval_sec: 15,
-            idle_timeout_sec: 60,
-            stall_timeout_sec: 180
-          },
           completion_contract: {
             require_final_summary: true,
             require_structured_result: false

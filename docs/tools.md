@@ -233,16 +233,10 @@ Create and start a new subagent task.
 | `task.instructions` | string | yes | Behavioral guidance for the subagent |
 | `task.context` | object | no | Arbitrary key-value context |
 | `task.artifacts` | array | no | Files/resources available to subagent |
-| `task.constraints` | object | no | Budget and policy overrides (see below) |
-| `task.execution` | object | no | Agent type, model, liveness config |
 | `task.completion_contract` | object | no | Require summary/structured result |
 | `task.labels` | object | no | Arbitrary string labels for filtering |
 
-**Constraints (all optional, defaults from config):**
-- `time_budget_sec`, `max_turns`, `max_total_tokens` — budget limits
-- `require_plan_by_turn` — plan enforcement deadline (0 to disable)
-- `sandbox`, `network` — execution environment
-- `approval_policy` — action permissions (`can_edit_code`, `can_run_tests`, `can_open_pr`, `requires_supervisor_for`)
+Model selection, liveness settings, and optional caps are resolved from `config.subagents` and are not exposed to the supervisor tool schema.
 
 **Completion contract:**
 - `require_final_summary` — final reply must contain a concise human summary
@@ -316,9 +310,8 @@ Block until a condition is met or timeout.
 
 **Task lifecycle:**
 - Tasks transition through: `queued → starting → running` on spawn
-- Runtime emits heartbeats, detects stalls, enforces budgets (turns, tokens, time)
-- Budget warnings emitted at 80% usage; hard cutoff at 100% → `timed_out`
-- Plan enforcement: if no checkpoint with plan by `require_plan_by_turn`, task → `needs_steer`
+- Runtime emits heartbeats, detects stalls, and enforces configured caps (turns, tokens, time)
+- Budget warnings are emitted at 80% usage only for caps that are configured; hard cutoff at 100% → `timed_out`
 - Terminal states: `completed`, `failed`, `cancelled`, `timed_out`
 - Every spawned task is guaranteed to reach a terminal state
 - Final structured results are expected to separate `confirmed`, `inferred`, and `unverified`

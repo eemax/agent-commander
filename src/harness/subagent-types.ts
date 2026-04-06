@@ -168,32 +168,17 @@ export type SubagentEvent = {
   leaseExpiresAt?: string;
 };
 
-// --- Approval policy ---------------------------------------------------------
-
-export type ApprovalPolicy = {
-  canEditCode: boolean;
-  canRunTests: boolean;
-  canOpenPr: boolean;
-  requiresSupervisorFor: string[];
-};
-
 // --- Task constraints --------------------------------------------------------
 
 export type TaskConstraints = {
-  timeBudgetSec: number;
-  maxTurns: number;
-  maxTotalTokens: number;
-  requirePlanByTurn: number;
-  sandbox: string;
-  network: "off" | "restricted" | "full";
-  noChildSpawn: true;
-  approvalPolicy: ApprovalPolicy;
+  timeBudgetSec: number | null;
+  maxTurns: number | null;
+  maxTotalTokens: number | null;
 };
 
 // --- Task execution config ---------------------------------------------------
 
 export type TaskExecution = {
-  agentType: string;
   model: string;
   heartbeatIntervalSec: number;
   idleTimeoutSec: number;
@@ -215,8 +200,6 @@ export type SpawnTaskParams = {
   instructions: string;
   context?: Record<string, unknown>;
   artifacts?: Attachment[];
-  constraints?: Partial<TaskConstraints>;
-  execution?: Partial<TaskExecution>;
   completionContract?: Partial<CompletionContract>;
   labels?: Record<string, string>;
 };
@@ -226,7 +209,6 @@ export type SpawnTaskParams = {
 export type BudgetUsage = {
   turnsUsed: number;
   tokensUsed: number;
-  planSubmitted: boolean;
   budgetWarnings: Set<string>;
 };
 
@@ -288,15 +270,6 @@ export type TaskSnapshot = {
   result: TaskResult | null;
   error: TaskError | null;
   labels: Record<string, string>;
-  capabilities: {
-    model: string;
-    tools: string[];
-    constraints: {
-      maxTurns: number;
-      timeBudgetSec: number;
-      maxTotalTokens: number;
-    };
-  };
 };
 
 // --- Supervisor message (send action input) ----------------------------------
@@ -379,13 +352,12 @@ export const NO_OP_WORKER: SubagentWorker = {
 export type SubagentManagerConfig = {
   defaultModel: string;
   maxConcurrentTasks: number;
-  defaultTimeBudgetSec: number;
-  defaultMaxTurns: number;
-  defaultMaxTotalTokens: number;
+  defaultTimeBudgetSec: number | null;
+  defaultMaxTurns: number | null;
+  defaultMaxTotalTokens: number | null;
   defaultHeartbeatIntervalSec: number;
   defaultIdleTimeoutSec: number;
   defaultStallTimeoutSec: number;
-  defaultRequirePlanByTurn: number;
   recvMaxEvents: number;
   recvDefaultWaitMs: number;
   awaitMaxTimeoutMs: number;

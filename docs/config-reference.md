@@ -155,20 +155,19 @@ For each log cap, `null` disables trimming. When enabled, the file keeps only th
 
 - `enabled`: boolean, default `true` — register the subagents tool
 - `log_path`: path string, default `".agent-commander/subagents.jsonl"` — append-only audit log for supervisor subagent calls, task events, exchanges, and subagent-internal tool activity
-- `default_model`: non-empty string, default `"gpt-5.4-mini"` — model used for subagent inference when not overridden per-task
+- `default_model`: non-empty string, default `"gpt-5.4-mini"` — model used for subagent inference
 - `max_concurrent_tasks`: positive integer, default `10` — cap on simultaneous non-terminal tasks
-- `default_time_budget_sec`: positive integer, default `900` — per-task time limit
-- `default_max_turns`: positive integer, default `30` — per-task turn limit
-- `default_max_total_tokens`: positive integer, default `500000` — per-task cumulative token limit
+- `default_time_budget_sec`: positive integer or `null`, default `null` — per-task time limit; `null` disables the cap
+- `default_max_turns`: positive integer or `null`, default `null` — per-task turn limit; `null` disables the cap
+- `default_max_total_tokens`: positive integer or `null`, default `null` — per-task cumulative token limit; `null` disables the cap
 - `default_heartbeat_interval_sec`: positive integer, default `30` — runtime heartbeat period
 - `default_idle_timeout_sec`: positive integer, default `120` — idle duration before stall detection
 - `default_stall_timeout_sec`: positive integer, default `300` — stall duration before failure
-- `default_require_plan_by_turn`: non-negative integer, default `3` — plan checkpoint deadline (0 disables)
 - `recv_max_events`: positive integer, default `100` — max events per recv call
 - `recv_default_wait_ms`: non-negative integer, default `200` — default long-poll wait
 - `await_max_timeout_ms`: positive integer, default `30000` — cap on await timeout
 
-The entire section is optional with defaults; existing config files work without modification. When `enabled` is `false`, the `subagents` tool is not registered.
+The entire section is optional with defaults. When upgrading older configs, remove `default_require_plan_by_turn`; strict config validation now rejects that key. When `enabled` is `false`, the `subagents` tool is not registered.
 
 ### `observability`
 
