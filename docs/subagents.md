@@ -18,6 +18,8 @@ Subagents get **all supervisor tools except `subagents`** (no recursive spawning
 
 - `bash` — shell execution
 - `process` — long-running process management
+- `glob` — file discovery via ripgrep globs
+- `grep` — text search via ripgrep
 - `read_file` — file reading
 - `write_file` — file creation/overwrite
 - `replace_in_file` — text replacement

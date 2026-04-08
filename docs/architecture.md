@@ -87,10 +87,10 @@ Agent Commander is intentionally small:
 ### Harness
 
 - `src/harness/*`
-  Local trusted tool harness (`bash`, `process`, `read_file`, `write_file`, `replace_in_file`, `apply_patch`, `web_fetch`, optional `web_search`, optional `subagents`) with owner-scoped process sessions and shared path utilities. See [tools.md](tools.md) for the full tool reference.
+  Local trusted tool harness (`bash`, `process`, `glob`, `grep`, `read_file`, `write_file`, `replace_in_file`, `apply_patch`, `web_fetch`, optional `web_search`, optional `subagents`) with owner-scoped process sessions and shared path utilities. See [tools.md](tools.md) for the full tool reference.
   Exported tool schemas are normalized for OpenAI Responses function tools (`parameters` is always a JSON Schema object root with `type: "object"` and no top-level `anyOf`/`oneOf`/`allOf`/`enum`/`not`).
 - `src/harness/subagent-*.ts`
-  Managed subagent task system: typed event protocol with explicit state transitions, turn ownership, config-owned cap enforcement (turns/tokens/time when configured), and heartbeat-based liveness tracking. `SubagentManager` is the stateful core (like `ProcessManager`); `subagent-tool.ts` exposes 7 actions (`spawn`, `recv`, `send`, `inspect`, `list`, `cancel`, `await`) via a discriminated-union tool. `SubagentWorker` drives real LLM inference via `runOpenAIToolLoop` with a scoped tool harness (all supervisor tools except `subagents`), inheriting the supervisor's per-conversation CWD. See [subagents.md](subagents.md) for the full reference.
+  Managed subagent task system: typed event protocol with explicit state transitions, turn ownership, config-owned cap enforcement (turns/tokens/time when configured), and heartbeat-based liveness tracking. `SubagentManager` is the stateful core (like `ProcessManager`); `subagent-tool.ts` exposes 7 actions (`spawn`, `recv`, `send`, `inspect`, `list`, `cancel`, `await`) via a discriminated-union tool. `SubagentWorker` drives real LLM inference via `runOpenAIToolLoop` with a scoped tool harness (all supervisor tools except `subagents`, including `glob` and `grep`), inheriting the supervisor's per-conversation CWD. See [subagents.md](subagents.md) for the full reference.
 
 ### Routing
 

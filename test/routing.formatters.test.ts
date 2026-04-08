@@ -428,6 +428,22 @@ describe("extractCountUpdate", () => {
     expect(update).toMatchObject({ emoji: "🔎", label: "Web search", chars: 14, trackChars: true });
   });
 
+  it("returns non-tracked metadata for glob", () => {
+    const update = extractCountUpdate(makeReport({
+      tool: "glob",
+      result: { matches: ["src/a.ts"] }
+    }));
+    expect(update).toMatchObject({ emoji: "🗂️", label: "Glob", chars: 0, trackChars: false });
+  });
+
+  it("returns non-tracked metadata for grep", () => {
+    const update = extractCountUpdate(makeReport({
+      tool: "grep",
+      result: { matches: [{ path: "src/a.ts", line: 1, text: "needle" }] }
+    }));
+    expect(update).toMatchObject({ emoji: "🔍", label: "Grep", chars: 0, trackChars: false });
+  });
+
   it("returns zero chars for non-tracked tools", () => {
     const update = extractCountUpdate(makeReport({
       tool: "replace_in_file",

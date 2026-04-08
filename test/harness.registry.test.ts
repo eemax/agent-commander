@@ -11,7 +11,7 @@ function createHarnessRoot(prefix: string): string {
 }
 
 describe("tool registry", () => {
-  it("registers exactly the eight canonical tools", () => {
+  it("registers exactly the ten canonical tools", () => {
     const root = createHarnessRoot("acmd-harness-registry-");
     const harness = createToolHarness({
       defaultCwd: root,
@@ -48,6 +48,8 @@ describe("tool registry", () => {
     expect(names).toEqual([
       "apply_patch",
       "bash",
+      "glob",
+      "grep",
       "process",
       "read_file",
       "replace_in_file",
@@ -57,7 +59,7 @@ describe("tool registry", () => {
     ]);
 
     const providerTools = harness.exportProviderTools();
-    expect(providerTools).toHaveLength(8);
+    expect(providerTools).toHaveLength(10);
     for (const tool of providerTools) {
       expect(tool.type).toBe("function");
       expect(typeof tool.parameters).toBe("object");

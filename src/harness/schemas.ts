@@ -94,6 +94,22 @@ export const replaceInFileInputSchema = z
   })
   .strict();
 
+export const globInputSchema = z
+  .object({
+    pattern: z.string().min(1),
+    path: z.string().min(1).optional()
+  })
+  .strict();
+
+export const grepInputSchema = z
+  .object({
+    pattern: z.string().min(1),
+    path: z.string().min(1).optional(),
+    literal: z.boolean().optional(),
+    caseSensitive: z.boolean().optional()
+  })
+  .strict();
+
 export const applyPatchInputSchema = z
   .object({
     patch: z.string().min(1),
@@ -127,6 +143,8 @@ export type ProcessInput = z.infer<typeof processInputSchema>;
 export type ReadFileInput = z.infer<typeof readFileInputSchema>;
 export type WriteFileInput = z.infer<typeof writeFileInputSchema>;
 export type ReplaceInFileInput = z.infer<typeof replaceInFileInputSchema>;
+export type GlobInput = z.infer<typeof globInputSchema>;
+export type GrepInput = z.infer<typeof grepInputSchema>;
 export type ApplyPatchInput = z.infer<typeof applyPatchInputSchema>;
 export type WebSearchInput = z.infer<typeof webSearchInputSchema>;
 export type WebFetchInput = z.infer<typeof webFetchInputSchema>;

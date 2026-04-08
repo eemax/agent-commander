@@ -7,6 +7,7 @@ Agent Commander is a Telegram bot runtime that routes messages to OpenAI, can ex
 ## Prerequisites
 
 - Node.js 22.12+
+- `rg` (ripgrep) available in `PATH` for the `glob` and `grep` tools
 - Telegram bot token from BotFather
 - OpenAI API key
 

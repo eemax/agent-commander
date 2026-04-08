@@ -257,6 +257,16 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
       return formatFailure(`⚠️ Replace failed: in \`${formatPath(args.path)}\``, report.error);
     }
 
+    if (report.tool === "glob") {
+      const pattern = readString(args.pattern) ?? "(unknown pattern)";
+      return formatFailure(`⚠️ Glob failed: \`${pattern}\``, report.error);
+    }
+
+    if (report.tool === "grep") {
+      const pattern = readString(args.pattern) ?? "(unknown pattern)";
+      return formatFailure(`⚠️ Grep failed: \`${pattern}\``, report.error);
+    }
+
     if (report.tool === "apply_patch") {
       const files = extractPatchFilePaths(args.patch);
       const filesDisplay = files.length > 0 ? ` ${files.map((f) => `\`${f}\``).join(", ")}` : "";
@@ -295,6 +305,20 @@ export function formatVerboseToolCallNotice(report: ToolCallReport): string {
 
   if (report.tool === "replace_in_file") {
     return `🔁 Replace: \`${formatPath(args.path)}\``;
+  }
+
+  if (report.tool === "glob") {
+    const pattern = readString(args.pattern) ?? "(unknown pattern)";
+    const count = Array.isArray(result.matches) ? result.matches.length : null;
+    const countDisplay = typeof count === "number" ? ` · ${count} match${count === 1 ? "" : "es"}` : "";
+    return `🗂️ Glob: \`${pattern}\`${countDisplay}`;
+  }
+
+  if (report.tool === "grep") {
+    const pattern = readString(args.pattern) ?? "(unknown pattern)";
+    const count = Array.isArray(result.matches) ? result.matches.length : null;
+    const countDisplay = typeof count === "number" ? ` · ${count} line${count === 1 ? "" : "s"}` : "";
+    return `🔍 Grep: \`${pattern}\`${countDisplay}`;
   }
 
   if (report.tool === "apply_patch") {
@@ -393,6 +417,8 @@ const TOOL_META: Record<string, { emoji: string; label: string; trackChars: bool
   write_file:      { emoji: "✍️", label: "Write",      trackChars: true },
   bash:            { emoji: "🐚", label: "Bash",       trackChars: true },
   replace_in_file: { emoji: "🔁", label: "Replace",    trackChars: false },
+  glob:            { emoji: "🗂️", label: "Glob",       trackChars: false },
+  grep:            { emoji: "🔍", label: "Grep",       trackChars: false },
   apply_patch:     { emoji: "🩹", label: "Patch",      trackChars: false },
   process:         { emoji: "⚙️", label: "Process",    trackChars: false },
   web_fetch:       { emoji: "🔗", label: "Web fetch",  trackChars: true },
@@ -522,6 +548,12 @@ function toToolDisplayName(toolName: string): string {
   }
   if (normalized === "replace_in_file") {
     return "Replace";
+  }
+  if (normalized === "glob") {
+    return "Glob";
+  }
+  if (normalized === "grep") {
+    return "Grep";
   }
   if (normalized === "apply_patch") {
     return "Patch";

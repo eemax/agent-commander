@@ -74,6 +74,13 @@ function appendNumber(target: Record<string, unknown>, key: string, value: unkno
   }
 }
 
+function appendTrueBoolean(target: Record<string, unknown>, key: string, value: unknown): void {
+  const booleanValue = readBoolean(value);
+  if (booleanValue === true) {
+    target[key] = true;
+  }
+}
+
 function addTruncationMeta(record: Record<string, unknown>, meta: Record<string, unknown>): void {
   const stdoutTruncated = readNumber(record.truncatedStdoutChars) ?? 0;
   const stderrTruncated = readNumber(record.truncatedStderrChars) ?? 0;
@@ -477,6 +484,87 @@ function normalizeReplaceInFileResult(result: unknown): NormalizedToolEnvelopeRe
   };
 }
 
+function normalizeGlobResult(result: unknown): NormalizedToolEnvelopeResult {
+  const record = asRecord(result);
+  const matches = Array.isArray(record.matches) ? record.matches : [];
+  const searchPath = readNonEmptyString(record.path);
+
+  const data: Record<string, unknown> = {
+    matches
+  };
+  if (searchPath !== null) {
+    data.search_path = searchPath;
+  }
+
+  const meta: Record<string, unknown> = {};
+  appendTrueBoolean(meta, "truncated", record.truncated);
+  appendTrueBoolean(meta, "partial", record.partial);
+  appendNumber(meta, "result_limit", record.resultLimit);
+  appendNonEmptyString(meta, "warning", record.warning);
+  appendNonEmptyString(meta, "note", record.note);
+
+  const summary =
+    matches.length === 0
+      ? "Glob found no matching paths."
+      : `Glob matched ${matches.length} path(s).`;
+
+  return {
+    envelope: {
+      ok: true,
+      summary,
+      data,
+      ...(Object.keys(meta).length > 0 ? { meta } : {})
+    },
+    report: {
+      success: true,
+      error: null,
+      errorCode: null
+    }
+  };
+}
+
+function normalizeGrepResult(result: unknown): NormalizedToolEnvelopeResult {
+  const record = asRecord(result);
+  const matches = Array.isArray(record.matches) ? record.matches : [];
+  const searchPath = readNonEmptyString(record.path);
+
+  const data: Record<string, unknown> = {
+    matches
+  };
+  if (searchPath !== null) {
+    data.search_path = searchPath;
+  }
+
+  const meta: Record<string, unknown> = {};
+  appendNumber(meta, "files_scanned", record.filesScanned);
+  appendTrueBoolean(meta, "truncated", record.truncated);
+  appendTrueBoolean(meta, "partial", record.partial);
+  appendNumber(meta, "match_limit", record.matchLimit);
+  appendNumber(meta, "output_limit", record.outputLimit);
+  appendNonEmptyString(meta, "last_file_scanned", record.lastFileScanned);
+  appendNonEmptyString(meta, "warning", record.warning);
+  appendNonEmptyString(meta, "note", record.note);
+
+  const summary =
+    matches.length === 0
+      ? "Grep found no matches."
+      : `Grep found ${matches.length} matching line(s).`;
+
+  return {
+    envelope: {
+      ok: true,
+      summary,
+      data,
+      ...(Object.keys(meta).length > 0 ? { meta } : {})
+    },
+    report: {
+      success: true,
+      error: null,
+      errorCode: null
+    }
+  };
+}
+
 // ── Patch tool normalization ────────────────────────────────────────────
 
 function normalizeApplyPatchResult(result: unknown): NormalizedToolEnvelopeResult {
@@ -589,6 +677,10 @@ export function normalizeToolSuccessOutput(params: {
       return normalizeWriteFileResult(params.result);
     case "replace_in_file":
       return normalizeReplaceInFileResult(params.result);
+    case "glob":
+      return normalizeGlobResult(params.result);
+    case "grep":
+      return normalizeGrepResult(params.result);
     case "apply_patch":
       return normalizeApplyPatchResult(params.result);
     case "web_search":

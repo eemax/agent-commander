@@ -184,6 +184,49 @@ describe("normalizeToolArgs – replace_in_file", () => {
 });
 
 /* ------------------------------------------------------------------ */
+/*  normalizeToolArgs – glob / grep                                   */
+/* ------------------------------------------------------------------ */
+describe("normalizeToolArgs – glob", () => {
+  it("resolves glob-specific aliases", () => {
+    expect(normalizeToolArgs("glob", { glob: "**/*.ts", directory: "src" })).toEqual({
+      pattern: "**/*.ts",
+      path: "src"
+    });
+  });
+});
+
+describe("normalizeToolArgs – grep", () => {
+  it("resolves aliases and case helpers", () => {
+    expect(
+      normalizeToolArgs("grep", {
+        q: "needle",
+        search_path: "src",
+        fixed_strings: "true",
+        ignore_case: "true"
+      })
+    ).toEqual({
+      pattern: "needle",
+      path: "src",
+      literal: true,
+      caseSensitive: false
+    });
+  });
+
+  it("prefers explicit caseSensitive over ignoreCase aliases", () => {
+    expect(
+      normalizeToolArgs("grep", {
+        pattern: "needle",
+        caseSensitive: "true",
+        ignoreCase: "true"
+      })
+    ).toEqual({
+      pattern: "needle",
+      caseSensitive: true
+    });
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /*  normalizeToolArgs – apply_patch                                   */
 /* ------------------------------------------------------------------ */
 describe("normalizeToolArgs – apply_patch", () => {
@@ -359,7 +402,7 @@ describe("getExpectedShapeForTool", () => {
     expect(shape?.optional).toContain("sessionId");
   });
 
-  it.each(["read_file", "write_file", "replace_in_file", "apply_patch", "web_search", "web_fetch"])(
+  it.each(["read_file", "write_file", "replace_in_file", "glob", "grep", "apply_patch", "web_search", "web_fetch"])(
     "returns shape for %s",
     (tool) => {
       const shape = getExpectedShapeForTool(tool, {});

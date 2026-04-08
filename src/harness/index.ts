@@ -6,6 +6,7 @@ import { ProcessManager } from "./process-manager.js";
 import { ToolRegistry } from "./registry.js";
 import { bashTool, processTool } from "./shell-tools.js";
 import { readFileTool, replaceInFileTool, writeFileTool } from "./file-tools.js";
+import { globTool, grepTool } from "./search-tools.js";
 import { createWebSearchTool, type WebSearchClientFactory } from "./web-search-tool.js";
 import { createWebFetchTool, type DefuddleRunner } from "./web-fetch-tool.js";
 import { SubagentManager } from "./subagent-manager.js";
@@ -117,6 +118,8 @@ export function createToolHarness(
   registry.register(readFileTool);
   registry.register(writeFileTool);
   registry.register(replaceInFileTool);
+  registry.register(globTool);
+  registry.register(grepTool);
   registry.register(applyPatchTool);
   registry.register(
     createWebFetchTool({

@@ -350,6 +350,74 @@ describe("model tool output normalizer", () => {
       }
     },
     {
+      name: "glob",
+      tool: "glob",
+      args: { pattern: "**/*.ts", path: "src" },
+      result: {
+        path: "/tmp/src",
+        matches: ["src/a.ts", "src/b.ts"],
+        truncated: true,
+        partial: true,
+        resultLimit: 2000,
+        warning: "Some directories could not be listed; results may be incomplete.",
+        note: "Result limit reached (2000 paths)."
+      },
+      expected: {
+        ok: true,
+        summary: "Glob matched 2 path(s).",
+        data: {
+          search_path: "/tmp/src",
+          matches: ["src/a.ts", "src/b.ts"]
+        },
+        meta: {
+          truncated: true,
+          partial: true,
+          result_limit: 2000,
+          warning: "Some directories could not be listed; results may be incomplete.",
+          note: "Result limit reached (2000 paths)."
+        }
+      }
+    },
+    {
+      name: "grep",
+      tool: "grep",
+      args: { pattern: "needle", path: "src" },
+      result: {
+        path: "/tmp/src",
+        matches: [
+          { path: "src/a.ts", line: 10, text: "const needle = true;" }
+        ],
+        filesScanned: 3,
+        truncated: true,
+        partial: true,
+        matchLimit: 1000,
+        outputLimit: 200000,
+        lastFileScanned: "src/b.ts",
+        warning: "Some files could not be searched; results may be incomplete.",
+        note: "Result limit reached (1000 matching lines after scanning 3 files)."
+      },
+      expected: {
+        ok: true,
+        summary: "Grep found 1 matching line(s).",
+        data: {
+          search_path: "/tmp/src",
+          matches: [
+            { path: "src/a.ts", line: 10, text: "const needle = true;" }
+          ]
+        },
+        meta: {
+          files_scanned: 3,
+          truncated: true,
+          partial: true,
+          match_limit: 1000,
+          output_limit: 200000,
+          last_file_scanned: "src/b.ts",
+          warning: "Some files could not be searched; results may be incomplete.",
+          note: "Result limit reached (1000 matching lines after scanning 3 files)."
+        }
+      }
+    },
+    {
       name: "apply_patch",
       tool: "apply_patch",
       args: { patch: "*** Begin Patch\n*** End Patch" },

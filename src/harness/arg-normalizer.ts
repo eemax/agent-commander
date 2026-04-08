@@ -168,6 +168,27 @@ function normalizeReplaceInFileArgs(args: unknown): Record<string, unknown> {
   });
 }
 
+function normalizeGlobArgs(args: unknown): Record<string, unknown> {
+  const source = asRecord(args);
+  return dropUndefined({
+    pattern: readString(firstDefined(source, ["pattern", "glob", "filePattern", "file_pattern"])),
+    path: readNonEmptyString(firstDefined(source, ["path", "dir", "directory", "root", "searchPath", "search_path"]))
+  });
+}
+
+function normalizeGrepArgs(args: unknown): Record<string, unknown> {
+  const source = asRecord(args);
+  const explicitCaseSensitive = readBoolean(firstDefined(source, ["caseSensitive", "case_sensitive"]));
+  const ignoreCase = readBoolean(firstDefined(source, ["ignoreCase", "ignore_case", "caseInsensitive", "case_insensitive"]));
+
+  return dropUndefined({
+    pattern: readString(firstDefined(source, ["pattern", "query", "q"])),
+    path: readNonEmptyString(firstDefined(source, ["path", "dir", "directory", "root", "searchPath", "search_path"])),
+    literal: readBoolean(firstDefined(source, ["literal", "fixedStrings", "fixed_strings"])),
+    caseSensitive: explicitCaseSensitive ?? (ignoreCase !== undefined ? !ignoreCase : undefined)
+  });
+}
+
 function normalizeApplyPatchArgs(args: unknown): Record<string, unknown> {
   const source = asRecord(args);
   return dropUndefined({
@@ -324,6 +345,10 @@ export function getExpectedShapeForTool(tool: string, args: Record<string, unkno
       return { required: ["path", "content"], optional: ["encoding"] };
     case "replace_in_file":
       return { required: ["path", "oldText", "newText"], optional: ["replaceAll"] };
+    case "glob":
+      return { required: ["pattern"], optional: ["path"] };
+    case "grep":
+      return { required: ["pattern"], optional: ["path", "literal", "caseSensitive"] };
     case "apply_patch":
       return { required: ["patch"], optional: ["cwd"] };
     case "web_search":
@@ -355,6 +380,10 @@ export function normalizeToolArgs(tool: string, args: unknown): Record<string, u
       return normalizeWriteFileArgs(args);
     case "replace_in_file":
       return normalizeReplaceInFileArgs(args);
+    case "glob":
+      return normalizeGlobArgs(args);
+    case "grep":
+      return normalizeGrepArgs(args);
     case "apply_patch":
       return normalizeApplyPatchArgs(args);
     case "web_search":

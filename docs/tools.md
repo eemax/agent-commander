@@ -115,6 +115,55 @@ Delete a completed session record. Fails if the process is still running.
 - Output per stream (stdout, stderr, combined) is independently bounded by `tools.max_output_chars`
 - Timed-out processes receive SIGKILL and are flagged as timed out
 
+### `glob`
+
+Find files matching a ripgrep glob pattern.
+
+| Parameter | Type | Required | Default |
+|-----------|------|----------|---------|
+| `pattern` | string | yes | — |
+| `path` | string | no | `"."` |
+
+**Returns:** `path`, `matches`, `truncated`, `partial?`, `warning?`, `resultLimit?`, `note?`
+
+- Uses `rg --files` under the hood
+- Respects `.gitignore` / standard ripgrep ignore rules
+- Includes hidden files via `--hidden`
+- Always excludes `.git`
+- `path` must resolve to a directory search root
+- Returns file paths relative to the active tool cwd
+- `partial=true` means some directories could not be listed cleanly
+- Missing search paths fail before ripgrep is spawned
+- If truncated, `resultLimit` and `note` explain how to narrow the search
+- Requires `rg` (ripgrep) to be installed and available in `PATH`
+
+### `grep`
+
+Search text files via ripgrep and return structured line matches.
+
+| Parameter | Type | Required | Default |
+|-----------|------|----------|---------|
+| `pattern` | string | yes | — |
+| `path` | string | no | `"."` |
+| `literal` | boolean | no | `false` |
+| `caseSensitive` | boolean | no | `true` |
+
+**Returns:** `path`, `matches`, `filesScanned`, `truncated`, `partial?`, `warning?`, `matchLimit?`, `outputLimit?`, `lastFileScanned?`, `note?`
+
+- Uses `rg --json` under the hood
+- Default search mode uses ripgrep regex semantics; set `literal=true` for fixed-string search
+- Respects `.gitignore` / standard ripgrep ignore rules
+- Includes hidden files via `--hidden`
+- Always excludes `.git`
+- Match results are line-based objects: `path`, `line`, `text`
+- Output from very long matching lines is clipped for safety
+- Large result sets are further trimmed to keep the final tool envelope within `tools.max_output_chars`
+- `filesScanned` reflects ripgrep search stats when available; if early truncation stops ripgrep before summary, it falls back to files touched so far
+- `partial=true` means some files could not be searched cleanly
+- If truncated, `matchLimit` and/or `outputLimit` explain why results were shortened; `lastFileScanned` and `note` help narrow the search
+- Missing search paths fail before ripgrep is spawned
+- Requires `rg` (ripgrep) to be installed and available in `PATH`
+
 ### `read_file`
 
 Read a text file with optional line-based slicing.
