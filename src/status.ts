@@ -54,8 +54,9 @@ function dirSize(dir: string): number {
 
 // Check details give times, not ages: they're read minutes later (beacon collects every
 // minute, lookout polls every five), so "28 s ago" would be wrong by the time anyone sees it.
+// RFC 3339 UTC to the second: lookout shows it in the reader's own time zone.
 function clock(iso: string): string {
-  return `${iso.slice(11, 16)} UTC`;
+  return new Date(iso).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 // ---- daemon side ----

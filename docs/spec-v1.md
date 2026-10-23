@@ -124,7 +124,7 @@ acmd is a long-running daemon. systemd and beacon already capture process start/
     { "key": "cost.30d", "label": "Spend (30 d)", "value": 4.50,  "unit": "usd", "labels": { "model": "flash" } }
   ],
   "checks": [
-    { "name": "event_loop", "status": "ok", "detail": "last heartbeat 06:58 UTC" },
+    { "name": "event_loop", "status": "ok", "detail": "last heartbeat 2026-10-23T06:58:12Z" },
     { "name": "telegram",   "status": "ok", "detail": "token valid, polling" },
     { "name": "openrouter", "status": "ok", "detail": "key valid" },
     { "name": "credits",    "status": "ok", "detail": "$18.40 left" },
