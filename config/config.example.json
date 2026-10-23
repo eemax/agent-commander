@@ -1,0 +1,14 @@
+{
+  "telegram": { "allowlist": ["123456789"] },
+  "models": [
+    { "id": "deepseek/deepseek-v4.1-flash", "alias": "flash" },
+    { "id": "moonshotai/kimi-k3", "alias": "kimi" },
+    { "id": "z-ai/glm-5.3", "alias": "glm" },
+    { "id": "deepseek/deepseek-v4-pro", "alias": "dspro" }
+  ],
+  "default_effort": "medium",
+  "home": "~/.acmd",
+  "bash": { "timeout_ms": 120000, "output_cap_chars": 30000 },
+  "max_turn_cost_usd": null,
+  "credits_warn_usd": 5
+}

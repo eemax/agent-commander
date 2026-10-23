@@ -1,0 +1,23 @@
+# systemd unit for acmd. Install:
+#   sudo cp deploy/acmd.service /etc/systemd/system/acmd.service   (edit User and paths first)
+#   sudo systemctl daemon-reload && sudo systemctl enable --now acmd
+# Logs:          journalctl -fu acmd
+# Toggle debug:  sudo systemctl kill -s USR2 acmd   (or /debug on|off in Telegram)
+[Unit]
+Description=agent-commander (acmd) Telegram agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=acmd
+WorkingDirectory=/opt/agent-commander
+ExecStart=/usr/bin/node /opt/agent-commander/dist/main.js
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
