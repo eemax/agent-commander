@@ -31,7 +31,8 @@ describe("runBash", () => {
     expect(r.timed_out).toBe(true);
     expect(r.output).toContain("started");
     expect(r.output).toContain("timed out");
-    const left = await runBash({ ...base, command: `pgrep -f ${marker} || true` });
+    // "[a]" keeps the pattern from matching the shell that runs pgrep (its command line holds the pattern).
+    const left = await runBash({ ...base, command: `pgrep -f '[a]${marker.slice(1)}' || true` });
     expect(left.output.trim()).toBe("");
   });
 
