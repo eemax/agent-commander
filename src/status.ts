@@ -52,11 +52,10 @@ function dirSize(dir: string): number {
   return total;
 }
 
-function ago(ms: number): string {
-  const s = Math.round(ms / 1000);
-  if (s < 120) return `${s} s`;
-  if (s < 7200) return `${Math.round(s / 60)} min`;
-  return `${Math.round(s / 3600)} h`;
+// Check details give times, not ages: they're read minutes later (beacon collects every
+// minute, lookout polls every five), so "28 s ago" would be wrong by the time anyone sees it.
+function clock(iso: string): string {
+  return `${iso.slice(11, 16)} UTC`;
 }
 
 // ---- daemon side ----
@@ -173,14 +172,20 @@ export function buildStatus(config: Config, store: Store, now = Date.now()) {
     checks.push({
       name: "event_loop",
       status: beat > 10 * 60_000 ? "fail" : beat > 3 * 60_000 ? "warn" : "ok",
-      detail: `heartbeat ${ago(beat)} ago`
+      detail: beat > 3 * 60_000 ? `no heartbeat since ${clock(file.heartbeat_at)}` : `last heartbeat ${clock(file.heartbeat_at)}`
     });
     const poll = file.last_poll_at ? now - Date.parse(file.last_poll_at) : null;
     const starting = poll === null && now - Date.parse(file.started_at) < 2 * 60_000;
     checks.push({
       name: "telegram",
       status: starting ? "ok" : poll === null || poll > 5 * 60_000 ? "fail" : "ok",
-      detail: starting ? "starting" : poll === null ? "no successful poll since start" : `last poll ${ago(poll)} ago`
+      detail: starting
+        ? "starting"
+        : poll === null
+          ? "no successful poll since start"
+          : poll > 5 * 60_000
+            ? `no successful poll since ${clock(file.last_poll_at!)}`
+            : `last poll ${clock(file.last_poll_at!)}`
     });
     checks.push(...file.checks);
   }
