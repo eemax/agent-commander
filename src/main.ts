@@ -10,7 +10,7 @@ import { StatusWriter, buildStatus, printStatus } from "./status.js";
 import { TelegramApp } from "./telegram/bot.js";
 import { bootstrapWorkspace, workspaceDir } from "./workspace.js";
 
-function version(): string {
+function readVersion(): string {
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf8")) as { version: string };
   try {
     const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "ignore"] });
@@ -21,13 +21,15 @@ function version(): string {
 }
 
 async function runDaemon(): Promise<void> {
+  // Read once: a deploy moves git HEAD while this process keeps running the old build.
+  const version = readVersion();
   const config = loadConfig();
   const secrets = loadSecrets();
   const created = bootstrapWorkspace(config.home);
   const store = new Store(config.home);
   const agent = new Agent(config, secrets.openrouterApiKey, store);
   const app = new TelegramApp(secrets.telegramBotToken, config, store, agent);
-  const status = new StatusWriter(config, secrets.openrouterApiKey, app.bot.api, () => app.health.lastPollAt, version());
+  const status = new StatusWriter(config, secrets.openrouterApiKey, app.bot.api, () => app.health.lastPollAt, version);
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
@@ -46,7 +48,7 @@ async function runDaemon(): Promise<void> {
       finished_at: new Date().toISOString(),
       status: "ok",
       error: null,
-      summary: `acmd ${version()} · ${turns} turns this run · stopped by ${signal}`
+      summary: `acmd ${version} · ${turns} turns this run · stopped by ${signal}`
     });
     process.exit(0);
   };
@@ -61,7 +63,7 @@ async function runDaemon(): Promise<void> {
   status.start();
   await app.start((username) => {
     log.info("acmd ready", {
-      version: version(),
+      version,
       bot: `@${username}`,
       model: config.models[0]!.alias,
       workspace: workspaceDir(config.home),
