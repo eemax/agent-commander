@@ -25,13 +25,14 @@ Use [deploy/acmd.service](deploy/acmd.service) with systemd, and read logs with 
 ```bash
 acmd status          # human-readable health and meta numbers
 acmd status --json   # same, for beacon (eemax/beacon APPS.md)
+acmd notify "text"   # wake the agent (timers, scripts); also reads stdin
 ```
 
 ## Telegram commands
 
-`/new` `/stop` `/status` `/model [alias]` `/thinking [level]` `/cwd [path]` `/debug [on|off]` `/<skill>`
+`/new` `/stop` `/status` `/model [alias]` `/thinking [level]` `/cwd [path]` `/jobs [stop <id>]` `/debug [on|off]` `/<skill>`
 
-A message sent while a turn is running steers that turn.
+A message sent while a turn is running steers that turn. The agent can run commands as background jobs; when one exits, the agent picks up on its own (replies marked ⏰). Anything can wake it with `acmd notify "text"`, e.g. a systemd timer.
 
 ## Development
 

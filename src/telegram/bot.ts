@@ -6,6 +6,8 @@ import { Bot, GrammyError, type Api } from "grammy";
 import { type Agent, type TurnHandle, TurnAbortedError } from "../agent.js";
 import { type Config, EFFORTS, type Effort, expandHome, resolveModel } from "../config.js";
 import { errorMessage, log } from "../log.js";
+import { readInbox, notificationNotice } from "../inbox.js";
+import { type Jobs, formatDuration, jobNotice } from "../jobs.js";
 import type { ConversationMeta, Store } from "../state.js";
 import { compileInstructions, loadSkills, type Skill, workspaceDir } from "../workspace.js";
 import { escapeHtml, formatReply, splitPlainText } from "./format.js";
@@ -13,6 +15,8 @@ import { escapeHtml, formatReply, splitPlainText } from "./format.js";
 export type Health = { lastPollAt: number | null };
 
 const TYPING_EVERY_MS = 4000;
+const WATCH_EVERY_MS = 1000;
+const JOB_RETENTION_MS = 7 * 86_400_000;
 const STATUS_EDIT_EVERY_MS = 2000;
 const NO_PREVIEW = { link_preview_options: { is_disabled: true } } as const;
 
@@ -23,6 +27,7 @@ const BUILTIN_COMMANDS: Array<{ command: string; description: string }> = [
   { command: "model", description: "Show or switch model" },
   { command: "thinking", description: "Show or set reasoning effort" },
   { command: "cwd", description: "Show or set working directory" },
+  { command: "jobs", description: "List background jobs, or /jobs stop <id>" },
   { command: "debug", description: "Toggle debug logging" }
 ];
 
@@ -97,11 +102,15 @@ class ToolStatus {
   }
 }
 
-// A chat's work in progress: the running turn (while the model works) and messages that
-// arrived after it stopped accepting steers. Exists from the first turn until the queue drains.
+// Something for the agent: a user message, or a wake-up (job finished, `acmd notify`).
+type QueueItem = { text: string; wake: boolean };
+
+// A chat's work in progress: the running turn (while the model works) and items that arrived
+// after it stopped accepting steers. Exists from the first turn until the queue drains.
 type ChatRun = {
   turn: TurnHandle | null;
-  queued: string[];
+  queued: QueueItem[];
+  steeredWakes: Set<string>; // wake texts steered into the running turn
   finished: Promise<void>;
 };
 
@@ -109,12 +118,17 @@ export class TelegramApp {
   readonly bot: Bot;
   readonly health: Health = { lastPollAt: null };
   private readonly runs = new Map<number, ChatRun>();
+  // Quiet notes (a job that ended without an exit status) waiting for the chat's next turn.
+  private readonly notes = new Map<number, string[]>();
+  private watchTimer: NodeJS.Timeout | null = null;
+  private lastPruneAt = 0;
 
   constructor(
     token: string,
     private readonly config: Config,
     private readonly store: Store,
-    private readonly agent: Agent
+    private readonly agent: Agent,
+    private readonly jobs: Jobs
   ) {
     this.bot = new Bot(token);
     this.bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
@@ -140,6 +154,7 @@ export class TelegramApp {
 
   async start(onReady: (username: string) => void): Promise<void> {
     await this.syncCommands();
+    this.watchTimer = setInterval(() => this.watch(), WATCH_EVERY_MS);
     await this.bot.start({
       drop_pending_updates: false,
       allowed_updates: ["message"],
@@ -148,18 +163,68 @@ export class TelegramApp {
   }
 
   async stop(): Promise<void> {
+    if (this.watchTimer) clearInterval(this.watchTimer);
     await this.bot.stop();
     await Promise.allSettled([...this.runs.keys()].map((chatId) => this.cancel(chatId)));
   }
 
-  // Stops the running turn, drops queued messages and waits until the chat is idle.
+  // Stops the running turn, drops queued user messages and waits until the chat is idle. Queued
+  // wake-ups are kept as notes for the next turn: stopping shouldn't start a turn, nor lose news.
   private async cancel(chatId: number): Promise<boolean> {
     const run = this.runs.get(chatId);
     if (!run) return false;
+    const wakes = run.queued.filter((i) => i.wake).map((i) => i.text);
+    if (wakes.length > 0) this.notes.set(chatId, [...(this.notes.get(chatId) ?? []), ...wakes]);
     run.queued.length = 0;
     run.turn?.abort();
     await run.finished;
     return true;
+  }
+
+  // Delivers ended background jobs and inbox notifications. Jobs keep running across acmd
+  // restarts, so this also picks up whatever finished while acmd was down.
+  private watch(): void {
+    try {
+      for (const job of this.jobs.sweep()) {
+        const chatId = Number(job.chatId);
+        if (this.config.allowlist.includes(job.chatId)) {
+          const notice = jobNotice(this.jobs, job, this.store.current(job.chatId)?.id ?? null);
+          this.deliver(chatId, notice, job.state === "exited" ? "wake" : "note");
+        }
+        this.jobs.markDelivered(job.id);
+      }
+      for (const { file, notification } of readInbox(this.store.stateDir)) {
+        if (this.config.allowlist.includes(notification.chatId)) {
+          this.deliver(Number(notification.chatId), notificationNotice(notification), "wake");
+        } else {
+          log.warn("dropping notification for a chat not on the allowlist");
+        }
+        fs.rmSync(file, { force: true });
+      }
+      if (Date.now() - this.lastPruneAt > 3_600_000) {
+        this.lastPruneAt = Date.now();
+        const removed = this.jobs.prune(JOB_RETENTION_MS);
+        if (removed > 0) log.debug("pruned old jobs", { removed });
+      }
+    } catch (error) {
+      log.error("watch failed", { error: errorMessage(error) });
+    }
+  }
+
+  // A wake starts a turn when the chat is idle (or steers the running one); a note waits for
+  // the next turn so it costs nothing on its own.
+  private deliver(chatId: number, text: string, kind: "wake" | "note"): void {
+    log.debug("deliver", { kind, chars: text.length });
+    if (kind === "note") {
+      const run = this.runs.get(chatId);
+      if (run?.turn) run.turn.steer(text);
+      else this.notes.set(chatId, [...(this.notes.get(chatId) ?? []), text]);
+      return;
+    }
+    const meta = this.conversation(chatId);
+    meta.wakeups = (meta.wakeups ?? 0) + 1;
+    this.store.saveMeta(meta);
+    this.enqueue(chatId, { text, wake: true });
   }
 
   private skills(): Skill[] {
@@ -181,7 +246,7 @@ export class TelegramApp {
         model: this.config.models[0]!.alias,
         effort: this.config.defaultEffort,
         cwd: workspaceDir(this.config.home),
-        instructions: compileInstructions(this.config.home)
+        instructions: compileInstructions(this.config.home, this.config.bash)
       })
     );
   }
@@ -200,20 +265,24 @@ export class TelegramApp {
 
   private async onText(chatId: number, messageId: number, text: string): Promise<void> {
     if (text.startsWith("/")) return this.onCommand(chatId, text);
-    if (this.enqueue(chatId, text)) {
+    if (this.enqueue(chatId, { text, wake: false })) {
       await this.bot.api.setMessageReaction(chatId, messageId, [{ type: "emoji", emoji: "👀" }]).catch(() => {});
     }
   }
 
-  // Starts a turn, or hands the text to the work in progress. Returns true when it was handed over.
-  private enqueue(chatId: number, text: string): boolean {
+  // Starts a turn, or hands the item to the work in progress. Returns true when it was handed over.
+  private enqueue(chatId: number, item: QueueItem): boolean {
     const run = this.runs.get(chatId);
     if (run) {
-      if (run.turn) run.turn.steer(text);
-      else run.queued.push(text);
+      if (run.turn) {
+        run.turn.steer(item.text);
+        if (item.wake) run.steeredWakes.add(item.text);
+      } else {
+        run.queued.push(item);
+      }
       return true;
     }
-    const fresh: ChatRun = { turn: null, queued: [text], finished: Promise.resolve() };
+    const fresh: ChatRun = { turn: null, queued: [item], steeredWakes: new Set(), finished: Promise.resolve() };
     fresh.finished = this.drain(chatId, fresh).finally(() => this.runs.delete(chatId));
     this.runs.set(chatId, fresh);
     return false;
@@ -221,28 +290,35 @@ export class TelegramApp {
 
   private async drain(chatId: number, run: ChatRun): Promise<void> {
     while (run.queued.length > 0) {
-      const input = run.queued.splice(0).join("\n\n");
-      await this.runTurn(chatId, run, input).catch((error) => log.error("turn crashed", { error: errorMessage(error) }));
+      const items = run.queued.splice(0);
+      const notes = this.notes.get(chatId) ?? [];
+      this.notes.delete(chatId);
+      const input = [...notes, ...items.map((i) => i.text)].join("\n\n");
+      const woken = items.every((i) => i.wake);
+      await this.runTurn(chatId, run, input, woken).catch((error) => log.error("turn crashed", { error: errorMessage(error) }));
     }
   }
 
-  private async runTurn(chatId: number, run: ChatRun, input: string): Promise<void> {
+  private async runTurn(chatId: number, run: ChatRun, input: string, woken: boolean): Promise<void> {
     const meta = this.conversation(chatId);
     const status = new ToolStatus(this.bot.api, chatId);
     const typing = () => void this.bot.api.sendChatAction(chatId, "typing").catch(() => {});
     typing();
     const typingTimer = setInterval(typing, TYPING_EVERY_MS);
-    log.debug("turn start", { conversation: meta.id, model: meta.model, chars: input.length });
+    log.debug("turn start", { conversation: meta.id, model: meta.model, chars: input.length, woken });
 
     const handle = this.agent.startTurn(meta, input, { onToolStart: (label) => status.update(label) });
     run.turn = handle;
     let reply: string;
+    let stopped = false;
     try {
       const result = await handle.done;
       reply = result.text.trim() || "_(no text reply)_";
+      if (woken) reply = `⏰ ${reply}`;
       log.debug("turn done", { conversation: meta.id, cost: result.usage.cost.toFixed(5) });
     } catch (error) {
       if (error instanceof TurnAbortedError) {
+        stopped = true;
         reply = "⏹ Stopped.";
       } else {
         log.error("turn failed", { conversation: meta.id, error: errorMessage(error).slice(0, 500) });
@@ -254,9 +330,14 @@ export class TelegramApp {
       clearInterval(typingTimer);
     }
     const late = handle.undeliveredSteers();
-    if (late.length > 0) {
+    const wakeTexts = run.steeredWakes;
+    run.steeredWakes = new Set();
+    if (late.length > 0 && stopped) {
+      // A stopped turn starts nothing new; what it never saw goes along with the next turn.
+      this.notes.set(chatId, [...(this.notes.get(chatId) ?? []), ...late]);
+    } else if (late.length > 0) {
       log.debug("steer arrived too late, running it next", { count: late.length });
-      run.queued.unshift(...late);
+      run.queued.unshift(...late.map((text) => ({ text, wake: wakeTexts.has(text) })));
     }
     await status.clear();
     await this.reply(chatId, reply).catch((error) => log.error("reply failed", { error: errorMessage(error) }));
@@ -275,6 +356,7 @@ export class TelegramApp {
           chatId,
           [
             "Send a message to talk to the agent. Messages sent while it works steer the running turn.",
+            "The agent can run background jobs; when one finishes it picks up on its own (replies marked ⏰).",
             "",
             ...BUILTIN_COMMANDS.map((c) => `/${c.command}: ${c.description}`),
             "/<skill>: use a workspace skill for one turn"
@@ -282,6 +364,10 @@ export class TelegramApp {
         );
       case "new": {
         await this.cancel(chatId);
+        // Job and notification notices still matter in the new conversation; old steers don't.
+        const keep = (this.notes.get(chatId) ?? []).filter((n) => n.startsWith("[acmd]"));
+        if (keep.length > 0) this.notes.set(chatId, keep);
+        else this.notes.delete(chatId);
         this.store.archive(String(chatId));
         const meta = this.conversation(chatId);
         await this.syncCommands();
@@ -300,6 +386,8 @@ export class TelegramApp {
         return this.thinkingCommand(chatId, arg);
       case "cwd":
         return this.cwdCommand(chatId, arg);
+      case "jobs":
+        return this.jobsCommand(chatId, arg);
       case "debug": {
         if (arg === "on" || arg === "off") log.setDebug(arg === "on");
         else if (arg) return this.reply(chatId, "Usage: /debug [on|off]");
@@ -310,14 +398,48 @@ export class TelegramApp {
         const skill = this.skills().find((s) => skillCommand(s.name) === command);
         if (!skill) return this.reply(chatId, `Unknown command /${command}. Try /help.`);
         const input = `Use the "${skill.name}" skill for this request: read ${skill.path} first and follow it.\n\n${arg}`.trim();
-        this.enqueue(chatId, input);
+        this.enqueue(chatId, { text: input, wake: false });
         return;
       }
     }
   }
 
+  private async jobsCommand(chatId: number, arg: string): Promise<void> {
+    const stop = /^stop\s+(\d+)$/.exec(arg);
+    if (stop) {
+      const id = Number(stop[1]);
+      const job = this.jobs.get(id);
+      if (!job || job.chatId !== String(chatId)) return this.reply(chatId, `No job ${id}.`);
+      if (job.state !== "running") return this.reply(chatId, `Job ${id} already ended.`);
+      return this.reply(chatId, this.jobs.stop(id) ? `Stopping job ${id}; the agent will hear how it ended.` : `Could not signal job ${id}.`);
+    }
+    if (arg) return this.reply(chatId, "Usage: /jobs or /jobs stop <id>");
+    const mine = this.jobs.list().filter((j) => j.chatId === String(chatId));
+    const running = mine.filter((j) => j.state === "running");
+    const ended = mine.filter((j) => j.state !== "running").slice(0, 5);
+    if (mine.length === 0) return this.reply(chatId, "No background jobs.");
+    const oneLine = (cmd: string) => {
+      const flat = cmd.replace(/\s+/g, " ").trim();
+      return flat.length > 80 ? `${flat.slice(0, 80)}…` : flat;
+    };
+    const lines: string[] = [];
+    if (running.length > 0) {
+      lines.push("**Running**");
+      for (const j of running) lines.push(`${j.id} · ${formatDuration(Date.now() - Date.parse(j.startedAt))} · \`${oneLine(j.command)}\``);
+    }
+    if (ended.length > 0) {
+      lines.push("**Recent**");
+      for (const j of ended) {
+        const how = j.state === "exited" ? `exit ${j.exitCode}` : "lost";
+        lines.push(`${j.id} · ${how} · \`${oneLine(j.command)}\``);
+      }
+    }
+    return this.reply(chatId, lines.join("\n"));
+  }
+
   private statusText(chatId: number): string {
     const meta = this.conversation(chatId);
+    const running = this.jobs.running().filter((j) => j.chatId === String(chatId)).length;
     const model = resolveModel(this.config, meta.model);
     return [
       `**Model:** ${meta.model}${model ? ` (\`${model.id}\`)` : ""}`,
@@ -325,6 +447,7 @@ export class TelegramApp {
       `**Cwd:** \`${shortPath(meta.cwd)}\``,
       `**Conversation:** ${meta.turns} turns · $${meta.usage.cost.toFixed(4)} · started ${meta.createdAt.slice(0, 16).replace("T", " ")} UTC`,
       `**Context:** ${meta.lastContextTokens === null ? "–" : `${formatTokens(meta.lastContextTokens)} tokens`}`,
+      `**Jobs:** ${running} running · ${meta.wakeups ?? 0} wake-ups this conversation`,
       `**Running:** ${this.runs.has(chatId) ? "yes" : "no"} · **Debug:** ${log.isDebug() ? "on" : "off"}`
     ].join("\n");
   }

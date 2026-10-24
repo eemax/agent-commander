@@ -20,13 +20,17 @@ describe("config", () => {
     const c = parseConfig(valid);
     expect(c.allowlist).toEqual(["123456789"]);
     expect(c.defaultEffort).toBe("medium");
-    expect(c.bash).toEqual({ timeoutMs: 120_000, outputCapChars: 30_000 });
+    expect(c.bash).toEqual({ timeoutMs: 120_000, maxTimeoutMs: 600_000, outputCapChars: 30_000 });
     expect(c.maxTurnCostUsd).toBeNull();
     expect(c.home).toBe(path.join(os.homedir(), ".acmd"));
   });
 
   it("refuses an empty allowlist", () => {
     expect(() => parseConfig({ ...valid, telegram: { allowlist: [] } })).toThrow(/allowlist is empty/);
+  });
+
+  it("refuses a max timeout below the default timeout", () => {
+    expect(() => parseConfig({ ...valid, bash: { timeout_ms: 60_000, max_timeout_ms: 30_000 } })).toThrow(/max_timeout_ms/);
   });
 
   it("refuses unknown keys and duplicate aliases", () => {
@@ -80,11 +84,13 @@ describe("workspace", () => {
     expect(problems[0]).toMatch(/bad/);
     expect(checkWorkspace(home).status).toBe("warn");
 
-    const instructions = compileInstructions(home);
+    const instructions = compileInstructions(home, { timeoutMs: 120_000, maxTimeoutMs: 600_000 });
     expect(instructions).toContain("I am the agent.");
     expect(instructions).toContain("- good: Good skill.");
     expect(instructions).toContain(ws);
     expect(instructions).not.toMatch(/\{\{\w+\}\}/);
+    expect(instructions).toContain("default timeout is 2 min");
+    expect(instructions).toMatch(/notify "text"/);
   });
 
   it("maps skill names to Telegram commands", () => {

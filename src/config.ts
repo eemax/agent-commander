@@ -28,6 +28,7 @@ const configSchema = z.strictObject({
   bash: z
     .strictObject({
       timeout_ms: z.number().int().positive().default(120_000),
+      max_timeout_ms: z.number().int().positive().default(600_000),
       output_cap_chars: z.number().int().min(1000).default(30_000)
     })
     .prefault({}),
@@ -42,7 +43,7 @@ export type Config = {
   models: ModelEntry[];
   defaultEffort: Effort;
   home: string;
-  bash: { timeoutMs: number; outputCapChars: number };
+  bash: { timeoutMs: number; maxTimeoutMs: number; outputCapChars: number };
   maxTurnCostUsd: number | null;
   creditsWarnUsd: number;
 };
@@ -61,6 +62,7 @@ export function parseConfig(raw: unknown): Config {
     throw new Error(`config ${where}${issue.message}`);
   }
   const c = result.data;
+  if (c.bash.max_timeout_ms < c.bash.timeout_ms) throw new Error("config bash: max_timeout_ms must be at least timeout_ms");
   const aliases = new Set<string>();
   for (const m of c.models) {
     if (aliases.has(m.alias)) throw new Error(`config models: duplicate alias "${m.alias}"`);
@@ -71,7 +73,7 @@ export function parseConfig(raw: unknown): Config {
     models: c.models,
     defaultEffort: c.default_effort,
     home: path.resolve(expandHome(c.home)),
-    bash: { timeoutMs: c.bash.timeout_ms, outputCapChars: c.bash.output_cap_chars },
+    bash: { timeoutMs: c.bash.timeout_ms, maxTimeoutMs: c.bash.max_timeout_ms, outputCapChars: c.bash.output_cap_chars },
     maxTurnCostUsd: c.max_turn_cost_usd,
     creditsWarnUsd: c.credits_warn_usd
   };

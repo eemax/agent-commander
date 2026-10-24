@@ -73,11 +73,25 @@ function readOptional(file: string): string {
 }
 
 // Compiled once per conversation and then frozen, so the prompt-cache prefix stays stable.
-export function compileInstructions(home: string): string {
+function duration(ms: number): string {
+  return ms % 60_000 === 0 ? `${ms / 60_000} min` : `${Math.round(ms / 1000)} s`;
+}
+
+// How the agent invokes `acmd notify` from its shell.
+function notifyCommand(): string {
+  if (fs.existsSync("/usr/local/bin/acmd")) return "acmd notify";
+  const config = process.env.ACMD_CONFIG ? `ACMD_CONFIG=${process.env.ACMD_CONFIG} ` : "";
+  return `${config}${process.execPath} ${path.join(REPO_ROOT, "dist", "main.js")} notify`;
+}
+
+export function compileInstructions(home: string, bash: { timeoutMs: number; maxTimeoutMs: number }): string {
   const workspace = workspaceDir(home);
   const vars: Record<string, string> = {
     workspace,
     home,
+    timeout: duration(bash.timeoutMs),
+    max_timeout: duration(bash.maxTimeoutMs),
+    notify: notifyCommand(),
     date: new Date().toISOString().slice(0, 10),
     host: os.hostname(),
     os: `${os.type()} ${os.release()} (${os.arch()})`

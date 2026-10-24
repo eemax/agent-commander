@@ -3,6 +3,7 @@ import { OpenRouter, maxCost, serverTool, tool, type ModelResult as SdkModelResu
 import { z } from "zod";
 import { type Config, resolveModel } from "./config.js";
 import { errorMessage, log } from "./log.js";
+import type { Jobs } from "./jobs.js";
 import { type ConversationMeta, type Store, type Usage, emptyUsage } from "./state.js";
 import { runBash } from "./tools/bash.js";
 
@@ -35,7 +36,8 @@ const BASH_DESCRIPTION = [
   "Run a command with /bin/bash -lc in the conversation's working directory.",
   "Each call is a fresh shell: cd, exports and variables do not persist between calls.",
   "stdout and stderr are merged; long output keeps its head and tail.",
-  "For anything long-running, start it in the background (nohup cmd > file.log 2>&1 &) and check the log later."
+  "Set background: true for anything long-running or open-ended (builds, servers, waiting for something, checking again later):",
+  "it returns a job id and log path at once, and you get a message with the exit code and log tail when the job exits."
 ].join(" ");
 
 function statusCodeOf(error: unknown): number | null {
@@ -67,7 +69,8 @@ export class Agent {
   constructor(
     private readonly config: Config,
     apiKey: string,
-    private readonly store: Store
+    private readonly store: Store,
+    private readonly jobs: Jobs
   ) {
     this.client = new OpenRouter({
       apiKey,
@@ -104,18 +107,34 @@ export class Agent {
             .int()
             .positive()
             .optional()
-            .describe(`Timeout in ms (default ${this.config.bash.timeoutMs}). Raise it for known-slow commands.`)
+            .describe(
+              `Foreground timeout in ms (default ${this.config.bash.timeoutMs}, max ${this.config.bash.maxTimeoutMs}). Ignored with background.`
+            ),
+          background: z
+            .boolean()
+            .optional()
+            .describe("Run as a background job that outlives this turn; you are notified when it exits.")
         }),
         // Repeating the same command (polling a log, re-running tests) is legitimate.
         loopKey: false,
-        execute: async ({ command, timeout_ms }, ctx) =>
-          runBash({
+        execute: async ({ command, timeout_ms, background }, ctx) => {
+          if (background) {
+            const job = this.jobs.start({ chatId: meta.chatId, conversationId: meta.id, command, cwd: meta.cwd });
+            return {
+              job_id: job.id,
+              pgid: job.pgid,
+              log: this.jobs.logPath(job.id),
+              note: `Started in the background. You will get a message when it exits. Progress: tail the log. Stop it: kill -- -${job.pgid}`
+            };
+          }
+          return runBash({
             command,
             cwd: meta.cwd,
-            timeoutMs: timeout_ms ?? this.config.bash.timeoutMs,
+            timeoutMs: Math.min(timeout_ms ?? this.config.bash.timeoutMs, this.config.bash.maxTimeoutMs),
             outputCapChars: this.config.bash.outputCapChars,
             signal: ctx?.signal
-          })
+          });
+        }
       });
       // Summed per model call from the PostModelCall hook, so aborted and retried runs count too.
       const usage = emptyUsage();
@@ -139,8 +158,9 @@ export class Agent {
               {
                 handler: (payload) => {
                   const command = typeof payload.toolInput.command === "string" ? payload.toolInput.command : "";
-                  log.debug("tool start", { tool: payload.toolName, command });
-                  callbacks.onToolStart?.(command || payload.toolName);
+                  const background = payload.toolInput.background === true;
+                  log.debug("tool start", { tool: payload.toolName, command, background });
+                  callbacks.onToolStart?.(command ? `${command}${background ? " &" : ""}` : payload.toolName);
                 }
               }
             ],

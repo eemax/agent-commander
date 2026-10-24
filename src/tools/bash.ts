@@ -62,7 +62,7 @@ function killGroup(pid: number | undefined): void {
 // acmd's own credentials never reach the commands the model runs.
 const PRIVATE_ENV = ["TELEGRAM_BOT_TOKEN", "OPENROUTER_API_KEY"];
 
-function toolEnv(): NodeJS.ProcessEnv {
+export function toolEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const key of PRIVATE_ENV) delete env[key];
   return env;
@@ -107,7 +107,7 @@ export function runBash(options: BashOptions): Promise<BashResult> {
     child.on("exit", (code, signal) => {
       // Give the pipes a moment to drain, then return even if a background child still holds them.
       const exitCode = code ?? (signal ? 128 + (os.constants.signals[signal] ?? 0) : null);
-      const done = () => finish(exitCode, timedOut ? `\n[timed out after ${options.timeoutMs} ms]` : "");
+      const done = () => finish(exitCode, timedOut ? `\n[timed out after ${options.timeoutMs} ms and killed; run long or open-ended commands with background: true]` : "");
       const grace = setTimeout(done, 200);
       child.on("close", () => {
         clearTimeout(grace);

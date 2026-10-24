@@ -24,6 +24,7 @@ export type ConversationMeta = {
   turns: number;
   usage: Usage;
   lastContextTokens: number | null;
+  wakeups?: number; // turns started or steered by background jobs and notifications
   sdk: Omit<ConversationState, "messages"> | null;
 };
 
@@ -109,6 +110,7 @@ export class Store {
       turns: 0,
       usage: emptyUsage(),
       lastContextTokens: null,
+      wakeups: 0,
       sdk: null
     };
     fs.writeFileSync(this.file(meta.id, "instructions.md"), init.instructions);

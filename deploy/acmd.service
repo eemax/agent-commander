@@ -16,6 +16,8 @@ ExecStart=/usr/bin/node /opt/agent-commander/dist/main.js
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGTERM
+# Only stop acmd itself: background jobs the agent started must survive restarts and deploys.
+KillMode=process
 TimeoutStopSec=30
 Environment=NODE_ENV=production
 

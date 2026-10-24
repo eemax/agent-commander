@@ -4,7 +4,7 @@ A minimal, single-process Telegram bot. It runs agent turns on OpenRouter throug
 
 ## Constraints
 
-- One Telegram bot, one process, run in the foreground. Supervise it with systemd or launchd. The CLI has two commands: `acmd` (runs the bot in the foreground) and `acmd status [--json]`. There is no detached mode.
+- One Telegram bot, one process, run in the foreground. Supervise it with systemd or launchd. The CLI has three commands: `acmd` (runs the bot in the foreground), `acmd status [--json]` and `acmd notify`. There is no detached mode.
 - One provider: OpenRouter, reached only through `@openrouter/agent`, with the exact version pinned. SDK imports live only in `src/agent.ts`.
 - Persistence is files only (JSONL plus small JSON indexes). No database.
 - None of these: subagents, MCP, approvals or permissions, plugins, Docker.
@@ -23,12 +23,38 @@ A minimal, single-process Telegram bot. It runs agent turns on OpenRouter throug
 ## Tools
 
 1. **`bash`**, executed locally:
-   - Input: `command` and optional `timeout_ms`.
-   - Each call runs in a fresh `/bin/bash -lc` subprocess, in the conversation's cwd, in its own process group.
-   - The default timeout comes from config. On timeout, the whole process group gets SIGKILL.
-   - stdout and stderr are merged. The output cap keeps the head and the tail and inserts a truncation marker between them.
-   - Returns `{ exit_code, output, timed_out, truncated }`.
-   - The system prompt teaches the background pattern: `nohup cmd > file.log 2>&1 &`, then `tail file.log`.
+   - Input: `command`, optional `timeout_ms`, optional `background`.
+   - **Foreground** (default): each call runs in a fresh `/bin/bash -lc` subprocess, in the conversation's cwd, in its own process group, without acmd's own credentials in its environment. Timeout: `bash.timeout_ms` (2 min) by default; the model may raise it per call up to `bash.max_timeout_ms` (10 min). On timeout, the whole process group gets SIGKILL and the output says to use `background`. stdout and stderr are merged; the output cap keeps the head and the tail. Returns `{ exit_code, output, timed_out, truncated }`.
+   - **Background** (`background: true`): starts a job and returns at once with `{ job_id, pgid, log }`. See "Background jobs and wake-ups".
+2. **`openrouter:web_search`** and **`openrouter:web_fetch`**: OpenRouter server tools with engine `auto`.
+
+## Background jobs and wake-ups
+
+The agent can do work that outlives a turn and pick it up again by itself, like Claude Code's background tasks. All three cases are one primitive: a background job whose exit wakes the agent.
+
+| Need | Background command |
+|---|---|
+| Park long work | `npm run build` |
+| Check back in x minutes | `sleep 900; curl -s …/health` |
+| Wait until something happens | `until grep -q READY app.log; do sleep 20; done` |
+
+**Jobs** (`src/jobs.ts`), stored in `state/jobs/<id>/` (`job.json`, `output.log`, `exit`):
+- A detached wrapper shell runs `bash -lc <command>` in the background with output going to `output.log`. Then it ignores TERM, INT and HUP (set after the fork, so the command keeps default handling), waits, and writes the exit code to `exit`. So `kill -- -<pgid>` (or `/jobs stop`) ends the command, and the wrapper still records exit 143.
+- Jobs don't depend on acmd. They survive acmd restarts (the unit uses `KillMode=process`) and record their own outcome. Every second the daemon checks running jobs:
+  - `exit` exists: **exited**.
+  - The wrapper is gone without an exit file (SIGKILL), or the job is from an earlier boot (each job records the boot time, so a reused pid can't fake it): **lost**.
+- Ended jobs are kept 7 days after delivery, then pruned.
+
+**Delivery** (`src/telegram/bot.ts`). Every notice starts with `[acmd]`.
+- **Exited job:** a **wake**, carrying the exit code, duration, command, cwd, log path and the last 20 lines (≤2,000 chars), plus "started in an earlier conversation" when relevant.
+  - If the chat is idle, a wake starts a turn; the reply is prefixed with ⏰.
+  - If a turn is running, it steers it.
+  - If the turn is finishing, it queues.
+- **Lost job:** a **note**. It steers a running turn, or else waits and goes along with the next turn, so it costs nothing on its own.
+- **`/stop` and `/new`:** queued wake-ups become notes rather than being dropped. A stopped turn never starts a new one. `/new` keeps `[acmd]` notices and drops stale steers.
+- **Counting:** the conversation counts its wake-ups, shown in `/status`. There is no hard limit.
+
+**`acmd notify [--chat <id>] [--source <label>] [text|stdin]`** (`src/inbox.ts`) writes `state/inbox/<monotonic ulid>.json`. The daemon delivers it as a wake (`[acmd] Notification (<source>): …`) and deletes it, including ones written while it was down. The chat defaults to the first allowlisted id, and other chats are refused. This is how timers, cron jobs and scripts wake the agent, e.g. for scheduled checks. The prompt teaches the exact command.
 2. **`openrouter:web_search`** and **`openrouter:web_fetch`**: OpenRouter server tools with engine `auto`.
 
 ## Telegram
@@ -51,6 +77,7 @@ A minimal, single-process Telegram bot. It runs agent turns on OpenRouter throug
 | `/model [alias\|id]` | With no argument, list the configured models. Otherwise switch models for this conversation. |
 | `/thinking [level]` | Show or set the effort (`none, minimal, low, medium, high, xhigh, max`) |
 | `/cwd [path]` | Show or set the working directory for this conversation |
+| `/jobs [stop <id>]` | List running and recent background jobs, or stop one |
 | `/debug [on\|off]` | Show or toggle debug logging at runtime |
 | `/<skill>` | Run the skill's SKILL.md one time |
 
@@ -72,7 +99,7 @@ Everything the runtime owns on disk lives under one home directory, `~/.acmd/` (
 ```
 
 - **Ownership split:**
-  - `src/prompt.md` in the repo is versioned with the code. It describes the runtime: the bash tool and its limits, the `nohup` pattern, web tools, Telegram formatting rules, and how skills and memory work.
+  - `src/prompt.md` in the repo is versioned with the code. It describes the runtime: the bash tool and its limits, background jobs and `acmd notify`, web tools, Telegram formatting rules, and how skills and memory work.
   - The workspace holds the user's own content: AGENTS.md, memory and skills.
 - **Instructions** are `prompt.md` + `AGENTS.md` + `MEMORY.md` + a skills index (name, description, path). They are compiled **once, when the conversation is created**, and saved next to it (`<convId>.instructions.md`), so they stay byte-identical across restarts. That keeps the prompt-cache prefix byte-stable. Edits made during a conversation, to skills, memory or AGENTS.md, take effect at the next `/new`.
 - **Skills** follow the open Agent Skills format (`SKILL.md` with `name`/`description` frontmatter), so they also work with Claude Code and Codex. Only the index goes into the prompt. The model reads the full skill with `cat` when it needs it. `/<name>` forces a skill for one turn.
@@ -165,7 +192,7 @@ acmd is a long-running daemon. systemd and beacon already capture process start/
   ],
   "default_effort": "medium",
   "home": "~/.acmd",
-  "bash": { "timeout_ms": 120000, "output_cap_chars": 30000 },
+  "bash": { "timeout_ms": 120000, "max_timeout_ms": 600000, "output_cap_chars": 30000 },
   "max_turn_cost_usd": null,                             // optional
   "credits_warn_usd": 5                                  // status check threshold
 }
