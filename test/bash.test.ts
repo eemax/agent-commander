@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Jobs } from "../src/jobs.js";
 import { type ForegroundOptions, runForeground, toolEnv } from "../src/tools/bash.js";
 import { cleanOutput, readOutput } from "../src/tools/output.js";
+import { loginEnv, parseEnv } from "../src/tools/shellenv.js";
 
 let stateDir: string;
 let jobs: Jobs;
@@ -73,7 +74,7 @@ describe("runForeground", () => {
   });
 
   it("moves a command that outlives the timeout to the background instead of killing it", async () => {
-    const r = await runForeground(jobs, opts("echo started; sleep 1; echo finished", { timeoutMs: 300 }));
+    const r = await runForeground(jobs, opts("echo started; sleep 2; echo finished", { timeoutMs: 1000 }));
     if (!("still_running" in r)) throw new Error("expected still_running");
     expect(r.output).toContain("started");
     expect(r.note).toContain(`kill -- -${r.pgid}`);
@@ -124,6 +125,22 @@ describe("runForeground", () => {
   it("replaces binary output", async () => {
     const r = await runForeground(jobs, opts("head -c 3000 /dev/urandom; printf '\\0\\0'"));
     expect("output" in r && r.output).toMatch(/^\[binary output, /);
+  });
+});
+
+describe("login environment", () => {
+  it("parses env -0 output and drops per-shell variables", () => {
+    expect(parseEnv("PATH=/bin:/usr/bin\0PWD=/x\0SHLVL=2\0A=b=c\0MULTI=line1\nline2\0")).toEqual({
+      PATH: "/bin:/usr/bin",
+      A: "b=c",
+      MULTI: "line1\nline2"
+    });
+  });
+
+  it("captures the login shell's environment once and reuses it", () => {
+    const first = loginEnv();
+    expect(first.PATH).toBeTruthy();
+    expect(loginEnv()).toBe(first);
   });
 });
 

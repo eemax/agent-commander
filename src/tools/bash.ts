@@ -4,6 +4,7 @@
 import * as fs from "node:fs";
 import type { JobInit, Jobs } from "../jobs.js";
 import { readOutput } from "./output.js";
+import { loginEnv } from "./shellenv.js";
 
 // acmd's own credentials never reach the commands the model runs.
 const PRIVATE_ENV = ["TELEGRAM_BOT_TOKEN", "OPENROUTER_API_KEY"];
@@ -21,7 +22,7 @@ export const FOREGROUND_LOG_CAP = 100 * 1024 ** 2;
 const CAP_CHECK_MS = 1000;
 
 export function toolEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, ...NON_INTERACTIVE_ENV };
+  const env: NodeJS.ProcessEnv = { ...loginEnv(), ...NON_INTERACTIVE_ENV };
   for (const key of PRIVATE_ENV) delete env[key];
   return env;
 }

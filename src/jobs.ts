@@ -39,9 +39,10 @@ export const BACKGROUND_LOG_CAP = 1024 ** 3;
 // The command runs in the background of the wrapper. The trap is set after the fork, so the
 // command keeps default signal handling while the wrapper survives `kill -- -<pgid>` (TERM,
 // INT, HUP) and can still record how the command ended. The command's own EXIT trap records
-// the directory it ended in, so a foreground `cd` carries over to the next call.
+// the directory it ended in, so a foreground `cd` carries over to the next call. A plain (not
+// login) shell: the environment already comes from a login-shell snapshot (tools/shellenv.ts).
 const WRAPPER = `
-/bin/bash -lc "trap 'printf %s \\"\\$PWD\\" > \\"\\$ACMD_JOB_DIR/cwd\\"' EXIT
+/bin/bash -c "trap 'printf %s \\"\\$PWD\\" > \\"\\$ACMD_JOB_DIR/cwd\\"' EXIT
 $ACMD_JOB_CMD" </dev/null >"$ACMD_JOB_DIR/output.log" 2>&1 &
 child=$!
 trap '' TERM INT HUP

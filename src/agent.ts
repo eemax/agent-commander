@@ -34,7 +34,7 @@ export class TurnAbortedError extends Error {
 }
 
 const BASH_DESCRIPTION = [
-  "Run a command with /bin/bash -lc. Each call is a fresh shell in the conversation's working directory;",
+  "Run a bash command. Each call is a fresh shell (login environment) in the conversation's working directory;",
   "a cd carries over to later calls, but exports, variables and functions do not.",
   "stdout and stderr are merged and cleaned; long output keeps its head and tail plus the path of the full output file.",
   "If a command is still running at the timeout it is not killed: it continues as a background job and you get a message when it exits.",
