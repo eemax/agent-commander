@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Jobs } from "../src/jobs.js";
 import { type ForegroundOptions, runForeground, toolEnv } from "../src/tools/bash.js";
 import { cleanOutput, readOutput } from "../src/tools/output.js";
-import { loginEnv, parseEnv } from "../src/tools/shellenv.js";
+import { loginEnv, parseEnv, profileFingerprint, resetLoginEnv } from "../src/tools/shellenv.js";
 
 let stateDir: string;
 let jobs: Jobs;
@@ -146,6 +146,31 @@ describe("login environment", () => {
     const first = loginEnv();
     expect(first.PATH).toBeTruthy();
     expect(loginEnv()).toBe(first);
+  });
+
+  it("re-captures as soon as a profile or secrets file changes", () => {
+    const realHome = process.env.HOME;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "acmd-home-"));
+    try {
+      process.env.HOME = home;
+      resetLoginEnv();
+      fs.writeFileSync(path.join(home, ".bash_profile"), "export ACMD_T_PROFILE=one\n[ -f ~/.secrets/k.env ] && set -a && . ~/.secrets/k.env && set +a\n");
+      expect(loginEnv().ACMD_T_PROFILE).toBe("one");
+      const before = profileFingerprint(home);
+
+      fs.writeFileSync(path.join(home, ".bash_profile"), "export ACMD_T_PROFILE=two\n[ -f ~/.secrets/k.env ] && set -a && . ~/.secrets/k.env && set +a\n");
+      expect(profileFingerprint(home)).not.toBe(before);
+      expect(loginEnv().ACMD_T_PROFILE).toBe("two"); // this very call, not 5 minutes later
+
+      fs.mkdirSync(path.join(home, ".secrets"));
+      fs.writeFileSync(path.join(home, ".secrets", "k.env"), "ACMD_T_KEY=secret\n");
+      expect(loginEnv().ACMD_T_KEY).toBe("secret"); // a new key is picked up at once
+      const unchanged = loginEnv();
+      expect(loginEnv()).toBe(unchanged); // and nothing is re-captured while nothing changes
+    } finally {
+      process.env.HOME = realHome;
+      resetLoginEnv();
+    }
   });
 });
 
