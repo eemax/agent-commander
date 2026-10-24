@@ -89,7 +89,7 @@ describe("workspace", () => {
     expect(instructions).toContain("- good: Good skill.");
     expect(instructions).toContain(ws);
     expect(instructions).not.toMatch(/\{\{\w+\}\}/);
-    expect(instructions).toContain("default timeout is 2 min");
+    expect(instructions).toContain("(default 2 min, up to 10 min)");
     expect(instructions).toMatch(/notify "text"/);
   });
 

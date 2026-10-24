@@ -5,7 +5,7 @@ import { type Config, resolveModel } from "./config.js";
 import { errorMessage, log } from "./log.js";
 import type { Jobs } from "./jobs.js";
 import { type ConversationMeta, type Store, type Usage, emptyUsage } from "./state.js";
-import { runBash } from "./tools/bash.js";
+import { runForeground } from "./tools/bash.js";
 
 type ModelResult = SdkModelResult<readonly Tool[]>;
 
@@ -23,7 +23,8 @@ export type TurnHandle = {
 };
 
 export type TurnCallbacks = {
-  onToolStart?: (label: string) => void;
+  // `label` is the model's description of the command when it gave one, else the command.
+  onToolStart?: (label: string, kind: "command" | "description") => void;
 };
 
 export class TurnAbortedError extends Error {
@@ -33,11 +34,11 @@ export class TurnAbortedError extends Error {
 }
 
 const BASH_DESCRIPTION = [
-  "Run a command with /bin/bash -lc in the conversation's working directory.",
-  "Each call is a fresh shell: cd, exports and variables do not persist between calls.",
-  "stdout and stderr are merged; long output keeps its head and tail.",
-  "Set background: true for anything long-running or open-ended (builds, servers, waiting for something, checking again later):",
-  "it returns a job id and log path at once, and you get a message with the exit code and log tail when the job exits."
+  "Run a command with /bin/bash -lc. Each call is a fresh shell in the conversation's working directory;",
+  "a cd carries over to later calls, but exports, variables and functions do not.",
+  "stdout and stderr are merged and cleaned; long output keeps its head and tail plus the path of the full output file.",
+  "If a command is still running at the timeout it is not killed: it continues as a background job and you get a message when it exits.",
+  "Set background: true to start one directly for anything long-running or open-ended (builds, servers, waiting for something, checking again later)."
 ].join(" ");
 
 function statusCodeOf(error: unknown): number | null {
@@ -102,24 +103,29 @@ export class Agent {
         description: BASH_DESCRIPTION,
         inputSchema: z.object({
           command: z.string().describe("The bash command to run"),
+          description: z
+            .string()
+            .optional()
+            .describe("A few words on what this does, shown to the user while it runs, e.g. 'Running the test suite'"),
           timeout_ms: z
             .number()
             .int()
             .positive()
             .optional()
             .describe(
-              `Foreground timeout in ms (default ${this.config.bash.timeoutMs}, max ${this.config.bash.maxTimeoutMs}). Ignored with background.`
+              `How long to wait in ms before the command continues in the background (default ${this.config.bash.timeoutMs}, max ${this.config.bash.maxTimeoutMs}).`
             ),
           background: z
             .boolean()
             .optional()
-            .describe("Run as a background job that outlives this turn; you are notified when it exits.")
+            .describe("Start as a background job right away; you are notified when it exits.")
         }),
         // Repeating the same command (polling a log, re-running tests) is legitimate.
         loopKey: false,
         execute: async ({ command, timeout_ms, background }, ctx) => {
+          const init = { chatId: meta.chatId, conversationId: meta.id, command, cwd: meta.cwd };
           if (background) {
-            const job = this.jobs.start({ chatId: meta.chatId, conversationId: meta.id, command, cwd: meta.cwd });
+            const { job } = this.jobs.start(init);
             return {
               job_id: job.id,
               pgid: job.pgid,
@@ -127,13 +133,18 @@ export class Agent {
               note: `Started in the background. You will get a message when it exits. Progress: tail the log. Stop it: kill -- -${job.pgid}`
             };
           }
-          return runBash({
-            command,
-            cwd: meta.cwd,
+          const result = await runForeground(this.jobs, {
+            ...init,
             timeoutMs: Math.min(timeout_ms ?? this.config.bash.timeoutMs, this.config.bash.maxTimeoutMs),
             outputCapChars: this.config.bash.outputCapChars,
             signal: ctx?.signal
           });
+          if ("cwd" in result && result.cwd) {
+            meta.cwd = result.cwd;
+            this.store.saveMeta(meta);
+            log.debug("cwd changed", { cwd: result.cwd });
+          }
+          return result;
         }
       });
       // Summed per model call from the PostModelCall hook, so aborted and retried runs count too.
@@ -157,21 +168,25 @@ export class Agent {
             PreToolUse: [
               {
                 handler: (payload) => {
-                  const command = typeof payload.toolInput.command === "string" ? payload.toolInput.command : "";
-                  const background = payload.toolInput.background === true;
+                  const input = payload.toolInput;
+                  const command = typeof input.command === "string" ? input.command : "";
+                  const description = typeof input.description === "string" ? input.description.trim() : "";
+                  const background = input.background === true;
                   log.debug("tool start", { tool: payload.toolName, command, background });
-                  callbacks.onToolStart?.(command ? `${command}${background ? " &" : ""}` : payload.toolName);
+                  const label = description || command || payload.toolName;
+                  callbacks.onToolStart?.(background ? `${label} (background)` : label, description ? "description" : "command");
                 }
               }
             ],
             PostToolUse: [
               {
                 handler: (payload) => {
-                  const output = payload.toolOutput as { exit_code?: number | null; timed_out?: boolean } | null;
+                  const output = payload.toolOutput as { exit_code?: number | null; still_running?: boolean; job_id?: number } | null;
                   log.debug("tool done", {
                     tool: payload.toolName,
                     exit_code: output?.exit_code,
-                    timed_out: output?.timed_out,
+                    job: output?.job_id,
+                    still_running: output?.still_running,
                     ms: Math.round(payload.durationMs)
                   });
                 }

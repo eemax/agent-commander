@@ -1,118 +1,127 @@
-import { spawn } from "node:child_process";
-import * as os from "node:os";
-
-export type BashResult = {
-  exit_code: number | null;
-  output: string;
-  timed_out: boolean;
-  truncated: boolean;
-};
-
-export type BashOptions = {
-  command: string;
-  cwd: string;
-  timeoutMs: number;
-  outputCapChars: number;
-  signal?: AbortSignal;
-};
-
-// Keeps the first and last part of a stream within a fixed memory budget.
-export class HeadTailBuffer {
-  private head = "";
-  private tail = "";
-  private total = 0;
-  private readonly headCap: number;
-  private readonly tailCap: number;
-
-  constructor(cap: number) {
-    this.headCap = Math.floor(cap * 0.4);
-    this.tailCap = cap - this.headCap;
-  }
-
-  push(chunk: string): void {
-    this.total += chunk.length;
-    if (this.head.length < this.headCap) {
-      const room = this.headCap - this.head.length;
-      this.head += chunk.slice(0, room);
-      chunk = chunk.slice(room);
-    }
-    if (chunk.length === 0) return;
-    this.tail += chunk;
-    if (this.tail.length > this.tailCap * 2) this.tail = this.tail.slice(-this.tailCap);
-  }
-
-  result(): { text: string; truncated: boolean } {
-    const kept = this.head.length + Math.min(this.tail.length, this.tailCap);
-    if (this.total <= kept) return { text: this.head + this.tail, truncated: false };
-    const tail = this.tail.slice(-this.tailCap);
-    const omitted = this.total - this.head.length - tail.length;
-    return { text: `${this.head}\n\n[... ${omitted} characters truncated ...]\n\n${tail}`, truncated: true };
-  }
-}
-
-function killGroup(pid: number | undefined): void {
-  if (pid === undefined) return;
-  try {
-    process.kill(-pid, "SIGKILL");
-  } catch {
-    // already gone
-  }
-}
+// The bash tool's execution: every command runs as a job (src/jobs.ts). A foreground call
+// waits for its job up to the timeout; if the command is still running then, the call returns
+// what it has so far and the job carries on in the background, waking the agent when it ends.
+import * as fs from "node:fs";
+import type { JobInit, Jobs } from "../jobs.js";
+import { readOutput } from "./output.js";
 
 // acmd's own credentials never reach the commands the model runs.
 const PRIVATE_ENV = ["TELEGRAM_BOT_TOKEN", "OPENROUTER_API_KEY"];
 
+// Nothing may stop to ask a question: there is no one at the terminal (stdin is /dev/null too).
+const NON_INTERACTIVE_ENV = {
+  PAGER: "cat",
+  GIT_PAGER: "cat",
+  GIT_TERMINAL_PROMPT: "0",
+  DEBIAN_FRONTEND: "noninteractive"
+};
+
+// A foreground command is stopped once its output passes this size.
+export const FOREGROUND_LOG_CAP = 100 * 1024 ** 2;
+const CAP_CHECK_MS = 1000;
+
 export function toolEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
+  const env: NodeJS.ProcessEnv = { ...process.env, ...NON_INTERACTIVE_ENV };
   for (const key of PRIVATE_ENV) delete env[key];
   return env;
 }
 
-// Runs one command in a fresh login shell, in its own process group so a timeout or abort
-// kills everything it started. Resolves on process exit, so a backgrounded child that keeps
-// the pipes open does not hang the call.
-export function runBash(options: BashOptions): Promise<BashResult> {
-  return new Promise((resolve) => {
-    const buffer = new HeadTailBuffer(options.outputCapChars);
-    let timedOut = false;
-    let settled = false;
-
-    const child = spawn("/bin/bash", ["-lc", options.command], {
-      cwd: options.cwd,
-      env: toolEnv(),
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    child.stdout.setEncoding("utf8").on("data", (d: string) => buffer.push(d));
-    child.stderr.setEncoding("utf8").on("data", (d: string) => buffer.push(d));
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killGroup(child.pid);
-    }, options.timeoutMs);
-    const onAbort = () => killGroup(child.pid);
-    options.signal?.addEventListener("abort", onAbort, { once: true });
-
-    const finish = (exitCode: number | null, extra = "") => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      options.signal?.removeEventListener("abort", onAbort);
-      if (extra) buffer.push(extra);
-      const { text, truncated } = buffer.result();
-      resolve({ exit_code: exitCode, output: text, timed_out: timedOut, truncated });
+export type ForegroundResult =
+  | {
+      exit_code: number | null;
+      output: string;
+      truncated: boolean;
+      full_output?: string;
+      cwd?: string; // the directory the command ended in, when it changed
+      note?: string;
+    }
+  | {
+      still_running: true;
+      job_id: number;
+      pgid: number;
+      log: string;
+      output: string;
+      note: string;
     };
 
-    child.on("error", (error) => finish(null, `failed to start bash: ${error.message}`));
-    child.on("exit", (code, signal) => {
-      // Give the pipes a moment to drain, then return even if a background child still holds them.
-      const exitCode = code ?? (signal ? 128 + (os.constants.signals[signal] ?? 0) : null);
-      const done = () => finish(exitCode, timedOut ? `\n[timed out after ${options.timeoutMs} ms and killed; run long or open-ended commands with background: true]` : "");
-      const grace = setTimeout(done, 200);
-      child.on("close", () => {
-        clearTimeout(grace);
-        done();
-      });
-    });
+export type ForegroundOptions = JobInit & {
+  timeoutMs: number;
+  outputCapChars: number;
+  signal?: AbortSignal;
+  logCap?: number;
+};
+
+export async function runForeground(jobs: Jobs, options: ForegroundOptions): Promise<ForegroundResult> {
+  const { job, exited } = jobs.start({ ...options, foreground: true });
+  const logCap = options.logCap ?? FOREGROUND_LOG_CAP;
+  let capNote: string | undefined;
+  const timers: NodeJS.Timeout[] = [];
+  let onAbort: (() => void) | undefined;
+
+  const outcome = await new Promise<"exit" | "timeout" | "abort">((resolve) => {
+    void exited.then(() => resolve("exit"));
+    timers.push(setTimeout(() => resolve("timeout"), options.timeoutMs));
+    timers.push(
+      setInterval(() => {
+        if (capNote === undefined && jobs.logSize(job.id) > logCap) {
+          capNote = `stopped by acmd: output passed ${Math.round(logCap / 1_048_576)} MB`;
+          jobs.signal(job.id, "SIGTERM", capNote);
+        }
+      }, CAP_CHECK_MS)
+    );
+    if (options.signal?.aborted) resolve("abort");
+    onAbort = () => resolve("abort");
+    options.signal?.addEventListener("abort", onAbort, { once: true });
   });
+  for (const t of timers) clearTimeout(t);
+  if (onAbort) options.signal?.removeEventListener("abort", onAbort);
+
+  if (outcome === "abort") {
+    jobs.signal(job.id, "SIGKILL");
+    await Promise.race([exited, new Promise((r) => setTimeout(r, 2000))]);
+    jobs.finishForeground(job.id, false);
+    return { exit_code: null, output: "[stopped]", truncated: false };
+  }
+
+  const log = jobs.logPath(job.id);
+  if (outcome === "timeout") {
+    jobs.promote(job.id);
+    const sofar = readOutput(log, options.outputCapChars);
+    return {
+      still_running: true,
+      job_id: job.id,
+      pgid: job.pgid,
+      log,
+      output: sofar.text,
+      note:
+        `Still running after ${Math.round(options.timeoutMs / 1000)} s, so it continues as background job ${job.id}; ` +
+        `you will get a message when it exits. Progress: tail the log. Stop it: kill -- -${job.pgid}`
+    };
+  }
+
+  const exitCode = jobs.readExit(job.id);
+  const output = readOutput(log, options.outputCapChars);
+  const endedIn = jobs.readCwd(job.id);
+  jobs.finishForeground(job.id, output.truncated);
+  const result: ForegroundResult = { exit_code: exitCode, output: output.text, truncated: output.truncated };
+  if (output.truncated) result.full_output = log;
+  if (endedIn && isDirectory(endedIn) && !sameDirectory(endedIn, options.cwd)) result.cwd = endedIn;
+  if (capNote) result.note = capNote;
+  return result;
+}
+
+function sameDirectory(a: string, b: string): boolean {
+  try {
+    return fs.realpathSync(a) === fs.realpathSync(b);
+  } catch {
+    return a === b;
+  }
+}
+
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
 }

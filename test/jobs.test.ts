@@ -11,7 +11,7 @@ let jobs: Jobs;
 const started: Job[] = [];
 
 function start(command: string): Job {
-  const job = jobs.start({ chatId: "1", conversationId: "conv_a", command, cwd: os.tmpdir() });
+  const { job } = jobs.start({ chatId: "1", conversationId: "conv_a", command, cwd: os.tmpdir() });
   started.push(job);
   return job;
 }
@@ -108,6 +108,43 @@ describe("Jobs", () => {
     expect(await ended(job.id)).toMatchObject({ state: "lost" });
   });
 
+  it("never reuses an id, even after pruning", async () => {
+    const a = start("true");
+    await ended(a.id);
+    jobs.markDelivered(a.id);
+    jobs.prune(0);
+    const restarted = new Jobs(stateDir, toolEnv);
+    expect(restarted.start({ chatId: "1", conversationId: "c", command: "true", cwd: os.tmpdir() }).job.id).toBe(a.id + 1);
+  });
+
+  it("stops a background job whose log passes the cap and says why", async () => {
+    const capped = new Jobs(stateDir, toolEnv, 2_000_000);
+    const { job } = capped.start({ chatId: "1", conversationId: "c", command: "yes acmd", cwd: os.tmpdir() });
+    started.push(job);
+    const deadline = Date.now() + 10_000;
+    let done: Job | undefined;
+    while (!done && Date.now() < deadline) {
+      done = capped.sweep().find((j) => j.id === job.id);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(done).toMatchObject({ state: "exited", exitCode: 143 });
+    expect(jobNotice(capped, done!, "c")).toContain("Note: stopped by acmd: its output passed 2 MB.");
+  });
+
+  it("adopts a foreground job whose call died with an earlier acmd process", async () => {
+    const { job } = jobs.start({ chatId: "1", conversationId: "c", command: "sleep 0.3", cwd: os.tmpdir(), foreground: true });
+    started.push(job);
+    expect(jobs.sweep()).toEqual([]); // the live call owns it
+    const restarted = new Jobs(stateDir, toolEnv);
+    const deadline = Date.now() + 10_000;
+    let done: Job | undefined;
+    while (!done && Date.now() < deadline) {
+      done = restarted.sweep().find((j) => j.id === job.id);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(done).toMatchObject({ state: "exited", exitCode: 0 });
+  });
+
   it("prunes ended, delivered jobs past retention only", async () => {
     const old = start("true");
     const fresh = start("true");
@@ -131,6 +168,7 @@ describe("Jobs", () => {
     const done = await ended(job.id);
     const notice = jobNotice(jobs, done, "conv_b");
     expect(notice).toMatch(/^\[acmd\] Background job \d+ finished: exit 0 after \d+s\./);
+    expect(jobNotice(jobs, { ...done, promoted: true }, "conv_a")).toContain("moved to the background when its call timed out");
     expect(notice).toContain("Command: echo built");
     expect(notice).toContain("earlier conversation");
     expect(notice).toContain("```\nbuilt\n```");

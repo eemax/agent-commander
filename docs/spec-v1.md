@@ -22,10 +22,14 @@ A minimal, single-process Telegram bot. It runs agent turns on OpenRouter throug
 
 ## Tools
 
-1. **`bash`**, executed locally:
-   - Input: `command`, optional `timeout_ms`, optional `background`.
-   - **Foreground** (default): each call runs in a fresh `/bin/bash -lc` subprocess, in the conversation's cwd, in its own process group, without acmd's own credentials in its environment. Timeout: `bash.timeout_ms` (2 min) by default; the model may raise it per call up to `bash.max_timeout_ms` (10 min). On timeout, the whole process group gets SIGKILL and the output says to use `background`. stdout and stderr are merged; the output cap keeps the head and the tail. Returns `{ exit_code, output, timed_out, truncated }`.
-   - **Background** (`background: true`): starts a job and returns at once with `{ job_id, pgid, log }`. See "Background jobs and wake-ups".
+1. **`bash`**, executed locally (`src/tools/bash.ts`, `src/tools/output.ts`):
+   - Input: `command`, optional `description` (shown in the Telegram status line instead of the command), optional `timeout_ms`, optional `background`.
+   - **One execution path:** every command runs as a job (see below). Each call is a fresh `/bin/bash -lc` in the conversation's cwd, in its own process group, with stdin `/dev/null`. The environment has no acmd credentials, plus `PAGER=cat`, `GIT_PAGER=cat`, `GIT_TERMINAL_PROMPT=0` and `DEBIAN_FRONTEND=noninteractive`, so nothing waits for input.
+   - **cwd persists** across calls, like Claude Code. The command's EXIT trap records `$PWD`; a foreground call that ends in another existing directory updates the conversation cwd. Exports, variables and functions don't persist.
+   - **Foreground** waits up to `timeout_ms`: default `bash.timeout_ms` (2 min), capped at `bash.max_timeout_ms` (10 min). If the command finishes, the call returns `{ exit_code, output, truncated, full_output?, cwd?, note? }`. **If it is still running, it is not killed:** the call returns `{ still_running, job_id, pgid, log, output so far, note }` and the job continues in the background (promoted). `/stop` kills the command's whole process group with SIGKILL.
+   - **Output:** stdout and stderr are merged into the job log. The model gets a cleaned view: ANSI and OSC codes stripped, carriage-return progress bars collapsed to their final state, other control characters removed, and binary output replaced by `[binary output, N]`. It is capped at `bash.output_cap_chars` (40% head, 60% tail, read from both ends of the file, so a huge log is never loaded whole). When truncated, the full log is kept and its path returned, so the model can search it instead of re-running.
+   - **Caps:** a foreground command is stopped (TERM) once its log passes 100 MB, a background job at 1 GB. The result or notice says so.
+   - **Background** (`background: true`): starts the job without waiting, returning `{ job_id, pgid, log }`.
 2. **`openrouter:web_search`** and **`openrouter:web_fetch`**: OpenRouter server tools with engine `auto`.
 
 ## Background jobs and wake-ups
@@ -34,11 +38,11 @@ The agent can do work that outlives a turn and pick it up again by itself, like 
 
 | Need | Background command |
 |---|---|
-| Park long work | `npm run build` |
+| Park long work | `npm run build` (or just run it: past the timeout it moves to the background by itself) |
 | Check back in x minutes | `sleep 900; curl -s …/health` |
 | Wait until something happens | `until grep -q READY app.log; do sleep 20; done` |
 
-**Jobs** (`src/jobs.ts`), stored in `state/jobs/<id>/` (`job.json`, `output.log`, `exit`):
+**Jobs** (`src/jobs.ts`), stored in `state/jobs/<id>/` (`job.json`, `output.log`, `exit`, `cwd`). Ids come from a persisted counter, so pruning never reuses one. Foreground calls are jobs too: their directory is deleted when the call finishes, unless the full output was handed to the model (then it's kept for the retention period). They join the sweep only when promoted, so a finished call is never also delivered. A foreground job whose call died with an earlier acmd process is adopted and reported like any background job.
 - A detached wrapper shell runs `bash -lc <command>` in the background with output going to `output.log`. Then it ignores TERM, INT and HUP (set after the fork, so the command keeps default handling), waits, and writes the exit code to `exit`. So `kill -- -<pgid>` (or `/jobs stop`) ends the command, and the wrapper still records exit 143.
 - Jobs don't depend on acmd. They survive acmd restarts (the unit uses `KillMode=process`) and record their own outcome. Every second the daemon checks running jobs:
   - `exit` exists: **exited**.

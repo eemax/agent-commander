@@ -49,6 +49,7 @@ class ToolStatus {
   private messageId: number | null = null;
   private creating: Promise<void> | null = null;
   private latest = "";
+  private kind: "command" | "description" = "command";
   private shown = "";
   private lastEditAt = 0;
   private timer: NodeJS.Timeout | null = null;
@@ -61,12 +62,14 @@ class ToolStatus {
 
   private render(label: string): string {
     const oneLine = label.replace(/\s+/g, " ").trim();
-    return `⚙️ <code>${escapeHtml(oneLine.length > 300 ? `${oneLine.slice(0, 300)}…` : oneLine)}</code>`;
+    const text = escapeHtml(oneLine.length > 300 ? `${oneLine.slice(0, 300)}…` : oneLine);
+    return this.kind === "command" ? `⚙️ <code>${text}</code>` : `⚙️ ${text}`;
   }
 
-  update(label: string): void {
+  update(label: string, kind: "command" | "description"): void {
     if (this.closed) return;
     this.latest = label;
+    this.kind = kind;
     if (this.messageId === null && this.creating === null) {
       this.shown = label;
       this.lastEditAt = Date.now();
@@ -307,7 +310,7 @@ export class TelegramApp {
     const typingTimer = setInterval(typing, TYPING_EVERY_MS);
     log.debug("turn start", { conversation: meta.id, model: meta.model, chars: input.length, woken });
 
-    const handle = this.agent.startTurn(meta, input, { onToolStart: (label) => status.update(label) });
+    const handle = this.agent.startTurn(meta, input, { onToolStart: (label, kind) => status.update(label, kind) });
     run.turn = handle;
     let reply: string;
     let stopped = false;
