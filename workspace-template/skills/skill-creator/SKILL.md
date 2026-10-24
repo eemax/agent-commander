@@ -1,31 +1,106 @@
 ---
 name: skill-creator
-description: Create or improve a skill in the workspace, in the Agent Skills format. Use when the user asks for a new skill or to change one, or when a workflow you repeat deserves one.
+description: Create, improve, fix or test skills in the Agent Skills format (agentskills.io). Use this skill when the user asks for a new skill or to change one, says "make this repeatable" or "next time, do it like this" about a procedure, or when you just finished a multi-step task you would otherwise have to work out again (a deploy, a report, a recovery). Not for single facts or preferences, which go in memory.
 ---
 
 # Creating a skill
 
-A skill is a folder `skills/<name>/` in the workspace with a `SKILL.md`, plus optional `scripts/`, `references/` and `assets/`. It follows the open Agent Skills format (https://agentskills.io/specification), so it also works in Claude Code, Codex and other agents.
+A skill teaches a future you a procedure it would otherwise get wrong or have to work out
+again. When choosing a skill you see only its name and description; the body is read when the
+skill is picked; files in `references/`, `scripts/` and `assets/` only when the body says so.
+Write for that order. The format is the open Agent Skills standard
+(https://agentskills.io/specification), so the skill also works in Claude Code, Codex and
+other agents.
 
-## Steps
+## 1. Decide it should be a skill
 
-1. Agree on what the skill is for in one sentence, and when it should be used. If a box skill (in the box's `skills.d/`) already covers it, use that one instead; a workspace skill with the same name would override it.
-2. Pick `<name>`: 1-64 characters, lowercase letters, digits and single hyphens (`deploy-app`; not `Deploy_App`, `-x` or `a--b`). The folder must have the same name. Telegram offers it as `/<name>` with hyphens as underscores, cut at 32 characters, so keep it short.
-3. Create `skills/<name>/SKILL.md`, starting with YAML frontmatter. `name` and `description` are required. The description (at most 1024 characters) is all the agent sees when choosing a skill, so say what it does *and when to use it*, with the words a request would contain:
+- **A procedure, not a fact.** "The user's timezone is CET" belongs in MEMORY.md. "How to rotate the
+  API key and redeploy" is a skill.
+- **Not one already.** Check `<available_skills>`. Improve your own skill rather than adding a
+  near-duplicate. Box skills (in the box's `skills.d/`) are read-only: a workspace skill of the
+  same name overrides one and hides its future updates, so do that only on purpose, and tell
+  the user.
+- **One coherent job.** "Query the database and format the results" is one skill; adding
+  database administration makes it two. Too broad won't trigger precisely, too narrow means
+  several skills for one task.
+- **Real material.** Build it from what actually happened: the commands that worked, the
+  errors you hit, the corrections the user made, the runbooks, configs and repo docs involved.
+  Generic advice ("handle errors appropriately") is worth nothing.
 
-   ```
-   ---
-   name: <name>
-   description: <what it does>. Use when <trigger>.
-   ---
-   ```
+## 2. Name the folder
 
-   Quote a value that contains `: ` (`description: "Use when: …"`). Optional fields: `license`, `compatibility` (at most 500 characters, only when it needs something specific: a tool, network access), `metadata` (a map of text values, e.g. `author`, `version`). Nothing else goes in the frontmatter.
+`skills/<name>/` in the workspace, with `<name>`: 1-64 characters, lowercase letters, digits
+and single hyphens, not at the start or end (`deploy-app`; not `Deploy_App`, `-x` or `a--b`).
+The `name` field must equal the folder name. Telegram offers it as `/<name>` with hyphens as
+underscores, cut at 32 characters, and acmd's own commands (`/new`, `/status`, …) are taken.
 
-4. Write the body as instructions to a capable colleague: the goal, the steps, the commands, the gotchas, and how to verify the result. Prefer concrete commands over prose. Keep SKILL.md under ~200 lines (the spec's limit is 500): the whole file is read each time the skill is used. Move long reference material to `references/<topic>.md` and reusable code to `scripts/`, link them with paths relative to the skill folder (`[the API notes](references/api.md)`, `scripts/check.sh`), one level deep, and say in the body when to read or run each.
-5. Validate: the frontmatter parses (`head -6 skills/<name>/SKILL.md`), the name matches the folder, scripts run. `acmd status` lists skill problems under `workspace`.
-6. Tell the user the skill exists and that it is available from the next conversation (/new).
+## 3. Write the frontmatter
+
+```
+---
+name: deploy-app
+description: Build, test and deploy the app to production, and roll it back. Use this skill when the user asks to ship, release, deploy or roll back the app, or when a change is ready to go live, even if they only say "push it out". Not for local test runs.
+---
+```
+
+- `name` and `description` are required. The description is all you will see when deciding,
+  so it carries the triggering: say what it does and when to use it, phrased as "Use this
+  skill when…", in terms of what the user wants rather than how it's done. Lean towards
+  triggering: include the ways people ask without naming the topic. Say what it is *not* for
+  when a neighbouring task could be confused with it. A few sentences, at most 1024 characters.
+  "Helps with deploys." is useless.
+- Quote a value that contains `: ` (`description: "Use when: …"`), or the YAML breaks.
+- Optional: `license`, `compatibility` (at most 500 characters, only for real requirements:
+  "Needs uv and network access"), `metadata` (text values, e.g. `version: "1.0"`). No other
+  fields.
+
+## 4. Write the body
+
+Instructions to a capable colleague who knows the tools but not this job:
+
+- **Add what you'd lack, leave out what you know.** For each line ask: would I get this wrong
+  without it? If not, cut it. No explaining what HTTP or git is.
+- **Steps with exact commands**, in order, with one default way to do each (not a menu of
+  options). Be exact where it's fragile ("run exactly `scripts/migrate.sh --verify`"); where
+  judgment is needed, say what to weigh and why instead of ALWAYS/NEVER rules.
+- **A `## Gotchas` section**: facts about this environment that defy reasonable assumptions
+  (the health endpoint says 200 while the database is down; files copied in need a `chown`).
+  Often the most valuable part. Keep it in SKILL.md, not in a reference.
+- **A check at the end**, and a loop for anything that can fail: do it, verify, fix, verify
+  again; go on only when it passes.
+- **An output template** when the result's shape matters (a report, a message, a file).
+- **Keep it short:** the whole file is read each time. The standard's limit is 500 lines and
+  about 5,000 tokens; most good skills are well under 150 lines. Move long material into
+  `references/<topic>.md` (focused files, linked one level deep from SKILL.md) and say when to
+  read each: "Read `references/errors.md` if the API returns anything but 200", not "see
+  references/".
+- **Scripts** (`scripts/`) for logic you would otherwise retype each time. Read
+  [references/scripts.md](references/scripts.md) before writing one. List them in the body
+  with the exact command to run each.
+- Paths inside the skill are relative to its folder (`references/x.md`, `scripts/check.sh`).
+
+## 5. Check it
+
+1. `head -8 skills/<name>/SKILL.md`: the frontmatter is there; the name equals the folder.
+2. `acmd status`: the `workspace` check lists anything that breaks the standard.
+3. Run every script: `--help` and one real run.
+4. Triggering: write 5 requests that should use the skill (different wordings, some that
+   don't name the topic) and 3 near-misses that shouldn't. Read the description against each
+   and tighten it until it would pick right.
+5. Follow the skill once on a real or realistic task, step by step as written, and fix
+   whatever you had to guess.
+
+For a skill that matters (used often, or costly when wrong), do the fuller evaluation in
+[references/testing.md](references/testing.md).
+
+Then tell the user the skill exists, that it works from the next conversation (/new), and give
+two or three requests to try it with.
 
 ## Improving a skill
 
-When a skill misfired, fix the instructions where they were ambiguous instead of adding special cases, and keep the description accurate: a skill that is never picked usually has a vague description.
+- When it misfired, look at what you actually did (the commands in the conversation) and fix
+  the instruction that was ambiguous or missing. Fix the general cause, not this one case.
+- When it wasn't picked, or picked wrongly, fix the description by finding the category of
+  request it missed. Don't paste the failed request's words in.
+- When the user corrects you while you follow a skill, add the correction to its Gotchas.
+- Remove instructions that turned out not to matter. Fewer, better instructions beat more.
