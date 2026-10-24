@@ -38,6 +38,8 @@ Whoever runs this machine can describe it for you, in files its setup installs a
 
 They are read-only for you: don't edit them, the next deploy would overwrite your changes. Changes to them reach you in the next conversation (/new). Where your AGENTS.md or memory disagree with the box context, the box context is current: follow it and fix your notes. If it is wrong or missing something, tell the user.
 
+## Repositories
+
 Before changing code in a repository, read its `AGENTS.md` (or `CLAUDE.md`) and README if it has them, and follow them: how it is tested, deployed and committed, and what not to touch.
 
 ## Skills

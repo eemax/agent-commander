@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { REPO_ROOT, type Config } from "./config.js";
+import { RESERVED_COMMANDS, skillCommand } from "./telegram/commands.js";
 
 // Where a skill comes from: the agent's workspace, or the box (its provisioning, read-only).
 export type SkillScope = "workspace" | "box";
@@ -82,11 +83,6 @@ export function parseFrontmatter(content: string): { fields: Record<string, unkn
 // Agent Skills spec: 1-64 lowercase letters and digits, single hyphens between them.
 const SKILL_NAME = /^[\p{Ll}\p{Nd}]+(?:-[\p{Ll}\p{Nd}]+)*$/u;
 const SKILL_FIELDS = new Set(["name", "description", "license", "compatibility", "metadata", "allowed-tools"]);
-
-// The Telegram command for a skill: /<name> with hyphens as underscores (at most 32 characters).
-export function skillCommand(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 32);
-}
 
 // Reads every <root>/<dir>/SKILL.md. A skill that breaks the spec in a way a reader can live
 // with (a name that doesn't match its folder, a long description) is loaded and reported; one
@@ -175,6 +171,9 @@ export function loadSkills(dirs: Dirs): { skills: Skill[]; problems: Problem[] }
   for (const skill of skills) {
     const other = commands.get(skillCommand(skill.name));
     if (other) problems.push({ scope: skill.scope, text: `skills "${other}" and "${skill.name}" share the Telegram command /${skillCommand(skill.name)}` });
+    if (RESERVED_COMMANDS.has(skillCommand(skill.name))) {
+      problems.push({ scope: skill.scope, text: `skill "${skill.name}" can't be /${skillCommand(skill.name)}, an acmd command (rename it)` });
+    }
     commands.set(skillCommand(skill.name), skill.name);
   }
   return { skills, problems };
@@ -303,7 +302,7 @@ export function checkWorkspace(dirs: Dirs): CheckResult & { skills: number } {
   if (memoryLines > MEMORY_WARN_LINES) problems.push(`MEMORY.md is ${memoryLines} lines (keep it under ${MEMORY_WARN_LINES})`);
   const own = skills.filter((s) => s.scope === "workspace").length;
   if (problems.length > 0) return { status: "warn", detail: problems.join("; "), skills: skills.length };
-  return { status: "ok", detail: `AGENTS.md present, ${own} skills valid`, skills: skills.length };
+  return { status: "ok", detail: `AGENTS.md present, ${own} ${own === 1 ? "skill" : "skills"} valid`, skills: skills.length };
 }
 
 export function checkBox(dirs: Dirs): CheckResult & { bytes: number } {

@@ -9,9 +9,8 @@ import { errorMessage, log } from "../log.js";
 import { readInbox, notificationNotice } from "../inbox.js";
 import { type Jobs, formatDuration, jobNotice } from "../jobs.js";
 import type { ConversationMeta, Store } from "../state.js";
-import { compileInstructions, loadSkills, type Skill, skillCommand, workspaceDir } from "../workspace.js";
-
-export { skillCommand };
+import { compileInstructions, loadSkills, type Skill, workspaceDir } from "../workspace.js";
+import { BUILTIN_COMMANDS, RESERVED_COMMANDS, skillCommand } from "./commands.js";
 import { escapeHtml, formatReply, splitPlainText } from "./format.js";
 
 export type Health = { lastPollAt: number | null };
@@ -21,17 +20,6 @@ const WATCH_EVERY_MS = 1000;
 const JOB_RETENTION_MS = 7 * 86_400_000;
 const STATUS_EDIT_EVERY_MS = 2000;
 const NO_PREVIEW = { link_preview_options: { is_disabled: true } } as const;
-
-const BUILTIN_COMMANDS: Array<{ command: string; description: string }> = [
-  { command: "new", description: "Start a fresh conversation" },
-  { command: "stop", description: "Stop the running turn" },
-  { command: "status", description: "Model, cwd, usage" },
-  { command: "model", description: "Show or switch model" },
-  { command: "thinking", description: "Show or set reasoning effort" },
-  { command: "cwd", description: "Show or set working directory" },
-  { command: "jobs", description: "List background jobs, or /jobs stop <id>" },
-  { command: "debug", description: "Toggle debug logging" }
-];
 
 // A woken reply is marked ⏰. Glued onto a line that starts a markdown block (heading, code
 // fence, list, quote, table) the marker would break that block, so it goes on its own line then.
@@ -46,7 +34,7 @@ export function parseCommand(text: string, skillCommands: string[]): { command: 
   if (!match) return null;
   const command = match[1]!.toLowerCase();
   const known =
-    command === "start" || command === "help" || BUILTIN_COMMANDS.some((c) => c.command === command) || skillCommands.includes(command);
+    RESERVED_COMMANDS.has(command) || skillCommands.includes(command);
   return known ? { command, arg: match[2]?.trim() ?? "" } : null;
 }
 
@@ -251,9 +239,8 @@ export class TelegramApp {
 
   private async syncCommands(): Promise<void> {
     const skills = this.skills().map((s) => ({ command: skillCommand(s.name), description: s.description.slice(0, 256) }));
-    const builtin = new Set(BUILTIN_COMMANDS.map((c) => c.command));
     await this.bot.api
-      .setMyCommands([...BUILTIN_COMMANDS, ...skills.filter((s) => !builtin.has(s.command))].slice(0, 100))
+      .setMyCommands([...BUILTIN_COMMANDS, ...skills.filter((s) => !RESERVED_COMMANDS.has(s.command))].slice(0, 100))
       .catch((error) => log.warn("could not register commands", { error: errorMessage(error) }));
   }
 

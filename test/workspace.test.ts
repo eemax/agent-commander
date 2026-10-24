@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { tempDir } from "./tmp.js";
-import { skillCommand } from "../src/telegram/bot.js";
+import { skillCommand } from "../src/telegram/commands.js";
 import {
   checkBox,
   checkWorkspace,
@@ -69,7 +69,7 @@ describe("skills", () => {
       { name: "deploy-app", description: "Deploy. Use when shipping.", path: path.join(boxSkills(d), "deploy-app", "SKILL.md"), scope: "box" },
       { name: "notes", description: "Take notes. Use when asked to remember.", path: path.join(wsSkills(d), "notes", "SKILL.md"), scope: "workspace" }
     ]);
-    expect(checkWorkspace(d)).toEqual({ status: "ok", detail: "AGENTS.md present, 1 skills valid", skills: 2 });
+    expect(checkWorkspace(d)).toEqual({ status: "ok", detail: "AGENTS.md present, 1 skill valid", skills: 2 });
     expect(checkBox(d).detail).toBe("0 context files (0.0 KB), 1 skill");
   });
 
@@ -136,6 +136,8 @@ describe("skills", () => {
     const text = loadSkills(d).problems.map((p) => p.text).join("\n");
     expect(text).toContain(`name over 32 characters, so its Telegram command is cut to /${skillCommand(long)}`);
     expect(text).toContain(`share the Telegram command /${skillCommand(long)}`);
+    skill(boxSkills(d), "status", "name: status\ndescription: z");
+    expect(loadSkills(d).problems.map((p) => `${p.scope}: ${p.text}`)).toContain('box: skill "status" can\'t be /status, an acmd command (rename it)');
   });
 });
 

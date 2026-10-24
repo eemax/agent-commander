@@ -275,6 +275,12 @@ export function buildStatus(config: Config, store: Store, now = Date.now()) {
   return { healthy: !checks.some((c) => c.status === "fail"), problems, metrics, checks, last_run };
 }
 
+function bytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1_048_576) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1_048_576).toFixed(1)} MB`;
+}
+
 export function printStatus(status: ReturnType<typeof buildStatus>, json: boolean): void {
   if (json) {
     console.log(JSON.stringify(status, null, 2));
@@ -287,7 +293,7 @@ export function printStatus(status: ReturnType<typeof buildStatus>, json: boolea
   for (const c of status.checks) console.log(`  ${icon[c.status]} ${c.name.padEnd(15)} ${c.detail}`);
   console.log("");
   for (const m of status.metrics) {
-    const value = m.unit === "usd" ? `$${m.value.toFixed(2)}` : m.unit === "bytes" ? `${(m.value / 1_048_576).toFixed(1)} MB` : String(m.value);
+    const value = m.unit === "usd" ? `$${m.value.toFixed(2)}` : m.unit === "bytes" ? bytes(m.value) : String(m.value);
     const label = m.labels ? `${m.label} [${Object.values(m.labels).join(", ")}]` : m.label;
     console.log(`  ${label.padEnd(28)} ${value}`);
   }
