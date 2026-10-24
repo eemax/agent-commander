@@ -6,8 +6,10 @@ import * as os from "node:os";
 import { errorMessage, log } from "../log.js";
 
 const REFRESH_MS = 5 * 60_000;
-// Per-shell bookkeeping that must not be carried into another shell.
-const SHELL_LOCAL = new Set(["PWD", "OLDPWD", "SHLVL", "_"]);
+// Per-shell bookkeeping that must not be carried into another shell. The SSH session variables
+// matter too: Debian's bash sources ~/.bashrc (nvm and all, ≈0.3 s) in any non-interactive shell
+// that sees SSH_CLIENT with SHLVL < 2, i.e. it would think sshd started it.
+const SHELL_LOCAL = new Set(["PWD", "OLDPWD", "SHLVL", "_", "SSH_CLIENT", "SSH2_CLIENT", "SSH_CONNECTION", "SSH_TTY"]);
 
 let cached: { env: NodeJS.ProcessEnv; at: number } | null = null;
 

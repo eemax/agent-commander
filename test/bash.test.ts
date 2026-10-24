@@ -130,7 +130,7 @@ describe("runForeground", () => {
 
 describe("login environment", () => {
   it("parses env -0 output and drops per-shell variables", () => {
-    expect(parseEnv("PATH=/bin:/usr/bin\0PWD=/x\0SHLVL=2\0A=b=c\0MULTI=line1\nline2\0")).toEqual({
+    expect(parseEnv("PATH=/bin:/usr/bin\0PWD=/x\0SHLVL=2\0SSH_CLIENT=1.2.3.4 5 22\0A=b=c\0MULTI=line1\nline2\0")).toEqual({
       PATH: "/bin:/usr/bin",
       A: "b=c",
       MULTI: "line1\nline2"
