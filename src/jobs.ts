@@ -21,7 +21,8 @@ export type Job = {
   cwd: string;
   startedAt: string;
   pgid: number;
-  boot: number; // boot time in minutes since the epoch: a job from an earlier boot is gone
+  boot: number; // boot time in minutes since the epoch (fallback when there is no boot id)
+  bootId?: string; // Linux boot id: a job from an earlier boot is gone, whatever the clock did
   foreground: boolean; // a call is waiting on it; background jobs are swept and delivered
   promoted: boolean; // started in the foreground, moved to the background when the call timed out
   state: JobState;
@@ -35,25 +36,51 @@ export type JobInit = { chatId: string; conversationId: string; command: string;
 
 // A background job is stopped once its log passes this size.
 export const BACKGROUND_LOG_CAP = 1024 ** 3;
+// How long a TERMed job gets before it is SIGKILLed.
+export const KILL_GRACE_MS = 10_000;
+// Commands are this long at most in notices; the full text stays in the job's command.sh.
+const NOTICE_COMMAND_CHARS = 500;
 
 // The wrapper ignores TERM, INT and HUP from its first line, so `kill -- -<pgid>` (which hits
 // the whole group) never stops it before it records how the command ended. The command runs in
-// a subshell that resets those signals to their defaults before exec, so it stays killable.
-// Its EXIT trap records the directory it ended in, so a foreground `cd` carries over to the
-// next call. A plain (not login) shell: the environment is already a login-shell snapshot
-// (tools/shellenv.ts).
+// a foreground subshell that resets those signals to their defaults, so it stays killable (an
+// asynchronous one would have SIGINT ignored by bash, beyond the reach of `trap -`). The command is
+// sourced from command.sh (an environment variable would cap its size at 128 KB and leak into
+// every child), keeping bash's line numbers in error messages exact. Its EXIT trap records the
+// directory it ended in, so a foreground `cd` carries over to the next call. Plain shells
+// throughout: the environment is already a login-shell snapshot (tools/shellenv.ts).
 const WRAPPER = `
 trap '' TERM INT HUP
 ( trap - TERM INT HUP
-  exec /bin/bash -c "trap 'printf %s \\"\\$PWD\\" > \\"\\$ACMD_JOB_DIR/cwd\\"' EXIT
-$ACMD_JOB_CMD" ) </dev/null >"$ACMD_JOB_DIR/output.log" 2>&1 &
-wait "$!"
+  __acmd_job=$ACMD_JOB_DIR; export -n ACMD_JOB_DIR
+  trap 'printf %s "$PWD" > "$__acmd_job/cwd"' EXIT
+  . "$__acmd_job/command.sh" ) </dev/null >"$ACMD_JOB_DIR/output.log" 2>&1
 code=$?
 echo "$code" > "$ACMD_JOB_DIR/exit.tmp" && mv "$ACMD_JOB_DIR/exit.tmp" "$ACMD_JOB_DIR/exit"
 `;
 
+let linuxBootId: string | null | undefined;
+
+// Exact on Linux; elsewhere the boot time (rounded to minutes) stands in.
+export function currentBootId(): string | null {
+  if (linuxBootId === undefined) {
+    try {
+      linuxBootId = fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim() || null;
+    } catch {
+      linuxBootId = null;
+    }
+  }
+  return linuxBootId;
+}
+
 export function currentBoot(): number {
   return Math.round((Date.now() / 1000 - os.uptime()) / 60);
+}
+
+function sameBoot(job: Job): boolean {
+  const id = currentBootId();
+  if (id !== null && job.bootId !== undefined) return job.bootId === id;
+  return Math.abs(job.boot - currentBoot()) <= 1; // ±1 min of uptime rounding
 }
 
 function alive(pid: number): boolean {
@@ -75,6 +102,7 @@ export function formatDuration(ms: number): string {
 export class Jobs {
   readonly dir: string;
   private readonly counterFile: string;
+  private lastId = 0;
   // Background jobs still running or not yet delivered: the only ones a sweep looks at.
   // Foreground jobs join only when promoted, so a finished call is never also delivered.
   private readonly active = new Set<number>();
@@ -87,6 +115,12 @@ export class Jobs {
     this.dir = path.join(stateDir, "jobs");
     this.counterFile = path.join(this.dir, "last-id");
     fs.mkdirSync(this.dir, { recursive: true });
+    try {
+      this.lastId = Number.parseInt(fs.readFileSync(this.counterFile, "utf8"), 10) || 0;
+    } catch {
+      // no jobs yet
+    }
+    for (const name of fs.readdirSync(this.dir)) if (/^\d+$/.test(name)) this.lastId = Math.max(this.lastId, Number(name));
     // Includes foreground jobs whose call died with a previous acmd process: they are adopted
     // as background jobs, so whatever they were doing is still reported.
     for (const job of this.list({ all: true })) {
@@ -130,19 +164,22 @@ export class Jobs {
     return this.list().filter((j) => j.state === "running");
   }
 
-  // Ids come from a persisted counter, so pruning old jobs never reuses an id that older
-  // notices in a conversation still refer to.
+  // Ids come from a counter that is persisted whenever an id becomes visible to the model
+  // (background job, promotion, kept output), so pruning never leads to reusing one that older
+  // notices still refer to. Ids of plain foreground calls are never seen, so they skip the write.
   private nextId(): number {
-    let last = 0;
+    this.lastId += 1;
+    return this.lastId;
+  }
+
+  private persistId(id: number): void {
+    let stored = 0;
     try {
-      last = Number.parseInt(fs.readFileSync(this.counterFile, "utf8"), 10) || 0;
+      stored = Number.parseInt(fs.readFileSync(this.counterFile, "utf8"), 10) || 0;
     } catch {
-      // first job
+      // first visible id
     }
-    for (const name of fs.readdirSync(this.dir)) if (/^\d+$/.test(name)) last = Math.max(last, Number(name));
-    const id = last + 1;
-    atomicWrite(this.counterFile, `${id}\n`);
-    return id;
+    if (id > stored) atomicWrite(this.counterFile, `${id}\n`);
   }
 
   // Starts a job. `exited` settles when the wrapper process ends (only while this acmd process
@@ -151,11 +188,11 @@ export class Jobs {
     const id = this.nextId();
     const dir = this.jobDir(id);
     fs.mkdirSync(dir);
-    fs.writeFileSync(path.join(dir, "output.log"), "");
+    fs.writeFileSync(path.join(dir, "command.sh"), `${init.command}\n`);
     const child = spawn("/bin/bash", ["-c", WRAPPER], {
       cwd: init.cwd,
       // PWD lets bash keep the logical path (no symlinks resolved) as $PWD.
-      env: { ...this.env(), PWD: init.cwd, ACMD_JOB_CMD: init.command, ACMD_JOB_DIR: dir },
+      env: { ...this.env(), PWD: init.cwd, ACMD_JOB_DIR: dir },
       detached: true,
       stdio: "ignore"
     });
@@ -167,7 +204,10 @@ export class Jobs {
       });
     });
     child.unref();
-    if (child.pid === undefined) throw new Error("could not start the job shell");
+    if (child.pid === undefined) {
+      fs.rmSync(dir, { recursive: true, force: true });
+      throw new Error(`could not start a shell in ${init.cwd}`);
+    }
     const job: Job = {
       id,
       chatId: init.chatId,
@@ -177,6 +217,7 @@ export class Jobs {
       startedAt: new Date().toISOString(),
       pgid: child.pid,
       boot: currentBoot(),
+      ...(currentBootId() !== null ? { bootId: currentBootId()! } : {}),
       foreground: init.foreground === true,
       promoted: false,
       state: "running",
@@ -185,23 +226,44 @@ export class Jobs {
       note: null,
       delivered: false
     };
-    this.save(job);
-    if (!job.foreground) this.active.add(id);
+    // Plain write: the directory is brand new, so no reader can see a partial file.
+    fs.writeFileSync(path.join(dir, "job.json"), `${JSON.stringify(job, null, 2)}\n`);
+    if (!job.foreground) {
+      this.persistId(id);
+      this.active.add(id);
+    }
     log.debug("job started", { job: id, pgid: job.pgid, foreground: job.foreground });
     return { job, exited };
   }
 
   // Exit code and final directory written by the wrapper, if it got that far.
   readExit(id: number): number | null {
-    const file = path.join(this.jobDir(id), "exit");
-    if (!fs.existsSync(file)) return null;
-    const code = Number.parseInt(fs.readFileSync(file, "utf8"), 10);
+    let text: string;
+    try {
+      text = fs.readFileSync(path.join(this.jobDir(id), "exit"), "utf8");
+    } catch {
+      return null;
+    }
+    const code = Number.parseInt(text, 10);
     return Number.isNaN(code) ? null : code;
   }
 
+  // When the command actually ended: the exit file's write time (a sweep may notice much later,
+  // e.g. after an acmd restart). Falls back to now for jobs that left no exit file.
+  private endTime(id: number): string {
+    try {
+      return fs.statSync(path.join(this.jobDir(id), "exit")).mtime.toISOString();
+    } catch {
+      return new Date().toISOString();
+    }
+  }
+
   readCwd(id: number): string | null {
-    const file = path.join(this.jobDir(id), "cwd");
-    return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
+    try {
+      return fs.readFileSync(path.join(this.jobDir(id), "cwd"), "utf8");
+    } catch {
+      return null;
+    }
   }
 
   logSize(id: number): number {
@@ -228,8 +290,22 @@ export class Jobs {
     }
   }
 
+  // TERM first; if the job is still running after the grace period, KILL (which also ends the
+  // wrapper, so the job is reported without an exit status, with the note saying why).
+  terminate(id: number, note?: string, graceMs = KILL_GRACE_MS): boolean {
+    if (!this.signal(id, "SIGTERM", note)) return false;
+    setTimeout(() => {
+      const job = this.get(id);
+      if (job?.state === "running" && this.readExit(id) === null && alive(job.pgid)) {
+        const why = job.note ? `${job.note}; killed after it ignored SIGTERM` : "killed after it ignored SIGTERM";
+        this.signal(id, "SIGKILL", why);
+      }
+    }, graceMs).unref();
+    return true;
+  }
+
   stop(id: number): boolean {
-    return this.signal(id, "SIGTERM");
+    return this.terminate(id);
   }
 
   // The call stopped waiting: from now on the job is swept and delivered like any background job.
@@ -239,6 +315,7 @@ export class Jobs {
     job.foreground = false;
     job.promoted = true;
     this.save(job);
+    this.persistId(id);
     this.active.add(id);
     return job;
   }
@@ -246,16 +323,17 @@ export class Jobs {
   // A foreground call is done with its job. The directory is kept (for the usual retention)
   // only when the model was pointed at the full output file.
   finishForeground(id: number, keep: boolean): void {
-    const job = this.get(id);
-    if (!job) return;
     if (!keep) {
       fs.rmSync(this.jobDir(id), { recursive: true, force: true });
       return;
     }
+    const job = this.get(id);
+    if (!job) return;
+    this.persistId(id);
     const code = this.readExit(id);
     job.state = code === null ? "lost" : "exited";
     job.exitCode = code;
-    job.endedAt = new Date().toISOString();
+    job.endedAt = this.endTime(id);
     job.delivered = true;
     this.save(job);
   }
@@ -263,7 +341,6 @@ export class Jobs {
   // Updates background jobs that ended since the last sweep, and stops any whose log passed
   // the cap. Returns every ended job not yet delivered.
   sweep(): Job[] {
-    const boot = currentBoot();
     const ended: Job[] = [];
     for (const id of this.active) {
       const job = this.get(id);
@@ -273,10 +350,10 @@ export class Jobs {
       }
       if (job.state === "running") {
         let code = this.readExit(id);
-        // Same boot (±1 min of uptime rounding) and wrapper alive: still running.
-        if (code === null && Math.abs(job.boot - boot) <= 1 && alive(job.pgid)) {
-          if (this.logSize(id) > this.backgroundLogCap && job.note === null) {
-            this.signal(id, "SIGTERM", `stopped by acmd: its output passed ${Math.round(this.backgroundLogCap / 1_048_576)} MB`);
+        // Same boot and wrapper alive: still running.
+        if (code === null && sameBoot(job) && alive(job.pgid)) {
+          if (job.note === null && this.logSize(id) > this.backgroundLogCap) {
+            this.terminate(id, `stopped by acmd: its output passed ${Math.round(this.backgroundLogCap / 1_048_576)} MB`);
           }
           continue;
         }
@@ -284,7 +361,7 @@ export class Jobs {
         const current = this.get(id) ?? job; // pick up a note written by signal()
         current.state = code === null ? "lost" : "exited";
         current.exitCode = code;
-        current.endedAt = new Date().toISOString();
+        current.endedAt = this.endTime(id);
         this.save(current);
         log.debug("job ended", { job: id, state: current.state, exit_code: current.exitCode });
         if (!current.delivered) ended.push(current);
@@ -330,7 +407,8 @@ export function jobNotice(jobs: Jobs, job: Job, currentConversationId: string | 
       : `[acmd] ${what} ended without an exit status after about ${ran} (killed with SIGKILL, or the machine restarted).`;
   const lines = [head];
   if (job.note) lines.push(`Note: ${job.note}.`);
-  lines.push(`Command: ${job.command}`, `Cwd: ${job.cwd}`);
+  const command = job.command.length > NOTICE_COMMAND_CHARS ? `${job.command.slice(0, NOTICE_COMMAND_CHARS)}… (${job.command.length} chars)` : job.command;
+  lines.push(`Command: ${command}`, `Cwd: ${job.cwd}`);
   if (currentConversationId !== null && job.conversationId !== currentConversationId) {
     lines.push("It was started in an earlier conversation.");
   }

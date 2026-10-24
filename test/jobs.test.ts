@@ -94,9 +94,42 @@ describe("Jobs", () => {
   });
 
   it("leaves the command's signals at their defaults", async () => {
-    const job = start("trap -p TERM INT HUP; echo checked");
+    // bash's view, and a program's own view (bash hides signals ignored when it started).
+    const job = start(
+      "trap -p TERM INT HUP QUIT; python3 -c 'import signal as s; print(*(s.getsignal(x).name if hasattr(s.getsignal(x), \"name\") else \"handler\" for x in (s.SIGTERM, s.SIGINT, s.SIGHUP, s.SIGQUIT)))'"
+    );
     await ended(job.id);
-    expect(jobs.tail(job.id)).toBe("checked"); // nothing ignored (trap -p would list it)
+    expect(jobs.tail(job.id)).toBe("SIG_DFL handler SIG_DFL SIG_DFL"); // python installs its own SIGINT handler unless SIGINT is ignored
+  });
+
+  it("kills a job that ignores TERM after the grace period, and says so", async () => {
+    const job = start("trap '' TERM; echo up; sleep 30");
+    await running(job);
+    expect(jobs.terminate(job.id, "stopped for a test", 300)).toBe(true);
+    const done = await ended(job.id);
+    expect(done).toMatchObject({ state: "lost", note: "stopped for a test; killed after it ignored SIGTERM" });
+    expect(jobNotice(jobs, done, "conv_a")).toContain("Note: stopped for a test; killed after it ignored SIGTERM.");
+  });
+
+  it("runs commands far beyond the 128 KB environment limit, without leaking job variables", async () => {
+    const big = "x".repeat(300_000);
+    const job = start(`cat > big.txt <<'EOF'\n${big}\nEOF\nwc -c < big.txt | tr -d ' '; env | grep -c '^ACMD_' || true; rm big.txt`);
+    const done = await ended(job.id);
+    expect(done).toMatchObject({ state: "exited", exitCode: 0 });
+    expect(jobs.tail(job.id)).toBe("300001\n0");
+    expect(jobNotice(jobs, done, "conv_a")).toContain("… (300");
+  });
+
+  it("reports syntax errors with the command's own line numbers", async () => {
+    const job = start("echo first\nif then");
+    await ended(job.id);
+    expect(jobs.tail(job.id)).toMatch(/line 2: syntax error/);
+  });
+
+  it("refuses a missing cwd cleanly", () => {
+    const before = fs.readdirSync(jobs.dir).length;
+    expect(() => jobs.start({ chatId: "1", conversationId: "c", command: "true", cwd: "/nonexistent/acmd" })).toThrow(/could not start a shell/);
+    expect(fs.readdirSync(jobs.dir).length).toBe(before); // no half-made job directory left behind
   });
 
   it("stop() ends a running job the same way", async () => {
@@ -112,6 +145,14 @@ describe("Jobs", () => {
     await running(job);
     process.kill(-job.pgid, "SIGKILL");
     expect(await ended(job.id)).toMatchObject({ state: "lost", exitCode: null });
+  });
+
+  it("dates the end from the exit itself, not from when a sweep noticed it", async () => {
+    const job = start("sleep 0.2");
+    await new Promise((r) => setTimeout(r, 1500)); // nobody sweeps meanwhile
+    const done = await ended(job.id);
+    const ran = Date.parse(done.endedAt!) - Date.parse(done.startedAt);
+    expect(ran).toBeLessThan(1200);
   });
 
   it("picks up jobs started by an earlier acmd process", async () => {
@@ -130,7 +171,8 @@ describe("Jobs", () => {
     const job = start("sleep 30");
     const file = path.join(jobs.dir, String(job.id), "job.json");
     const saved = JSON.parse(fs.readFileSync(file, "utf8")) as Job;
-    fs.writeFileSync(file, JSON.stringify({ ...saved, boot: saved.boot - 600 }));
+    const earlier = saved.bootId === undefined ? {} : { bootId: "an-earlier-boot" }; // Linux: exact boot id
+    fs.writeFileSync(file, JSON.stringify({ ...saved, boot: saved.boot - 600, ...earlier }));
     expect(await ended(job.id)).toMatchObject({ state: "lost" });
   });
 

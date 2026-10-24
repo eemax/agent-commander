@@ -1,4 +1,5 @@
 // The only module that talks to @openrouter/agent's run loop.
+import * as fs from "node:fs";
 import { OpenRouter, maxCost, serverTool, tool, type ModelResult as SdkModelResult, type Tool } from "@openrouter/agent";
 import { z } from "zod";
 import { type Config, resolveModel } from "./config.js";
@@ -6,6 +7,7 @@ import { errorMessage, log } from "./log.js";
 import type { Jobs } from "./jobs.js";
 import { type ConversationMeta, type Store, type Usage, emptyUsage } from "./state.js";
 import { runForeground } from "./tools/bash.js";
+import { workspaceDir } from "./workspace.js";
 
 type ModelResult = SdkModelResult<readonly Tool[]>;
 
@@ -40,6 +42,14 @@ const BASH_DESCRIPTION = [
   "If a command is still running at the timeout it is not killed: it continues as a background job and you get a message when it exits.",
   "Set background: true to start one directly for anything long-running or open-ended (builds, servers, waiting for something, checking again later)."
 ].join(" ");
+
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 function statusCodeOf(error: unknown): number | null {
   const code = (error as { statusCode?: unknown } | null)?.statusCode;
@@ -123,15 +133,18 @@ export class Agent {
         // Repeating the same command (polling a log, re-running tests) is legitimate.
         loopKey: false,
         execute: async ({ command, timeout_ms, background }, ctx) => {
+          // The conversation's directory may have been deleted since; fall back to the workspace.
+          let cwdNote: string | undefined;
+          if (!isDirectory(meta.cwd)) {
+            cwdNote = `the working directory ${meta.cwd} no longer exists, so this ran in ${workspaceDir(this.config.home)}`;
+            meta.cwd = workspaceDir(this.config.home);
+            this.store.saveMeta(meta);
+          }
           const init = { chatId: meta.chatId, conversationId: meta.id, command, cwd: meta.cwd };
           if (background) {
             const { job } = this.jobs.start(init);
-            return {
-              job_id: job.id,
-              pgid: job.pgid,
-              log: this.jobs.logPath(job.id),
-              note: `Started in the background. You will get a message when it exits. Progress: tail the log. Stop it: kill -- -${job.pgid}`
-            };
+            const started = `Started in the background. You will get a message when it exits. Progress: tail the log. Stop it: kill -- -${job.pgid}`;
+            return { job_id: job.id, pgid: job.pgid, log: this.jobs.logPath(job.id), note: cwdNote ? `${started}. Note: ${cwdNote}.` : started };
           }
           const result = await runForeground(this.jobs, {
             ...init,
@@ -144,6 +157,7 @@ export class Agent {
             this.store.saveMeta(meta);
             log.debug("cwd changed", { cwd: result.cwd });
           }
+          if (cwdNote) result.note = result.note ? `${result.note}; ${cwdNote}` : cwdNote;
           return result;
         }
       });

@@ -122,6 +122,11 @@ describe("runForeground", () => {
     expect(r).toMatchObject({ exit_code: 143, note: expect.stringContaining("stopped by acmd") });
   });
 
+  it("SIGKILLs a command that ignores TERM after passing the cap", async () => {
+    const r = await runForeground(jobs, opts("trap '' TERM; yes acmd", { logCap: 2_000_000 }));
+    expect(r).toMatchObject({ exit_code: null, note: expect.stringContaining("killed after it ignored SIGTERM") });
+  });
+
   it("replaces binary output", async () => {
     const r = await runForeground(jobs, opts("head -c 3000 /dev/urandom; printf '\\0\\0'"));
     expect("output" in r && r.output).toMatch(/^\[binary output, /);

@@ -19,7 +19,8 @@ const NON_INTERACTIVE_ENV = {
 
 // A foreground command is stopped once its output passes this size.
 export const FOREGROUND_LOG_CAP = 100 * 1024 ** 2;
-const CAP_CHECK_MS = 1000;
+// A fast writer produces hundreds of MB per second, so the cap is checked often.
+const CAP_CHECK_MS = 250;
 
 export function toolEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...loginEnv(), ...NON_INTERACTIVE_ENV };
@@ -66,7 +67,7 @@ export async function runForeground(jobs: Jobs, options: ForegroundOptions): Pro
       setInterval(() => {
         if (capNote === undefined && jobs.logSize(job.id) > logCap) {
           capNote = `stopped by acmd: output passed ${Math.round(logCap / 1_048_576)} MB`;
-          jobs.signal(job.id, "SIGTERM", capNote);
+          jobs.terminate(job.id, capNote, 2000);
         }
       }, CAP_CHECK_MS)
     );
@@ -103,11 +104,13 @@ export async function runForeground(jobs: Jobs, options: ForegroundOptions): Pro
   const exitCode = jobs.readExit(job.id);
   const output = readOutput(log, options.outputCapChars);
   const endedIn = jobs.readCwd(job.id);
+  // Only acmd writes notes, and only after the cap: the stored one includes any SIGKILL escalation.
+  const note = capNote === undefined ? undefined : (jobs.get(job.id)?.note ?? capNote);
   jobs.finishForeground(job.id, output.truncated);
   const result: ForegroundResult = { exit_code: exitCode, output: output.text, truncated: output.truncated };
   if (output.truncated) result.full_output = log;
   if (endedIn && isDirectory(endedIn) && !sameDirectory(endedIn, options.cwd)) result.cwd = endedIn;
-  if (capNote) result.note = capNote;
+  if (note) result.note = note;
   return result;
 }
 

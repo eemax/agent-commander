@@ -11,6 +11,7 @@ import { Store } from "./state.js";
 import { StatusWriter, buildStatus, printStatus, statusPaths } from "./status.js";
 import { TelegramApp } from "./telegram/bot.js";
 import { toolEnv } from "./tools/bash.js";
+import { refreshLoginEnv } from "./tools/shellenv.js";
 import { bootstrapWorkspace, workspaceDir } from "./workspace.js";
 
 function readVersion(): string {
@@ -30,6 +31,7 @@ async function runDaemon(): Promise<void> {
   const secrets = loadSecrets();
   const created = bootstrapWorkspace(config.home);
   const store = new Store(config.home);
+  void refreshLoginEnv(); // warm the shell environment so the first command doesn't wait for it
   const jobs = new Jobs(store.stateDir, toolEnv);
   const agent = new Agent(config, secrets.openrouterApiKey, store, jobs);
   const app = new TelegramApp(secrets.telegramBotToken, config, store, agent, jobs);
