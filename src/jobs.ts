@@ -36,17 +36,18 @@ export type JobInit = { chatId: string; conversationId: string; command: string;
 // A background job is stopped once its log passes this size.
 export const BACKGROUND_LOG_CAP = 1024 ** 3;
 
-// The command runs in the background of the wrapper. The trap is set after the fork, so the
-// command keeps default signal handling while the wrapper survives `kill -- -<pgid>` (TERM,
-// INT, HUP) and can still record how the command ended. The command's own EXIT trap records
-// the directory it ended in, so a foreground `cd` carries over to the next call. A plain (not
-// login) shell: the environment already comes from a login-shell snapshot (tools/shellenv.ts).
+// The wrapper ignores TERM, INT and HUP from its first line, so `kill -- -<pgid>` (which hits
+// the whole group) never stops it before it records how the command ended. The command runs in
+// a subshell that resets those signals to their defaults before exec, so it stays killable.
+// Its EXIT trap records the directory it ended in, so a foreground `cd` carries over to the
+// next call. A plain (not login) shell: the environment is already a login-shell snapshot
+// (tools/shellenv.ts).
 const WRAPPER = `
-/bin/bash -c "trap 'printf %s \\"\\$PWD\\" > \\"\\$ACMD_JOB_DIR/cwd\\"' EXIT
-$ACMD_JOB_CMD" </dev/null >"$ACMD_JOB_DIR/output.log" 2>&1 &
-child=$!
 trap '' TERM INT HUP
-wait "$child"
+( trap - TERM INT HUP
+  exec /bin/bash -c "trap 'printf %s \\"\\$PWD\\" > \\"\\$ACMD_JOB_DIR/cwd\\"' EXIT
+$ACMD_JOB_CMD" ) </dev/null >"$ACMD_JOB_DIR/output.log" 2>&1 &
+wait "$!"
 code=$?
 echo "$code" > "$ACMD_JOB_DIR/exit.tmp" && mv "$ACMD_JOB_DIR/exit.tmp" "$ACMD_JOB_DIR/exit"
 `;

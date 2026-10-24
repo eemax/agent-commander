@@ -16,6 +16,16 @@ function start(command: string): Job {
   return job;
 }
 
+// Waits until the command itself is running (it prints "up" first).
+async function running(job: Job, within = 10_000): Promise<void> {
+  const deadline = Date.now() + within;
+  while (Date.now() < deadline) {
+    if (jobs.tail(job.id).startsWith("up")) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error(`job ${job.id} did not start running`);
+}
+
 async function ended(id: number, within = 10_000): Promise<Job> {
   const deadline = Date.now() + within;
   while (Date.now() < deadline) {
@@ -66,24 +76,40 @@ describe("Jobs", () => {
   });
 
   it("reports a job killed through its process group with the signal's exit code", async () => {
-    const job = start("sleep 30");
-    await new Promise((r) => setTimeout(r, 300));
+    const job = start("echo up; sleep 30");
+    await running(job);
     expect(jobs.sweep()).toEqual([]); // still running
     process.kill(-job.pgid, "SIGTERM"); // what the agent runs: kill -- -<pgid>
     expect(await ended(job.id)).toMatchObject({ state: "exited", exitCode: 143 });
   });
 
+  it("reports the exit when killed as soon as the command runs", async () => {
+    for (let i = 0; i < 5; i++) {
+      const job = start("echo up; sleep 30");
+      await running(job);
+      process.kill(-job.pgid, "SIGTERM");
+      expect(await ended(job.id)).toMatchObject({ state: "exited", exitCode: 143 });
+      jobs.markDelivered(job.id);
+    }
+  });
+
+  it("leaves the command's signals at their defaults", async () => {
+    const job = start("trap -p TERM INT HUP; echo checked");
+    await ended(job.id);
+    expect(jobs.tail(job.id)).toBe("checked"); // nothing ignored (trap -p would list it)
+  });
+
   it("stop() ends a running job the same way", async () => {
-    const job = start("sleep 30");
-    await new Promise((r) => setTimeout(r, 300));
+    const job = start("echo up; sleep 30");
+    await running(job);
     expect(jobs.stop(job.id)).toBe(true);
     expect(await ended(job.id)).toMatchObject({ state: "exited", exitCode: 143 });
     expect(jobs.stop(job.id)).toBe(false);
   });
 
   it("marks a job lost when the whole group is SIGKILLed", async () => {
-    const job = start("sleep 30");
-    await new Promise((r) => setTimeout(r, 300));
+    const job = start("echo up; sleep 30");
+    await running(job);
     process.kill(-job.pgid, "SIGKILL");
     expect(await ended(job.id)).toMatchObject({ state: "lost", exitCode: null });
   });
