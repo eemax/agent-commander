@@ -9,7 +9,9 @@ import { errorMessage, log } from "../log.js";
 import { readInbox, notificationNotice } from "../inbox.js";
 import { type Jobs, formatDuration, jobNotice } from "../jobs.js";
 import type { ConversationMeta, Store } from "../state.js";
-import { compileInstructions, loadSkills, type Skill, workspaceDir } from "../workspace.js";
+import { compileInstructions, loadSkills, type Skill, skillCommand, workspaceDir } from "../workspace.js";
+
+export { skillCommand };
 import { escapeHtml, formatReply, splitPlainText } from "./format.js";
 
 export type Health = { lastPollAt: number | null };
@@ -46,10 +48,6 @@ export function parseCommand(text: string, skillCommands: string[]): { command: 
   const known =
     command === "start" || command === "help" || BUILTIN_COMMANDS.some((c) => c.command === command) || skillCommands.includes(command);
   return known ? { command, arg: match[2]?.trim() ?? "" } : null;
-}
-
-export function skillCommand(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 32);
 }
 
 function shortPath(p: string): string {
@@ -248,7 +246,7 @@ export class TelegramApp {
   }
 
   private skills(): Skill[] {
-    return loadSkills(workspaceDir(this.config.home)).skills;
+    return loadSkills(this.config).skills;
   }
 
   private async syncCommands(): Promise<void> {
@@ -266,7 +264,7 @@ export class TelegramApp {
         model: this.config.models[0]!.alias,
         effort: this.config.defaultEffort,
         cwd: workspaceDir(this.config.home),
-        instructions: compileInstructions(this.config.home, this.config.bash)
+        instructions: compileInstructions(this.config)
       })
     );
   }

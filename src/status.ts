@@ -7,7 +7,7 @@ import type { Api } from "grammy";
 import type { Config } from "./config.js";
 import { errorMessage, log } from "./log.js";
 import { atomicWrite, type Store } from "./state.js";
-import { checkWorkspace, workspaceDir } from "./workspace.js";
+import { checkBox, checkWorkspace, workspaceDir } from "./workspace.js";
 
 const HEARTBEAT_MS = 60_000;
 const CHECKS_EVERY_MS = 15 * 60_000;
@@ -199,7 +199,7 @@ export function buildStatus(config: Config, store: Store, now = Date.now()) {
   if (!file) {
     checks.push({ name: "daemon", status: "fail", detail: "no status file: acmd has never run with this home" });
   } else if (lastRun && lastRun.finished_at && Date.parse(lastRun.started_at) >= Date.parse(file.started_at)) {
-    checks.push({ name: "daemon", status: "warn", detail: `not running (stopped ${lastRun.finished_at.slice(0, 16).replace("T", " ")} UTC)` });
+    checks.push({ name: "daemon", status: "warn", detail: `not running (stopped ${clock(lastRun.finished_at)})` });
   } else {
     const beat = now - Date.parse(file.heartbeat_at);
     checks.push({
@@ -222,8 +222,10 @@ export function buildStatus(config: Config, store: Store, now = Date.now()) {
     });
     checks.push(...file.checks);
   }
-  const ws = checkWorkspace(config.home);
+  const ws = checkWorkspace(config);
   checks.push({ name: "workspace", status: ws.status, detail: ws.detail });
+  const box = checkBox(config);
+  checks.push({ name: "box", status: box.status, detail: box.detail });
 
   const month = store.usageSince(now - 30 * DAY_MS);
   const week = month.filter((r) => Date.parse(r.ts) >= now - 7 * DAY_MS);
@@ -244,6 +246,7 @@ export function buildStatus(config: Config, store: Store, now = Date.now()) {
       value: fs.existsSync(memoryDir) ? fs.readdirSync(memoryDir).filter((f) => f.endsWith(".md")).length : 0,
       unit: "count"
     },
+    { key: "context.size", label: "Box context", value: box.bytes, unit: "bytes" },
     { key: "workspace.size", label: "Workspace on disk", value: file?.sizes?.workspace ?? dirSize(workspaceDir(config.home)), unit: "bytes" },
     { key: "state.size", label: "State on disk", value: file?.sizes?.state ?? dirSize(store.stateDir), unit: "bytes" }
   );
@@ -265,7 +268,7 @@ export function buildStatus(config: Config, store: Store, now = Date.now()) {
         finished_at: null,
         status: "ok",
         error: null,
-        summary: `acmd ${file.version} · up since ${file.started_at.slice(0, 16).replace("T", " ")} UTC · default model ${config.models[0]!.alias}`
+        summary: `acmd ${file.version} · up since ${clock(file.started_at)} · default model ${config.models[0]!.alias}`
       }
     : lastRun;
 

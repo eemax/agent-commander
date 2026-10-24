@@ -85,7 +85,7 @@ The agent can do work that outlives a turn and pick it up again by itself, like 
 | `/debug [on\|off]` | Show or toggle debug logging at runtime |
 | `/<skill>` | Run the skill's SKILL.md one time |
 
-## Home, workspace and skills
+## Home, workspace, box and skills
 
 Everything the runtime owns on disk lives under one home directory, `~/.acmd/` (configurable). The repo holds code only, so redeploying or re-cloning never touches conversations or the agent's files.
 
@@ -102,11 +102,24 @@ Everything the runtime owns on disk lives under one home directory, `~/.acmd/` (
     archive/
 ```
 
+The box is separate, and optional: the machine's own description, written by whoever provisions it (an install script, config management), never by the agent.
+
+```
+/etc/acmd/                   box_dir in config
+  context.d/*.md             facts and rules of this machine, in every prompt (name order)
+  skills.d/<name>/SKILL.md   the machine's skills (runbooks as procedures), loaded on demand
+```
+
 - **Ownership split:**
-  - `src/prompt.md` in the repo is versioned with the code. It describes the runtime: the bash tool and its limits, background jobs and `acmd notify`, web tools, Telegram formatting rules, and how skills and memory work.
-  - The workspace holds the user's own content: AGENTS.md, memory and skills.
-- **Instructions** are `prompt.md` + `AGENTS.md` + `MEMORY.md` + a skills index (name, description, path). They are compiled **once, when the conversation is created**, and saved next to it (`<convId>.instructions.md`), so they stay byte-identical across restarts. That keeps the prompt-cache prefix byte-stable. Edits made during a conversation, to skills, memory or AGENTS.md, take effect at the next `/new`.
-- **Skills** follow the open Agent Skills format (`SKILL.md` with `name`/`description` frontmatter), so they also work with Claude Code and Codex. Only the index goes into the prompt. The model reads the full skill with `cat` when it needs it. `/<name>` forces a skill for one turn.
+  - `src/prompt.md` in the repo is versioned with the code. It describes the runtime: the bash tool and its limits, background jobs and `acmd notify`, web tools, Telegram formatting rules, and how the box, skills and memory work.
+  - The **box** (`box_dir`) holds what the machine's setup knows about the machine. Whoever provisions it writes it; the agent only reads it.
+  - The workspace holds the user's and the agent's own content: AGENTS.md, memory and skills.
+- **Instructions** are `prompt.md` + box context + `AGENTS.md` + `MEMORY.md` + the skills catalog (name, description, location). They are compiled **once, when the conversation is created**, and saved next to it (`<convId>.instructions.md`), so they stay byte-identical across restarts. That keeps the prompt-cache prefix byte-stable. Edits made during a conversation, to the box, skills, memory or AGENTS.md, take effect at the next `/new`.
+- **Skills** follow the open [Agent Skills](https://agentskills.io/specification) format, so they also work with Claude Code and Codex:
+  - **Where:** `workspace/skills/<name>/SKILL.md` (the agent's) and `<box_dir>/skills.d/<name>/SKILL.md` (the box's). A workspace skill overrides a box skill of the same name; within one place the first folder by name wins. Dot folders and `node_modules` are skipped.
+  - **Parsing:** YAML frontmatter, read leniently as the spec's client guide recommends: an unquoted `: ` in a value is retried quoted. A skill without frontmatter, `name` or `description` is skipped. One that bends the rules is loaded and reported in `acmd status`: a name that isn't 1-64 lowercase letters and digits with single hyphens, a name that doesn't match its folder, a description over 1024 characters, `compatibility` over 500, `metadata` that isn't a map of text, unknown fields (allowed: `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`), and Telegram command clashes.
+  - **Prompt:** only the catalog goes in, as `<available_skills>` with `<skill><name><description><location>` (left out when there are none). `prompt.md` tells the model to `cat` a skill's SKILL.md when a task matches its description, and to resolve its relative paths against the skill folder. `/<name>` (hyphens as underscores, at most 32 characters) forces a skill for one turn.
+- **Box context:** `<box_dir>/context.d/*.md`, in file-name order (number them: `10-box.md`, `20-apps.md`), goes into every prompt as `<box_context>`, before AGENTS.md. It is the machine's facts and rules: what runs where, the repos, what needs asking first, where the runbooks are. The prompt says it's read-only and that it wins over the agent's own notes when they disagree. Dotfiles, other extensions and empty files are skipped. It's in every conversation, so `acmd status` warns past 32 KB, and files that would take it past 128 KB are left out. Procedures belong in box skills, loaded only when needed; live state belongs in a command the context points to (e.g. `beacon brief`), never in the files.
 - **Memory:** `MEMORY.md` is the index that is always loaded. Details go in `memory/*.md` and are read on demand. The prompt tells the agent when to write memory (decisions, preferences, ongoing work) and to keep the index short.
 - **Bootstrap:** on first start, a missing `workspace/` is seeded from `workspace-template/` in the repo. That includes a starter AGENTS.md, an empty MEMORY.md, and a `skill-creator` skill so the agent can write new skills. Existing files are never overwritten.
 
@@ -148,6 +161,7 @@ acmd is a long-running daemon. systemd and beacon already capture process start/
     { "key": "cost.30d",           "label": "Spend (30 d)",       "value": 15.80, "unit": "usd" },
     { "key": "conversations.total","label": "Conversations",      "value": 214,   "unit": "count", "primary": true },
     { "key": "skills.total",       "label": "Skills",             "value": 9,     "unit": "count", "primary": true },
+    { "key": "context.size",       "label": "Box context",        "value": 9216,  "unit": "bytes" },
     { "key": "memory.notes",       "label": "Memory notes",       "value": 23,    "unit": "count" },
     { "key": "workspace.size",     "label": "Workspace on disk",  "value": 1048576, "unit": "bytes" },
     { "key": "state.size",         "label": "State on disk",      "value": 5242880, "unit": "bytes" },
@@ -160,10 +174,11 @@ acmd is a long-running daemon. systemd and beacon already capture process start/
     { "name": "openrouter", "status": "ok", "detail": "key valid" },
     { "name": "credits",    "status": "ok", "detail": "$18.40 left" },
     { "name": "models",     "status": "ok", "detail": "all 4 configured models available" },
-    { "name": "workspace",  "status": "ok", "detail": "AGENTS.md present, 9 skills valid" }
+    { "name": "workspace",  "status": "ok", "detail": "AGENTS.md present, 5 skills valid" },
+    { "name": "box",        "status": "ok", "detail": "2 context files (9.0 KB), 4 skills" }
   ],
   "last_run": { "started_at": "…", "finished_at": null, "status": "ok", "error": null,
-                "summary": "acmd 1a2b3c4 · up since Oct 20 · default model flash" }
+                "summary": "acmd 0.1.0+1a2b3c4 · up since 2026-10-20T03:38:13Z · default model flash" }
 }
 ```
 
@@ -177,7 +192,8 @@ acmd is a long-running daemon. systemd and beacon already capture process start/
   | `openrouter` | key accepted | — | key rejected |
   | `credits` | balance at or above `credits_warn_usd` | balance below `credits_warn_usd` (default $5) | balance at or below $0 |
   | `models` | every configured model ID is in OpenRouter's model list | a configured model has been deprecated or removed | the default model is missing |
-  | `workspace` | AGENTS.md exists, every SKILL.md parses (name and description present), MEMORY.md is a sane size | any of those is off | — |
+  | `workspace` | AGENTS.md exists, every workspace SKILL.md follows the spec, MEMORY.md is a sane size | any of those is off, or a workspace skill overrides a box skill | — |
+  | `box` | context.d and skills.d are readable and every box SKILL.md follows the spec (or there's no box) | a box skill breaks the spec, or the context is over 32 KB | — |
 - **Run record:** a run is one process lifetime. `last_run.started_at` is the process start time. On shutdown, the run record is written to `state/last-run.json` (`ok`, or `failed` with `error`), and its `summary` gives the version, uptime and default model.
 - **Deploys:** the install script logs `beacon event deploy --component acmd …`, only when the git SHA changed.
 
@@ -196,6 +212,7 @@ acmd is a long-running daemon. systemd and beacon already capture process start/
   ],
   "default_effort": "medium",
   "home": "~/.acmd",
+  "box_dir": "/etc/acmd",                                // context.d/ and skills.d/; optional
   "bash": { "timeout_ms": 120000, "max_timeout_ms": 600000, "output_cap_chars": 30000 },
   "max_turn_cost_usd": null,                             // optional
   "credits_warn_usd": 5                                  // status check threshold

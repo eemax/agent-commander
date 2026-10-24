@@ -25,6 +25,7 @@ const configSchema = z.strictObject({
     .min(1, "models is empty: add at least one OpenRouter model id"),
   default_effort: z.enum(EFFORTS).default("medium"),
   home: z.string().default("~/.acmd"),
+  box_dir: z.string().default("/etc/acmd"),
   bash: z
     .strictObject({
       timeout_ms: z.number().int().positive().default(120_000),
@@ -43,6 +44,8 @@ export type Config = {
   models: ModelEntry[];
   defaultEffort: Effort;
   home: string;
+  // The machine's own context and skills, kept by whoever provisions it (context.d/, skills.d/).
+  boxDir: string;
   bash: { timeoutMs: number; maxTimeoutMs: number; outputCapChars: number };
   maxTurnCostUsd: number | null;
   creditsWarnUsd: number;
@@ -73,6 +76,7 @@ export function parseConfig(raw: unknown): Config {
     models: c.models,
     defaultEffort: c.default_effort,
     home: path.resolve(expandHome(c.home)),
+    boxDir: path.resolve(expandHome(c.box_dir)),
     bash: { timeoutMs: c.bash.timeout_ms, maxTimeoutMs: c.bash.max_timeout_ms, outputCapChars: c.bash.output_cap_chars },
     maxTurnCostUsd: c.max_turn_cost_usd,
     creditsWarnUsd: c.credits_warn_usd

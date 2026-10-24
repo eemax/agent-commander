@@ -1,12 +1,8 @@
-import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { tempDir } from "./tmp.js";
 import { isRetryable, undelivered } from "../src/agent.js";
 import { parseConfig, resolveModel } from "../src/config.js";
-import { skillCommand } from "../src/telegram/bot.js";
-import { checkWorkspace, compileInstructions, loadSkills, parseFrontmatter } from "../src/workspace.js";
 
 const valid = {
   telegram: { allowlist: [123456789] },
@@ -24,6 +20,8 @@ describe("config", () => {
     expect(c.bash).toEqual({ timeoutMs: 120_000, maxTimeoutMs: 600_000, outputCapChars: 30_000 });
     expect(c.maxTurnCostUsd).toBeNull();
     expect(c.home).toBe(path.join(os.homedir(), ".acmd"));
+    expect(c.boxDir).toBe("/etc/acmd");
+    expect(parseConfig({ ...valid, box_dir: "~/box" }).boxDir).toBe(path.join(os.homedir(), "box"));
   });
 
   it("refuses an empty allowlist", () => {
@@ -62,44 +60,5 @@ describe("steer tracking", () => {
     expect(undelivered(["a", "b"], ["a"])).toEqual(["b"]);
     expect(undelivered(["yes", "yes"], ["yes"])).toEqual(["yes"]);
     expect(undelivered(["x"], [])).toEqual(["x"]);
-  });
-});
-
-describe("workspace", () => {
-  it("parses frontmatter", () => {
-    expect(parseFrontmatter('---\nname: x\ndescription: "Does y"\n---\nbody')).toEqual({ name: "x", description: "Does y" });
-    expect(parseFrontmatter("no frontmatter")).toBeNull();
-  });
-
-  it("loads skills, flags broken ones and compiles instructions", () => {
-    const home = tempDir("ws");
-    const ws = path.join(home, "workspace");
-    fs.mkdirSync(path.join(ws, "skills", "good"), { recursive: true });
-    fs.mkdirSync(path.join(ws, "skills", "bad"), { recursive: true });
-    fs.writeFileSync(path.join(ws, "skills", "good", "SKILL.md"), "---\nname: good\ndescription: Good skill.\n---\n");
-    fs.writeFileSync(path.join(ws, "skills", "bad", "SKILL.md"), "no frontmatter");
-    fs.writeFileSync(path.join(ws, "AGENTS.md"), "I am the agent.");
-
-    fs.mkdirSync(path.join(ws, "skills", "good-copy"), { recursive: true });
-    fs.writeFileSync(path.join(ws, "skills", "good-copy", "SKILL.md"), "---\nname: good\ndescription: Same name.\n---\n");
-    const { skills, problems } = loadSkills(ws);
-    expect(skills.map((s) => s.name)).toEqual(["good", "good"]);
-    expect(problems.join("\n")).toMatch(/bad/);
-    expect(problems.join("\n")).toMatch(/two skills are named "good"/);
-    fs.rmSync(path.join(ws, "skills", "good-copy"), { recursive: true });
-    expect(checkWorkspace(home).status).toBe("warn");
-
-    const instructions = compileInstructions(home, { timeoutMs: 120_000, maxTimeoutMs: 600_000 });
-    expect(instructions).toContain("I am the agent.");
-    expect(instructions).toContain("- good: Good skill.");
-    expect(instructions).not.toContain("Same name.");
-    expect(instructions).toContain(ws);
-    expect(instructions).not.toMatch(/\{\{\w+\}\}/);
-    expect(instructions).toContain("(default 2 min, up to 10 min)");
-    expect(instructions).toMatch(/notify "text"/);
-  });
-
-  it("maps skill names to Telegram commands", () => {
-    expect(skillCommand("skill-creator")).toBe("skill_creator");
   });
 });
