@@ -36,8 +36,10 @@ export type JobInit = { chatId: string; conversationId: string; command: string;
 
 // A background job is stopped once its log passes this size.
 export const BACKGROUND_LOG_CAP = 1024 ** 3;
-// How long a TERMed job gets before it is SIGKILLed.
+// How long a TERMed job gets before it is SIGKILLed: a stop request leaves time to clean up;
+// a runaway past its output cap does not (a fast writer adds hundreds of MB per second).
 export const KILL_GRACE_MS = 10_000;
+export const CAP_KILL_GRACE_MS = 500;
 // Commands are this long at most in notices; the full text stays in the job's command.sh.
 const NOTICE_COMMAND_CHARS = 500;
 
@@ -353,7 +355,7 @@ export class Jobs {
         // Same boot and wrapper alive: still running.
         if (code === null && sameBoot(job) && alive(job.pgid)) {
           if (job.note === null && this.logSize(id) > this.backgroundLogCap) {
-            this.terminate(id, `stopped by acmd: its output passed ${Math.round(this.backgroundLogCap / 1_048_576)} MB`);
+            this.terminate(id, `stopped by acmd: its output passed ${Math.round(this.backgroundLogCap / 1_048_576)} MB`, CAP_KILL_GRACE_MS);
           }
           continue;
         }

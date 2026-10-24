@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import type { ConversationState } from "@openrouter/agent";
 import { beforeEach, describe, expect, it } from "vitest";
+import { tempDir } from "./tmp.js";
 import { Store } from "../src/state.js";
 
 let home: string;
@@ -13,7 +13,7 @@ function state(messages: unknown[]): ConversationState {
 }
 
 beforeEach(() => {
-  home = fs.mkdtempSync(path.join(os.tmpdir(), "acmd-state-"));
+  home = tempDir("state");
 });
 
 describe("Store", () => {

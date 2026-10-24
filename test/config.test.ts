@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { tempDir } from "./tmp.js";
 import { isRetryable, undelivered } from "../src/agent.js";
 import { parseConfig, resolveModel } from "../src/config.js";
 import { skillCommand } from "../src/telegram/bot.js";
@@ -71,7 +72,7 @@ describe("workspace", () => {
   });
 
   it("loads skills, flags broken ones and compiles instructions", () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), "acmd-ws-"));
+    const home = tempDir("ws");
     const ws = path.join(home, "workspace");
     fs.mkdirSync(path.join(ws, "skills", "good"), { recursive: true });
     fs.mkdirSync(path.join(ws, "skills", "bad"), { recursive: true });

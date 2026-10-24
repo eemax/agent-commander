@@ -2,7 +2,7 @@
 // waits for its job up to the timeout; if the command is still running then, the call returns
 // what it has so far and the job carries on in the background, waking the agent when it ends.
 import * as fs from "node:fs";
-import type { JobInit, Jobs } from "../jobs.js";
+import { CAP_KILL_GRACE_MS, type JobInit, type Jobs } from "../jobs.js";
 import { readOutput } from "./output.js";
 import { loginEnv } from "./shellenv.js";
 
@@ -67,7 +67,7 @@ export async function runForeground(jobs: Jobs, options: ForegroundOptions): Pro
       setInterval(() => {
         if (capNote === undefined && jobs.logSize(job.id) > logCap) {
           capNote = `stopped by acmd: output passed ${Math.round(logCap / 1_048_576)} MB`;
-          jobs.terminate(job.id, capNote, 2000);
+          jobs.terminate(job.id, capNote, CAP_KILL_GRACE_MS);
         }
       }, CAP_CHECK_MS)
     );

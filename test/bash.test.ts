@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { tempDir } from "./tmp.js";
 import { Jobs } from "../src/jobs.js";
 import { type ForegroundOptions, runForeground, toolEnv } from "../src/tools/bash.js";
 import { cleanOutput, readOutput } from "../src/tools/output.js";
@@ -26,8 +26,8 @@ async function sweepUntilEnded(id: number, within = 10_000) {
 }
 
 beforeEach(() => {
-  stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "acmd-bash-"));
-  cwd = fs.mkdtempSync(path.join(os.tmpdir(), "acmd-cwd-"));
+  stateDir = tempDir("bash");
+  cwd = tempDir("cwd");
   jobs = new Jobs(stateDir, toolEnv);
 });
 
@@ -123,7 +123,7 @@ describe("runForeground", () => {
   });
 
   it("SIGKILLs a command that ignores TERM after passing the cap", async () => {
-    const r = await runForeground(jobs, opts("trap '' TERM; yes acmd", { logCap: 2_000_000 }));
+    const r = await runForeground(jobs, opts("trap '' TERM; while :; do echo acmd-acmd-acmd-acmd; done", { logCap: 200_000 }));
     expect(r).toMatchObject({ exit_code: null, note: expect.stringContaining("killed after it ignored SIGTERM") });
   });
 
@@ -150,7 +150,7 @@ describe("login environment", () => {
 
   it("re-captures as soon as a profile or secrets file changes", () => {
     const realHome = process.env.HOME;
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), "acmd-home-"));
+    const home = tempDir("home");
     try {
       process.env.HOME = home;
       resetLoginEnv();

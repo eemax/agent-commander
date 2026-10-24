@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { tempDir } from "./tmp.js";
 import { notificationNotice, readInbox, writeNotification } from "../src/inbox.js";
 import { type Job, Jobs, formatDuration, jobNotice } from "../src/jobs.js";
 import { toolEnv } from "../src/tools/bash.js";
@@ -37,7 +38,7 @@ async function ended(id: number, within = 10_000): Promise<Job> {
 }
 
 beforeEach(() => {
-  stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "acmd-jobs-"));
+  stateDir = tempDir("jobs");
   jobs = new Jobs(stateDir, toolEnv);
 });
 
