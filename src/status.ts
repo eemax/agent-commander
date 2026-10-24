@@ -24,6 +24,8 @@ export type StatusFile = {
   credits: number | null;
   checks: Check[];
   checks_at: string | null;
+  // Measured by the daemon with the checks, so `acmd status` never walks a large tree itself.
+  sizes?: { workspace: number; state: number; at: string };
 };
 
 export type RunRecord = {
@@ -46,8 +48,33 @@ function dirSize(dir: string): number {
   let total = 0;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, entry.name);
-    if (entry.isDirectory()) total += dirSize(p);
-    else if (entry.isFile()) total += fs.statSync(p).size;
+    try {
+      if (entry.isDirectory()) total += dirSize(p);
+      else if (entry.isFile()) total += fs.statSync(p).size;
+    } catch {
+      // vanished while walking
+    }
+  }
+  return total;
+}
+
+// The same walk without blocking the event loop (a cloned repo can hold 100k+ files).
+async function dirSizeAsync(dir: string): Promise<number> {
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  let total = 0;
+  for (const entry of entries) {
+    const p = path.join(dir, entry.name);
+    try {
+      if (entry.isDirectory()) total += await dirSizeAsync(p);
+      else if (entry.isFile()) total += (await fs.promises.stat(p)).size;
+    } catch {
+      // vanished while walking
+    }
   }
   return total;
 }
@@ -145,6 +172,11 @@ export class StatusWriter {
       checks.push({ name: "models", status: "warn", detail: `model list unavailable: ${errorMessage(error).slice(0, 120)}` });
     }
 
+    const [workspace, state] = await Promise.all([
+      dirSizeAsync(workspaceDir(this.config.home)),
+      dirSizeAsync(path.join(this.config.home, "state"))
+    ]);
+    this.file.sizes = { workspace, state, at: new Date().toISOString() };
     this.file.checks = checks;
     this.file.checks_at = new Date().toISOString();
     for (const c of checks) if (c.status !== "ok") log.warn(`check ${c.name}: ${c.status}`, { detail: c.detail });
@@ -193,8 +225,8 @@ export function buildStatus(config: Config, store: Store, now = Date.now()) {
   const ws = checkWorkspace(config.home);
   checks.push({ name: "workspace", status: ws.status, detail: ws.detail });
 
-  const week = store.usageSince(now - 7 * DAY_MS);
   const month = store.usageSince(now - 30 * DAY_MS);
+  const week = month.filter((r) => Date.parse(r.ts) >= now - 7 * DAY_MS);
   const sum = (rows: typeof month) => Math.round(rows.reduce((t, r) => t + r.cost, 0) * 10_000) / 10_000;
   const memoryDir = path.join(workspaceDir(config.home), "memory");
   const metrics: Metric[] = [];
@@ -212,8 +244,8 @@ export function buildStatus(config: Config, store: Store, now = Date.now()) {
       value: fs.existsSync(memoryDir) ? fs.readdirSync(memoryDir).filter((f) => f.endsWith(".md")).length : 0,
       unit: "count"
     },
-    { key: "workspace.size", label: "Workspace on disk", value: dirSize(workspaceDir(config.home)), unit: "bytes" },
-    { key: "state.size", label: "State on disk", value: dirSize(store.stateDir), unit: "bytes" }
+    { key: "workspace.size", label: "Workspace on disk", value: file?.sizes?.workspace ?? dirSize(workspaceDir(config.home)), unit: "bytes" },
+    { key: "state.size", label: "State on disk", value: file?.sizes?.state ?? dirSize(store.stateDir), unit: "bytes" }
   );
   for (const model of config.models) {
     metrics.push({

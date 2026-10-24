@@ -65,6 +65,11 @@ export function loadSkills(workspace: string): { skills: Skill[]; problems: stri
     skills.push({ name: fields.name, description: fields.description, path: file });
   }
   skills.sort((a, b) => a.name.localeCompare(b.name));
+  const seen = new Set<string>();
+  for (const skill of skills) {
+    if (seen.has(skill.name)) problems.push(`two skills are named "${skill.name}"; /${skill.name} picks one`);
+    seen.add(skill.name);
+  }
   return { skills, problems };
 }
 
@@ -72,18 +77,22 @@ function readOptional(file: string): string {
   return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : "";
 }
 
-// Compiled once per conversation and then frozen, so the prompt-cache prefix stays stable.
 function duration(ms: number): string {
   return ms % 60_000 === 0 ? `${ms / 60_000} min` : `${Math.round(ms / 1000)} s`;
+}
+
+function shellQuote(s: string): string {
+  return /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
 }
 
 // How the agent invokes `acmd notify` from its shell.
 function notifyCommand(): string {
   if (fs.existsSync("/usr/local/bin/acmd")) return "acmd notify";
-  const config = process.env.ACMD_CONFIG ? `ACMD_CONFIG=${process.env.ACMD_CONFIG} ` : "";
-  return `${config}${process.execPath} ${path.join(REPO_ROOT, "dist", "main.js")} notify`;
+  const config = process.env.ACMD_CONFIG ? `ACMD_CONFIG=${shellQuote(process.env.ACMD_CONFIG)} ` : "";
+  return `${config}${shellQuote(process.execPath)} ${shellQuote(path.join(REPO_ROOT, "dist", "main.js"))} notify`;
 }
 
+// Compiled once per conversation and then frozen, so the prompt-cache prefix stays stable.
 export function compileInstructions(home: string, bash: { timeoutMs: number; maxTimeoutMs: number }): string {
   const workspace = workspaceDir(home);
   const vars: Record<string, string> = {

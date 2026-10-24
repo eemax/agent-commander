@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { markWoken, parseCommand } from "../src/telegram/bot.js";
 import { TELEGRAM_LIMIT, formatReply } from "../src/telegram/format.js";
 
 const html = (md: string) => formatReply(md).map((c) => c.html).join("\n---\n");
@@ -54,5 +55,27 @@ describe("formatReply", () => {
 
   it("returns nothing for empty text", () => {
     expect(formatReply("  \n ")).toEqual([]);
+  });
+});
+
+describe("commands", () => {
+  it("treats only known commands as commands", () => {
+    expect(parseCommand("/status", [])).toEqual({ command: "status", arg: "" });
+    expect(parseCommand("/Model kimi", [])).toEqual({ command: "model", arg: "kimi" });
+    expect(parseCommand("/jobs stop 3", [])).toEqual({ command: "jobs", arg: "stop 3" });
+    expect(parseCommand("/skill_creator make one", ["skill_creator"])).toEqual({ command: "skill_creator", arg: "make one" });
+    expect(parseCommand("/var/log/syslog is full", [])).toBeNull();
+    expect(parseCommand("/tmp has 2GB left", [])).toBeNull();
+    expect(parseCommand("/stauts", [])).toBeNull();
+  });
+});
+
+describe("woken replies", () => {
+  it("never glue the marker onto a markdown block", () => {
+    expect(markWoken("Build passed.")).toBe("⏰ Build passed.");
+    for (const block of ["```\ncode\n```", "# Title", "- item", "1. step", "> quote", "| a | b |"]) {
+      expect(markWoken(block)).toBe(`⏰\n\n${block}`);
+    }
+    expect(formatReply(markWoken("```\nx < y\n```"))[0]!.html).toBe("⏰\n\n<pre><code>x &lt; y</code></pre>");
   });
 });

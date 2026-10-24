@@ -56,12 +56,31 @@ describe("Store", () => {
     expect(await store.accessor(meta).load()).toMatchObject({ messages: [{ role: "user", content: "summary" }] });
   });
 
-  it("skips a torn last line", async () => {
+  it("repairs a torn last line so the next append starts on a fresh line", async () => {
     const store = new Store(home);
     const meta = store.create("1", init);
-    await store.accessor(meta).save(state([{ role: "user", content: "a" }]));
-    fs.appendFileSync(path.join(store.conversationsDir, `${meta.id}.jsonl`), '{"role":"us');
-    expect((await store.accessor(meta).load())?.messages).toEqual([{ role: "user", content: "a" }]);
+    const a = { role: "user", content: "a" };
+    await store.accessor(meta).save(state([a]));
+    const file = path.join(store.conversationsDir, `${meta.id}.jsonl`);
+    fs.appendFileSync(file, '{"role":"us'); // crash mid-write
+    const restarted = new Store(home); // a new process reads from disk
+    const fresh = restarted.current("1")!;
+    expect((await restarted.accessor(fresh).load())?.messages).toEqual([a]);
+    const b = { role: "user", content: "b" };
+    await restarted.accessor(fresh).save(state([a, b]));
+    expect(fs.readFileSync(file, "utf8")).toBe(`${JSON.stringify(a)}\n${JSON.stringify(b)}\n`);
+  });
+
+  it("serves later loads from memory, isolated from what the SDK does with them", async () => {
+    const store = new Store(home);
+    const meta = store.create("1", init);
+    const a = { role: "user", content: "a" };
+    await store.accessor(meta).save(state([a]));
+    const loaded = await store.accessor(meta).load();
+    (loaded!.messages as unknown[]).push({ role: "user", content: "not saved" });
+    fs.writeFileSync(path.join(store.conversationsDir, `${meta.id}.jsonl`), ""); // disk is not consulted again
+    expect((await store.accessor(meta).load())?.messages).toEqual([a]);
+    expect(store.userTexts(meta)).toEqual(["a"]);
   });
 
   it("archives on new conversation and counts both", () => {

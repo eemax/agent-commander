@@ -31,6 +31,23 @@ const BUILTIN_COMMANDS: Array<{ command: string; description: string }> = [
   { command: "debug", description: "Toggle debug logging" }
 ];
 
+// A woken reply is marked ⏰. Glued onto a line that starts a markdown block (heading, code
+// fence, list, quote, table) the marker would break that block, so it goes on its own line then.
+export function markWoken(reply: string): string {
+  return /^(#{1,6}\s|```|~~~|[-*+]\s|\d+[.)]\s|>|\|)/.test(reply) ? `⏰\n\n${reply}` : `⏰ ${reply}`;
+}
+
+// A known command (built-in or skill). Anything else starting with "/", such as a path or a
+// typo, is an ordinary message for the agent.
+export function parseCommand(text: string, skillCommands: string[]): { command: string; arg: string } | null {
+  const match = /^\/([A-Za-z0-9_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/.exec(text.trim());
+  if (!match) return null;
+  const command = match[1]!.toLowerCase();
+  const known =
+    command === "start" || command === "help" || BUILTIN_COMMANDS.some((c) => c.command === command) || skillCommands.includes(command);
+  return known ? { command, arg: match[2]?.trim() ?? "" } : null;
+}
+
 export function skillCommand(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 32);
 }
@@ -267,7 +284,8 @@ export class TelegramApp {
   }
 
   private async onText(chatId: number, messageId: number, text: string): Promise<void> {
-    if (text.startsWith("/")) return this.onCommand(chatId, text);
+    const command = parseCommand(text, this.skills().map((sk) => skillCommand(sk.name)));
+    if (command) return this.onCommand(chatId, command.command, command.arg);
     if (this.enqueue(chatId, { text, wake: false })) {
       await this.bot.api.setMessageReaction(chatId, messageId, [{ type: "emoji", emoji: "👀" }]).catch(() => {});
     }
@@ -305,7 +323,12 @@ export class TelegramApp {
   private async runTurn(chatId: number, run: ChatRun, input: string, woken: boolean): Promise<void> {
     const meta = this.conversation(chatId);
     const status = new ToolStatus(this.bot.api, chatId);
-    const typing = () => void this.bot.api.sendChatAction(chatId, "typing").catch(() => {});
+    // The last indicator is awaited before replying: one landing after the reply would show
+    // "typing…" for another five seconds.
+    let typingSent: Promise<unknown> = Promise.resolve();
+    const typing = () => {
+      typingSent = this.bot.api.sendChatAction(chatId, "typing").catch(() => {});
+    };
     typing();
     const typingTimer = setInterval(typing, TYPING_EVERY_MS);
     log.debug("turn start", { conversation: meta.id, model: meta.model, chars: input.length, woken });
@@ -317,7 +340,7 @@ export class TelegramApp {
     try {
       const result = await handle.done;
       reply = result.text.trim() || "_(no text reply)_";
-      if (woken) reply = `⏰ ${reply}`;
+      if (woken) reply = markWoken(reply);
       log.debug("turn done", { conversation: meta.id, cost: result.usage.cost.toFixed(5) });
     } catch (error) {
       if (error instanceof TurnAbortedError) {
@@ -342,16 +365,11 @@ export class TelegramApp {
       log.debug("steer arrived too late, running it next", { count: late.length });
       run.queued.unshift(...late.map((text) => ({ text, wake: wakeTexts.has(text) })));
     }
-    await status.clear();
+    await Promise.all([status.clear(), typingSent]);
     await this.reply(chatId, reply).catch((error) => log.error("reply failed", { error: errorMessage(error) }));
   }
 
-  private async onCommand(chatId: number, text: string): Promise<void> {
-    const match = /^\/([A-Za-z0-9_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/.exec(text.trim());
-    if (!match) return this.reply(chatId, "Unknown command. Try /help.");
-    const command = match[1]!.toLowerCase();
-    const arg = match[2]?.trim() ?? "";
-
+  private async onCommand(chatId: number, command: string, arg: string): Promise<void> {
     switch (command) {
       case "start":
       case "help":
@@ -399,7 +417,7 @@ export class TelegramApp {
       }
       default: {
         const skill = this.skills().find((s) => skillCommand(s.name) === command);
-        if (!skill) return this.reply(chatId, `Unknown command /${command}. Try /help.`);
+        if (!skill) return; // parseCommand only lets known skills through
         const input = `Use the "${skill.name}" skill for this request: read ${skill.path} first and follow it.\n\n${arg}`.trim();
         this.enqueue(chatId, { text: input, wake: false });
         return;

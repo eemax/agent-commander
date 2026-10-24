@@ -39,9 +39,15 @@ export function atomicWrite(file: string, content: string): void {
 }
 
 function readJsonl(file: string): unknown[] {
-  if (!fs.existsSync(file)) return [];
+  return readJsonlChecked(file).items;
+}
+
+// `torn` means the last line has no newline: a write was cut off (crash, full disk).
+function readJsonlChecked(file: string): { items: unknown[]; torn: boolean } {
+  if (!fs.existsSync(file)) return { items: [], torn: false };
+  const text = fs.readFileSync(file, "utf8");
   const items: unknown[] = [];
-  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+  for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
       items.push(JSON.parse(line));
@@ -49,7 +55,19 @@ function readJsonl(file: string): unknown[] {
       log.warn("skipping malformed jsonl line", { file: path.basename(file) });
     }
   }
-  return items;
+  return { items, torn: text.length > 0 && !text.endsWith("\n") };
+}
+
+function userTextsOf(items: unknown[]): string[] {
+  const texts: string[] = [];
+  for (const item of items as Array<{ role?: string; content?: unknown }>) {
+    if (item?.role !== "user") continue;
+    if (typeof item.content === "string") texts.push(item.content);
+    else if (Array.isArray(item.content)) {
+      for (const part of item.content as Array<{ text?: string }>) if (part?.text) texts.push(part.text);
+    }
+  }
+  return texts;
 }
 
 export class Store {
@@ -58,8 +76,11 @@ export class Store {
   readonly archiveDir: string;
   private readonly currentFile: string;
   private readonly usageFile: string;
-  // Per conversation: how many items are on disk and the JSON of the last one.
-  private readonly persisted = new Map<string, { count: number; last: string | null }>();
+  // Per conversation: the items on disk (acmd is their only writer, so this mirror saves
+  // re-reading and re-parsing a JSONL that grows to megabytes, several times per turn) and the
+  // JSON of the last one, for the append check.
+  private readonly items = new Map<string, unknown[]>();
+  private readonly lastJson = new Map<string, string | null>();
   // One live meta object per conversation, so concurrent updates (turn usage, /model) never clobber each other.
   private readonly metas = new Map<string, ConversationMeta>();
 
@@ -129,7 +150,8 @@ export class Store {
       const from = this.file(id, ext);
       if (fs.existsSync(from)) fs.renameSync(from, path.join(this.archiveDir, path.basename(from)));
     }
-    this.persisted.delete(id);
+    this.items.delete(id);
+    this.lastJson.delete(id);
     this.metas.delete(id);
     delete map[chatId];
     this.writeCurrent(map);
@@ -144,54 +166,61 @@ export class Store {
     return fs.readFileSync(this.file(meta.id, "instructions.md"), "utf8");
   }
 
+  // The conversation's items, from memory after the first read. A torn last line (a write cut
+  // off by a crash) is dropped and the file rewritten, so the next append starts on a fresh line.
+  private loadItems(meta: ConversationMeta): unknown[] {
+    const cached = this.items.get(meta.id);
+    if (cached) return cached;
+    const jsonl = this.file(meta.id, "jsonl");
+    const { items, torn } = readJsonlChecked(jsonl);
+    if (torn) {
+      log.warn("repairing a cut-off conversation file", { conversation: meta.id });
+      atomicWrite(jsonl, items.map((i) => `${JSON.stringify(i)}\n`).join(""));
+    }
+    this.remember(meta.id, items);
+    return items;
+  }
+
+  private remember(id: string, items: unknown[]): void {
+    this.items.set(id, items);
+    this.lastJson.set(id, items.length ? JSON.stringify(items.at(-1)) : null);
+  }
+
   // SDK conversation state backed by an append-only JSONL of items plus the meta file.
   accessor(meta: ConversationMeta): StateAccessor {
     const jsonl = this.file(meta.id, "jsonl");
     return {
       load: async () => {
-        const messages = readJsonl(jsonl);
-        this.persisted.set(meta.id, { count: messages.length, last: messages.length ? JSON.stringify(messages.at(-1)) : null });
+        const messages = this.loadItems(meta);
         if (!meta.sdk && messages.length === 0) return null;
         const now = Date.now();
         const base = meta.sdk ?? { id: meta.id, status: "complete", createdAt: now, updatedAt: now };
-        return { ...base, messages } as ConversationState;
+        return { ...base, messages: [...messages] } as ConversationState; // a copy: the SDK may grow it
       },
       save: async (state) => {
         const { messages, ...rest } = state;
-        const items: unknown[] = Array.isArray(messages) ? messages : [messages];
-        const prior = this.persisted.get(meta.id) ?? this.diskInfo(jsonl);
+        const items: unknown[] = Array.isArray(messages) ? [...messages] : [messages];
+        const prior = this.loadItems(meta);
         const prefixIntact =
-          items.length >= prior.count && (prior.count === 0 || JSON.stringify(items[prior.count - 1]) === prior.last);
+          items.length >= prior.length &&
+          (prior.length === 0 || JSON.stringify(items[prior.length - 1]) === this.lastJson.get(meta.id));
         if (prefixIntact) {
-          const fresh = items.slice(prior.count);
+          const fresh = items.slice(prior.length);
           if (fresh.length > 0) fs.appendFileSync(jsonl, fresh.map((i) => `${JSON.stringify(i)}\n`).join(""));
         } else {
           log.debug("conversation history rewritten", { conversation: meta.id });
           atomicWrite(jsonl, items.map((i) => `${JSON.stringify(i)}\n`).join(""));
         }
-        this.persisted.set(meta.id, { count: items.length, last: items.length ? JSON.stringify(items.at(-1)) : null });
+        this.remember(meta.id, items);
         meta.sdk = rest;
         this.saveMeta(meta);
       }
     };
   }
 
-  private diskInfo(jsonl: string): { count: number; last: string | null } {
-    const items = readJsonl(jsonl);
-    return { count: items.length, last: items.length ? JSON.stringify(items.at(-1)) : null };
-  }
-
   // Item texts of user messages, used to confirm a steer reached the model.
   userTexts(meta: ConversationMeta): string[] {
-    const texts: string[] = [];
-    for (const item of readJsonl(this.file(meta.id, "jsonl")) as Array<{ role?: string; content?: unknown }>) {
-      if (item.role !== "user") continue;
-      if (typeof item.content === "string") texts.push(item.content);
-      else if (Array.isArray(item.content)) {
-        for (const part of item.content as Array<{ text?: string }>) if (part.text) texts.push(part.text);
-      }
-    }
-    return texts;
+    return userTextsOf(this.loadItems(meta));
   }
 
   recordUsage(record: UsageRecord): void {
